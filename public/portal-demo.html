@@ -1,0 +1,916 @@
+<!doctype html>
+<html lang="ar" dir="rtl" class="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BMK Solutions — Real Estate Growth Platform</title>
+<meta name="description" content="منصة متكاملة لإدارة المطورين العقاريين، المشاريع، والزيارات الميدانية مع دعم الذكاء الاصطناعي." />
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@300;400;500;600;700;900&family=Playfair+Display:ital,wght@0,400;0,600;0,700;0,900;1,400&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+
+<script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: {
+      extend: {
+        fontFamily: {
+          sans: ['Alexandria', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+          serif: ['"Playfair Display"', 'Alexandria', 'serif'],
+          mono: ['"Space Grotesk"', 'ui-monospace', 'monospace'],
+        },
+        colors: {
+          gold: { DEFAULT: '#C4A661', light: '#E5D5B5', deep: '#A8884A', soft: '#F0E8D6' },
+          ink: { DEFAULT: '#111111', 800: '#161616', 700: '#1c1c1e' },
+        },
+        boxShadow: {
+          lux: '0 24px 60px -20px rgba(17,17,17,0.18)',
+          gold: '0 18px 50px -16px rgba(196,166,97,0.55)',
+        },
+        keyframes: {
+          floaty: { '0%,100%': { transform: 'translateY(0)' }, '50%': { transform: 'translateY(-10px)' } },
+          shimmer: { '100%': { transform: 'translateX(100%)' } },
+        },
+        animation: { floaty: 'floaty 6s ease-in-out infinite' },
+      }
+    }
+  }
+</script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+<style>
+  html { scroll-behavior: smooth; }
+  body { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+  ::selection { background: #C4A661; color: #fff; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-thumb { background: rgba(196,166,97,.35); border-radius: 9px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(196,166,97,.6); }
+  .glass { background: rgba(255,255,255,.7); backdrop-filter: blur(20px); border: 1px solid rgba(17,17,17,.06); }
+  .dark .glass { background: rgba(22,22,22,.6); backdrop-filter: blur(22px); border: 1px solid rgba(255,255,255,.07); }
+  .gold-text { background: linear-gradient(120deg,#A8884A,#E5D5B5 45%,#C4A661); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .gold-line { background: linear-gradient(90deg,transparent,#C4A661,transparent); }
+  .view { animation: fade .5s cubic-bezier(.2,.7,.3,1) both; }
+  @keyframes fade { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+  .ring-prog { transform: rotate(-90deg); }
+  .leaflet-container { background: transparent; font-family: 'Alexandria', sans-serif; border-radius: 1.5rem; }
+  .lift { transition: transform .35s cubic-bezier(.2,.7,.3,1), box-shadow .35s, border-color .35s; }
+  .lift:hover { transform: translateY(-6px); }
+  .ba-range { -webkit-appearance:none; appearance:none; }
+  .ba-range::-webkit-slider-thumb { -webkit-appearance:none; height:46px; width:14px; border-radius:9px; background:#fff; border:3px solid #C4A661; cursor:ew-resize; box-shadow:0 4px 14px rgba(0,0,0,.3); }
+  @media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation-duration:.001ms !important; transition-duration:.001ms !important; } }
+</style>
+</head>
+<body class="bg-[#F4F3EF] dark:bg-[#0B0B0C] text-ink dark:text-neutral-100 font-sans transition-colors duration-500 overflow-x-hidden">
+
+<!-- ===================== APP SHELL ===================== -->
+<div id="app" class="flex h-screen overflow-hidden"></div>
+
+<!-- ===================== PUBLIC LANDING (full-screen overlay) ===================== -->
+<div id="landingRoot" class="hidden"></div>
+
+<script>
+/* =======================================================================
+   BMK SOLUTIONS — Real Estate Growth Platform (demo build, mock data)
+   ======================================================================= */
+
+/* ---------- i18n ---------- */
+const I18N = {
+  ar: {
+    dir:'rtl', appName:'BMK Solutions', tagline:'منصة نمو القطاع العقاري',
+    nav:{dashboard:'لوحة التحكم',developers:'المطورون',projects:'المشاريع',visits:'الزيارات الميدانية',leads:'العملاء المحتملون',landing:'صفحات الهبوط',settings:'الإعدادات'},
+    search:'ابحث عن مشروع، مطور، أو عميل…',
+    kpi:{sales:'إجمالي المبيعات',units:'الوحدات المباعة',leads:'عملاء محتملون نشطون',visits:'زيارات هذا الشهر'},
+    dash:{overview:'نظرة عامة',welcome:'أهلاً، باسل',sub:'إليك ملخّص أداء محفظتك العقارية اليوم.',revenue:'الإيرادات حسب المطوّر',trend:'اتجاه المبيعات (٦ أشهر)',funnel:'مسار العملاء المحتملين',pipeline:'قيمة خطّ الأنابيب',map:'الخريطة التفاعلية للمشاريع',activity:'آخر النشاطات',live:'مباشر'},
+    common:{viewAll:'عرض الكل',new:'جديد',export:'تصدير',filter:'تصفية',addProject:'إضافة مشروع',addDeveloper:'إضافة مطوّر',sold:'مباع',completion:'الإنجاز',units:'وحدة',from:'من',aiSummary:'ملخّص الذكاء الاصطناعي',generated:'تم التوليد بواسطة Gemini',engineer:'المهندس',status:'الحالة',value:'القيمة',openLanding:'فتح صفحة الهبوط',preview:'معاينة'},
+    stages:{new:'جديد',contacted:'تم التواصل',viewing:'معاينة',negotiation:'تفاوض',won:'تم البيع'},
+    vstatus:{done:'مكتملة',progress:'قيد التنفيذ',scheduled:'مجدولة'},
+    settings:{title:'الإعدادات',appearance:'المظهر',language:'اللغة',theme:'السمة',dark:'داكن',light:'فاتح',team:'إدارة الفريق',ai:'الذكاء الاصطناعي',apiKey:'مفتاح Gemini API',brand:'الهوية البصرية',role:'الدور'},
+    landing:{back:'العودة للوحة التحكم',explore:'استكشف المشاريع',contact:'تواصل معنا',projects:'مشاريعنا',about:'من نحن',vision:'رؤيتنا',achievements:'إنجازاتنا',baTitle:'قبل / بعد التطوير',cta:'احجز معاينتك الخاصة',booked:'تم الحجز بنجاح ✓'},
+  },
+  en: {
+    dir:'ltr', appName:'BMK Solutions', tagline:'Real-Estate Growth Platform',
+    nav:{dashboard:'Dashboard',developers:'Developers',projects:'Projects',visits:'Field Visits',leads:'Leads',landing:'Landing Pages',settings:'Settings'},
+    search:'Search a project, developer, or lead…',
+    kpi:{sales:'Total Sales',units:'Units Sold',leads:'Active Leads',visits:'Visits This Month'},
+    dash:{overview:'Overview',welcome:'Welcome, Basel',sub:"Here's how your real-estate portfolio is performing today.",revenue:'Revenue by Developer',trend:'Sales Trend (6 mo)',funnel:'Lead Funnel',pipeline:'Pipeline Value',map:'Interactive Project Map',activity:'Recent Activity',live:'Live'},
+    common:{viewAll:'View all',new:'New',export:'Export',filter:'Filter',addProject:'Add Project',addDeveloper:'Add Developer',sold:'Sold',completion:'Completion',units:'units',from:'of',aiSummary:'AI Summary',generated:'Generated by Gemini',engineer:'Engineer',status:'Status',value:'Value',openLanding:'Open landing page',preview:'Preview'},
+    stages:{new:'New',contacted:'Contacted',viewing:'Viewing',negotiation:'Negotiation',won:'Won'},
+    vstatus:{done:'Completed',progress:'In progress',scheduled:'Scheduled'},
+    settings:{title:'Settings',appearance:'Appearance',language:'Language',theme:'Theme',dark:'Dark',light:'Light',team:'Team Management',ai:'Artificial Intelligence',apiKey:'Gemini API Key',brand:'Brand Identity',role:'Role'},
+    landing:{back:'Back to dashboard',explore:'Explore Projects',contact:'Contact Us',projects:'Our Projects',about:'About Us',vision:'Our Vision',achievements:'Achievements',baTitle:'Before / After Development',cta:'Book your private viewing',booked:'Booked successfully ✓'},
+  }
+};
+let LANG = 'ar';
+const t = () => I18N[LANG];
+
+/* ---------- Icons (Lucide-style) ---------- */
+const ICON = {
+  dashboard:'M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z',
+  developers:'M3 21h18M5 21V7l8-4v18M19 21V11l-6-3M9 9v.01M9 12v.01M9 15v.01M9 18v.01',
+  projects:'M2 22h20M3 22V8l9-5 9 5v14M9 22v-6h6v6M9 12h.01M15 12h.01',
+  visits:'M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z M12 7a3 3 0 100 6 3 3 0 000-6z',
+  leads:'M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM22 21v-2a4 4 0 00-3-3.87M16 3.13A4 4 0 0119 7',
+  landing:'M3 9h18M9 21V9M4 4h16a1 1 0 011 1v14a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1z',
+  settings:'M12 15a3 3 0 100-6 3 3 0 000 6z M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z',
+  search:'M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z',
+  bell:'M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0',
+  sun:'M12 17a5 5 0 100-10 5 5 0 000 10zM12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4',
+  moon:'M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z',
+  menu:'M3 12h18M3 6h18M3 18h18',
+  trend:'M23 6l-9.5 9.5-5-5L1 18M17 6h6v6',
+  arrowUp:'M12 19V5M5 12l7-7 7 7',
+  arrowDown:'M12 5v14M19 12l-7 7-7-7',
+  plus:'M12 5v14M5 12h14',
+  building:'M3 21h18M5 21V5a2 2 0 012-2h10a2 2 0 012 2v16M9 7h.01M15 7h.01M9 11h.01M15 11h.01M9 15h.01M15 15h.01',
+  map:'M9 20l-5.5 2V6l5.5-2m0 16l6-2m-6 2V4m6 14l5.5 2V6l-5.5-2m0 16V4',
+  sparkles:'M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3zM19 3v4M21 5h-4M5 17v3M6.5 18.5h-3',
+  phone:'M22 16.92v3a2 2 0 01-2.18 2 19.8 19.8 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.8 19.8 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.13.96.36 1.9.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0122 16.92z',
+  mail:'M4 4h16a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2zM22 6l-10 7L2 6',
+  pin:'M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0zM12 7a3 3 0 100 6 3 3 0 000-6z',
+  check:'M20 6L9 17l-5-5',
+  star:'M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z',
+  chevron:'M9 18l6-6-6-6',
+  external:'M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3',
+  clock:'M12 22a10 10 0 100-20 10 10 0 000 20zM12 6v6l4 2',
+  filter:'M22 3H2l8 9.46V19l4 2v-8.54L22 3z',
+  download:'M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3',
+  logout:'M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9',
+  drone:'M3 7l4 4M21 7l-4 4M3 17l4-4M21 17l-4-4M9 9h6v6H9zM5 5h.01M19 5h.01M5 19h.01M19 19h.01',
+  video:'M23 7l-7 5 7 5V7zM1 5h14a2 2 0 012 2v10a2 2 0 01-2 2H1a2 2 0 01-2-2V7a2 2 0 012-2z',
+  cube:'M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16zM3.27 6.96L12 12.01l8.73-5.05M12 22.08V12',
+  whatsapp:'M17.5 14.4c-.3-.15-1.7-.84-2-.94-.27-.1-.46-.15-.65.15-.2.3-.74.93-.9 1.12-.17.2-.34.22-.63.07-.3-.15-1.25-.46-2.38-1.47-.88-.78-1.47-1.75-1.64-2.05-.17-.3-.02-.46.13-.6.13-.13.3-.34.44-.5.15-.18.2-.3.3-.5.1-.2.05-.37-.02-.52-.08-.15-.65-1.57-.9-2.15-.23-.56-.47-.48-.65-.49h-.55c-.2 0-.5.07-.76.37-.26.3-1 .98-1 2.4s1.02 2.78 1.17 2.97c.15.2 2.01 3.07 4.87 4.3.68.3 1.2.47 1.62.6.68.22 1.3.19 1.78.11.54-.08 1.7-.69 1.94-1.36.24-.67.24-1.24.17-1.36-.07-.12-.27-.2-.56-.34zM12 2a10 10 0 00-8.6 15.06L2 22l5.07-1.33A10 10 0 1012 2z',
+  instagram:'M16 11.37A4 4 0 1112.63 8 4 4 0 0116 11.37zM17.5 6.5h.01M7 2h10a5 5 0 015 5v10a5 5 0 01-5 5H7a5 5 0 01-5-5V7a5 5 0 015-5z',
+  facebook:'M18 2h-3a5 5 0 00-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 011-1h3z',
+};
+const icon = (name, cls='w-5 h-5', sw=2) =>
+  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" class="${cls}"><path d="${ICON[name]||''}"/></svg>`;
+
+/* ---------- Mock Data ---------- */
+const DEVELOPERS = [
+  { id:'orchid', name:{ar:'أوركيد العقارية',en:'Orchid Developments'}, slug:'orchid', slogan:{ar:'حيث يلتقي الفخامة بالتفاصيل',en:'Where luxury meets detail'},
+    primary:'#C4A661', logo:'OR', projects:4, units:1820, sold:1190, revenue:4.8,
+    hero:'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?q=80&w=1600&auto=format&fit=crop',
+    about:{ar:'مطوّر عقاري رائد متخصص في المجتمعات السكنية الفاخرة بالعاصمة الإدارية الجديدة، بمحفظة تتجاوز ٤٫٨ مليار جنيه.',en:'A leading developer specializing in luxury residential communities in the New Administrative Capital, with a portfolio exceeding EGP 4.8B.'},
+    vision:{ar:'بناء مجتمعات تُلهم أسلوب حياة استثنائي يدوم لأجيال.',en:'Building communities that inspire an exceptional lifestyle for generations.'},
+    achievements:[{l:{ar:'سنة خبرة',en:'Years'},v:'18'},{l:{ar:'مشروع',en:'Projects'},v:'27'},{l:{ar:'عميل سعيد',en:'Happy clients'},v:'9.4K'},{l:{ar:'م² مطوّرة',en:'Sqm developed'},v:'2.1M'}],
+  },
+  { id:'nukhba', name:{ar:'نخبة للتطوير',en:'Nukhba Development'}, slug:'nukhba', slogan:{ar:'عنوان الصفوة',en:'The address of the elite'},
+    primary:'#8E7CC3', logo:'NK', projects:3, units:1240, sold:740, revenue:3.1,
+    hero:'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?q=80&w=1600&auto=format&fit=crop',
+    about:{ar:'علامة عقارية تعيد تعريف الرفاهية الحضرية عبر تصاميم معمارية حائزة على جوائز.',en:'A real-estate brand redefining urban luxury through award-winning architecture.'},
+    vision:{ar:'الريادة في تجربة العيش الذكي والمستدام.',en:'Pioneering smart, sustainable living.'},
+    achievements:[{l:{ar:'سنة خبرة',en:'Years'},v:'12'},{l:{ar:'مشروع',en:'Projects'},v:'16'},{l:{ar:'عميل سعيد',en:'Happy clients'},v:'6.1K'},{l:{ar:'م² مطوّرة',en:'Sqm developed'},v:'1.3M'}],
+  },
+  { id:'masa', name:{ar:'ماسة العاصمة',en:'Masa Capital'}, slug:'masa', slogan:{ar:'جوهرة في قلب العاصمة',en:'A gem in the heart of the capital'},
+    primary:'#5B8DEF', logo:'MS', projects:2, units:680, sold:300, revenue:1.6,
+    hero:'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?q=80&w=1600&auto=format&fit=crop',
+    about:{ar:'مطوّر صاعد يركّز على المشاريع متعددة الاستخدامات في المنطقة المركزية.',en:'A rising developer focused on mixed-use projects in the downtown district.'},
+    vision:{ar:'صياغة وجهات حضرية نابضة بالحياة.',en:'Crafting vibrant urban destinations.'},
+    achievements:[{l:{ar:'سنة خبرة',en:'Years'},v:'7'},{l:{ar:'مشروع',en:'Projects'},v:'8'},{l:{ar:'عميل سعيد',en:'Happy clients'},v:'2.8K'},{l:{ar:'م² مطوّرة',en:'Sqm developed'},v:'620K'}],
+  },
+];
+
+const PROJECTS = [
+  { id:'p1', dev:'orchid', name:{ar:'أوركيد هايتس',en:'Orchid Heights'}, loc:{ar:'العاصمة الإدارية - R7',en:'New Capital — R7'}, lat:30.0131, lng:31.7398, sold:78, completion:64, units:520, price:'9.8', tag:'residential',
+    bg:'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?q=80&w=1600&auto=format&fit=crop' },
+  { id:'p2', dev:'orchid', name:{ar:'بحيرات أوركيد',en:'Orchid Lakes'}, loc:{ar:'الشيخ زايد',en:'Sheikh Zayed'}, lat:30.0444, lng:30.9700, sold:52, completion:41, units:430, price:'7.2', tag:'residential',
+    bg:'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?q=80&w=1600&auto=format&fit=crop' },
+  { id:'p3', dev:'nukhba', name:{ar:'نخبة بيزنس بارك',en:'Nukhba Business Park'}, loc:{ar:'العاصمة الإدارية - الحي المالي',en:'New Capital — Financial Dist.'}, lat:30.0260, lng:31.7600, sold:61, completion:73, units:300, price:'5.4', tag:'commercial',
+    bg:'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?q=80&w=1600&auto=format&fit=crop' },
+  { id:'p4', dev:'nukhba', name:{ar:'نخبة ريزيدنس',en:'Nukhba Residence'}, loc:{ar:'التجمع الخامس',en:'New Cairo'}, lat:30.0080, lng:31.4910, sold:44, completion:38, units:610, price:'6.9', tag:'residential',
+    bg:'https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?q=80&w=1600&auto=format&fit=crop' },
+  { id:'p5', dev:'masa', name:{ar:'ماسة تاور',en:'Masa Tower'}, loc:{ar:'العاصمة الإدارية - داون تاون',en:'New Capital — Downtown'}, lat:30.0210, lng:31.7450, sold:39, completion:55, units:240, price:'4.1', tag:'mixed',
+    bg:'https://images.unsplash.com/photo-1582407947304-fd86f028f716?q=80&w=1600&auto=format&fit=crop' },
+  { id:'p6', dev:'masa', name:{ar:'ماسة جاردنز',en:'Masa Gardens'}, loc:{ar:'أكتوبر الجديدة',en:'New October'}, lat:29.9360, lng:30.9200, sold:48, completion:29, units:440, price:'5.0', tag:'residential',
+    bg:'https://images.unsplash.com/photo-1613977257363-707ba9348227?q=80&w=1600&auto=format&fit=crop' },
+];
+
+const VISITS = [
+  { id:'v1', project:'p1', eng:{ar:'م. أحمد سالم',en:'Eng. Ahmed Salem'}, date:'2026-06-05', status:'done',
+    summary:{ar:'أظهرت الزيارة تقدّماً ملحوظاً في أعمال التشطيب بالمبنى A، مع اكتمال الواجهات الزجاجية بنسبة ٩٠٪. تم رصد تأخير طفيف في تركيب المصاعد متوقع تعويضه خلال أسبوعين. الجودة العامة ممتازة ومطابقة للمواصفات.',
+              en:'The visit showed notable progress on finishing works in Building A, with curtain-wall glazing 90% complete. A minor delay in elevator installation is expected to be recovered within two weeks. Overall quality is excellent and matches specifications.'},
+    media:['drone','video','cube'] },
+  { id:'v2', project:'p3', eng:{ar:'م. ليلى منصور',en:'Eng. Laila Mansour'}, date:'2026-06-03', status:'done',
+    summary:{ar:'الهيكل الخرساني للحي المالي مكتمل بالكامل. بدأت أعمال البنية التحتية للكهرباء والمياه. التزام ممتاز بالجدول الزمني ومؤشرات السلامة ضمن المعايير.',
+              en:'The concrete structure of the financial district is fully complete. Electrical and water infrastructure works have begun. Excellent schedule adherence with safety indicators within standards.'},
+    media:['drone','cube'] },
+  { id:'v3', project:'p2', eng:{ar:'م. كريم فؤاد',en:'Eng. Karim Fouad'}, date:'2026-06-08', status:'progress',
+    summary:{ar:'جارٍ تنفيذ أعمال الحفر والأساسات للمرحلة الثانية. تم توريد ٦٠٪ من حديد التسليح. لا توجد ملاحظات سلبية تُذكر.',
+              en:'Excavation and foundation works for phase two are underway. 60% of reinforcement steel delivered. No negative observations noted.'},
+    media:['drone','video'] },
+  { id:'v4', project:'p5', eng:{ar:'م. سارة عادل',en:'Eng. Sara Adel'}, date:'2026-06-12', status:'scheduled',
+    summary:{ar:'زيارة مجدولة لتقييم أعمال التشطيبات الداخلية للأدوار المتكررة ومراجعة عينات الرخام المعتمدة.',
+              en:'Scheduled visit to assess interior finishing of typical floors and review approved marble samples.'},
+    media:['cube'] },
+];
+
+const LEADS = [
+  { name:{ar:'محمد الجارحي',en:'Mohamed Elgarhy'}, project:'p1', stage:'won', value:9.8, phone:'+20 100 123 4567' },
+  { name:{ar:'نورهان سامي',en:'Nourhan Samy'}, project:'p3', stage:'negotiation', value:5.4, phone:'+20 101 222 3344' },
+  { name:{ar:'Omar Khaled',en:'Omar Khaled'}, project:'p2', stage:'viewing', value:7.2, phone:'+20 122 998 7766' },
+  { name:{ar:'ياسمين فتحي',en:'Yasmin Fathy'}, project:'p4', stage:'contacted', value:6.9, phone:'+20 111 555 8899' },
+  { name:{ar:'Hany Adel',en:'Hany Adel'}, project:'p5', stage:'new', value:4.1, phone:'+20 128 444 1122' },
+  { name:{ar:'دينا مراد',en:'Dina Mourad'}, project:'p1', stage:'negotiation', value:9.8, phone:'+20 106 777 2211' },
+  { name:{ar:'Tarek Nabil',en:'Tarek Nabil'}, project:'p6', stage:'viewing', value:5.0, phone:'+20 109 333 6655' },
+  { name:{ar:'فاطمة الزهراء',en:'Fatma Elzahraa'}, project:'p3', stage:'new', value:5.4, phone:'+20 102 888 9900' },
+  { name:{ar:'Adham Reda',en:'Adham Reda'}, project:'p4', stage:'contacted', value:6.9, phone:'+20 127 121 3434' },
+];
+
+const ACTIVITY = [
+  { ic:'check', c:'#22c55e', txt:{ar:'تم إغلاق صفقة بقيمة ٩٫٨ مليون — أوركيد هايتس',en:'Deal closed for EGP 9.8M — Orchid Heights'}, time:{ar:'قبل ١٢ دقيقة',en:'12 min ago'} },
+  { ic:'visits', c:'#C4A661', txt:{ar:'رفع تقرير زيارة ميدانية جديدة — نخبة بيزنس بارك',en:'New field visit report uploaded — Nukhba Business Park'}, time:{ar:'قبل ساعة',en:'1 hr ago'} },
+  { ic:'leads', c:'#5B8DEF', txt:{ar:'٣ عملاء محتملين جدد من صفحة هبوط أوركيد',en:'3 new leads from Orchid landing page'}, time:{ar:'قبل ٣ ساعات',en:'3 hrs ago'} },
+  { ic:'sparkles', c:'#A8884A', txt:{ar:'تم توليد ملخّص ذكاء اصطناعي لزيارة بحيرات أوركيد',en:'AI summary generated for Orchid Lakes visit'}, time:{ar:'اليوم',en:'Today'} },
+];
+
+const fmtM = n => (LANG==='ar' ? n.toLocaleString('ar-EG') : n.toLocaleString('en-US'));
+const devById = id => DEVELOPERS.find(d=>d.id===id);
+const projById = id => PROJECTS.find(p=>p.id===id);
+
+/* ---------- App state ---------- */
+let PAGE = 'dashboard';
+let THEME = 'dark';
+const charts = {};
+let mapInstance = null;
+
+/* =======================================================================
+   RENDER: SHELL
+   ======================================================================= */
+function navItem(key){
+  const active = PAGE===key;
+  return `<button data-nav="${key}" class="group w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-medium transition-all duration-300
+    ${active ? 'bg-gradient-to-l from-gold/20 to-transparent text-ink dark:text-white' : 'text-neutral-500 dark:text-neutral-400 hover:text-ink dark:hover:text-white hover:bg-black/[.03] dark:hover:bg-white/[.04]'}">
+    <span class="${active?'text-gold':'text-neutral-400 group-hover:text-gold'} transition-colors">${icon(key,'w-[18px] h-[18px]')}</span>
+    <span>${t().nav[key]}</span>
+    ${active?'<span class="ms-auto w-1.5 h-1.5 rounded-full bg-gold shadow-[0_0_12px_2px_rgba(196,166,97,.7)]"></span>':''}
+  </button>`;
+}
+
+function renderShell(){
+  const navKeys = ['dashboard','developers','projects','visits','leads','landing','settings'];
+  document.getElementById('app').innerHTML = `
+  <!-- Sidebar -->
+  <aside id="sidebar" class="fixed lg:static z-40 inset-y-0 ${LANG==='ar'?'right-0':'left-0'} w-72 shrink-0 -translate-x-0 ${LANG==='ar'?'translate-x-full lg:translate-x-0':' -translate-x-full lg:translate-x-0'} transition-transform duration-300
+      glass border-0 ${LANG==='ar'?'border-s':'border-e'} border-black/5 dark:border-white/5 flex flex-col">
+    <div class="px-6 py-7 flex items-center gap-3">
+      <div class="w-11 h-11 rounded-2xl bg-gradient-to-br from-gold to-gold-deep flex items-center justify-center text-white font-serif font-black text-xl shadow-gold">B</div>
+      <div>
+        <div class="font-serif font-black text-lg leading-none tracking-tight">BMK<span class="text-gold">.</span></div>
+        <div class="text-[10px] uppercase tracking-[.25em] text-neutral-400 mt-1">Solutions</div>
+      </div>
+    </div>
+    <div class="h-px mx-6 gold-line opacity-40"></div>
+    <nav class="flex-1 px-4 py-5 space-y-1 overflow-y-auto no-scrollbar">${navKeys.map(navItem).join('')}</nav>
+    <div class="p-4">
+      <div class="glass rounded-3xl p-4 relative overflow-hidden">
+        <div class="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-gold/20 blur-2xl"></div>
+        <div class="flex items-center gap-2 text-gold mb-2">${icon('sparkles','w-4 h-4')}<span class="text-xs font-semibold">${LANG==='ar'?'مساعد BMK الذكي':'BMK AI Copilot'}</span></div>
+        <p class="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed mb-3">${LANG==='ar'?'حلّل أداء مشاريعك واحصل على توصيات فورية.':'Analyze project performance & get instant recommendations.'}</p>
+        <button class="w-full text-xs font-semibold py-2.5 rounded-xl bg-ink dark:bg-white text-white dark:text-ink hover:opacity-90 transition cursor-pointer">${LANG==='ar'?'تفعيل المساعد':'Activate'}</button>
+      </div>
+    </div>
+  </aside>
+  <div id="overlay" class="fixed inset-0 bg-black/50 z-30 hidden lg:hidden"></div>
+
+  <!-- Main column -->
+  <div class="flex-1 flex flex-col min-w-0">
+    <!-- Topbar -->
+    <header class="h-[72px] shrink-0 flex items-center gap-3 px-4 md:px-8 glass border-b border-black/5 dark:border-white/5 z-20">
+      <button id="menuBtn" class="lg:hidden p-2 -ms-1 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 cursor-pointer">${icon('menu')}</button>
+      <div class="relative flex-1 max-w-md hidden sm:block">
+        <span class="absolute inset-y-0 ${LANG==='ar'?'right-3':'left-3'} flex items-center text-neutral-400">${icon('search','w-[18px] h-[18px]')}</span>
+        <input placeholder="${t().search}" class="w-full bg-black/[.04] dark:bg-white/[.05] border-0 rounded-2xl py-2.5 ${LANG==='ar'?'pr-10 pl-4':'pl-10 pr-4'} text-sm placeholder:text-neutral-400 focus:ring-2 focus:ring-gold/40 transition" />
+      </div>
+      <div class="ms-auto flex items-center gap-1.5 md:gap-2">
+        <button id="langBtn" class="px-3 py-2 rounded-xl text-xs font-bold tracking-wider hover:bg-black/5 dark:hover:bg-white/10 transition cursor-pointer">${LANG==='ar'?'EN':'ع'}</button>
+        <button id="themeBtn" class="p-2.5 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 transition cursor-pointer" aria-label="theme">${icon(THEME==='dark'?'sun':'moon','w-[18px] h-[18px]')}</button>
+        <button class="relative p-2.5 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 transition cursor-pointer" aria-label="notifications">
+          ${icon('bell','w-[18px] h-[18px]')}<span class="absolute top-2 ${LANG==='ar'?'left-2':'right-2'} w-2 h-2 bg-gold rounded-full ring-2 ring-white dark:ring-[#0B0B0C]"></span>
+        </button>
+        <div class="w-px h-6 bg-black/10 dark:bg-white/10 mx-1"></div>
+        <div class="flex items-center gap-2.5 ps-1 pe-2 py-1 rounded-2xl hover:bg-black/5 dark:hover:bg-white/10 transition cursor-pointer">
+          <img src="https://i.pravatar.cc/80?img=12" alt="Basel" class="w-9 h-9 rounded-xl object-cover ring-2 ring-gold/40" />
+          <div class="hidden md:block leading-tight">
+            <div class="text-sm font-semibold">${LANG==='ar'?'باسل المعماري':'Basel Architect'}</div>
+            <div class="text-[11px] text-gold">${LANG==='ar'?'مدير النظام':'Admin'}</div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Page body -->
+    <main id="page" class="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-8"></main>
+  </div>`;
+
+  // wire shell events
+  document.querySelectorAll('[data-nav]').forEach(b=>b.onclick=()=>{ go(b.dataset.nav); closeSidebar(); });
+  document.getElementById('langBtn').onclick = toggleLang;
+  document.getElementById('themeBtn').onclick = toggleTheme;
+  document.getElementById('menuBtn').onclick = openSidebar;
+  document.getElementById('overlay').onclick = closeSidebar;
+}
+
+function openSidebar(){ const s=document.getElementById('sidebar'),o=document.getElementById('overlay'); s.classList.remove(LANG==='ar'?'translate-x-full':'-translate-x-full'); o.classList.remove('hidden'); }
+function closeSidebar(){ const s=document.getElementById('sidebar'),o=document.getElementById('overlay'); if(window.innerWidth<1024) s.classList.add(LANG==='ar'?'translate-x-full':'-translate-x-full'); o.classList.add('hidden'); }
+
+/* =======================================================================
+   PAGE: header helper
+   ======================================================================= */
+function pageHeader(title, sub, actions=''){
+  return `<div class="flex flex-wrap items-end justify-between gap-4 mb-7">
+    <div>
+      <div class="flex items-center gap-2 text-gold text-xs font-semibold uppercase tracking-[.2em] mb-2">${icon('sparkles','w-4 h-4')}<span>${t().dash.overview}</span></div>
+      <h1 class="font-serif text-3xl md:text-4xl font-black tracking-tight">${title}</h1>
+      ${sub?`<p class="text-neutral-500 dark:text-neutral-400 mt-1.5 text-sm md:text-base">${sub}</p>`:''}
+    </div>
+    <div class="flex items-center gap-2">${actions}</div>
+  </div>`;
+}
+const btnGold = (label,id='') => `<button ${id?`id="${id}"`:''} class="flex items-center gap-2 bg-gradient-to-l from-gold to-gold-deep text-white text-sm font-semibold px-5 py-2.5 rounded-2xl shadow-gold hover:shadow-lg hover:brightness-105 transition-all cursor-pointer">${icon('plus','w-4 h-4')}<span>${label}</span></button>`;
+const btnGhost = (label,ic='download') => `<button class="flex items-center gap-2 glass text-sm font-semibold px-4 py-2.5 rounded-2xl hover:border-gold/40 transition cursor-pointer">${icon(ic,'w-4 h-4')}<span>${label}</span></button>`;
+
+/* =======================================================================
+   PAGE: DASHBOARD
+   ======================================================================= */
+function kpiCard({ic,color,label,value,delta,up}){
+  return `<div class="lift glass rounded-3xl p-5 relative overflow-hidden group cursor-default">
+    <div class="absolute -right-8 -top-8 w-28 h-28 rounded-full blur-2xl opacity-20 group-hover:opacity-40 transition" style="background:${color}"></div>
+    <div class="flex items-start justify-between">
+      <div class="w-12 h-12 rounded-2xl flex items-center justify-center" style="background:${color}1a;color:${color}">${icon(ic,'w-6 h-6')}</div>
+      <span class="flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-lg ${up?'text-emerald-600 bg-emerald-500/10':'text-rose-600 bg-rose-500/10'}">${icon(up?'arrowUp':'arrowDown','w-3 h-3')}${delta}</span>
+    </div>
+    <div class="mt-4 font-mono text-3xl font-bold tracking-tight">${value}</div>
+    <div class="text-sm text-neutral-500 dark:text-neutral-400 mt-1">${label}</div>
+  </div>`;
+}
+
+function renderDashboard(){
+  const totalSold = PROJECTS.reduce((s,p)=>s+Math.round(p.units*p.sold/100),0);
+  const pipeline = LEADS.reduce((s,l)=>s+l.value,0).toFixed(1);
+  const k = t().kpi;
+  const kpis = [
+    {ic:'trend',color:'#C4A661',label:k.sales,value:(LANG==='ar'?'٩٫٥ مليار':'EGP 9.5B'),delta:'12.4%',up:true},
+    {ic:'building',color:'#5B8DEF',label:k.units,value:fmtM(totalSold),delta:'8.1%',up:true},
+    {ic:'leads',color:'#8E7CC3',label:k.leads,value:fmtM(LEADS.length*14),delta:'5.6%',up:true},
+    {ic:'visits',color:'#22c55e',label:k.visits,value:fmtM(34),delta:'2.3%',up:false},
+  ];
+  document.getElementById('page').innerHTML = `<div class="view max-w-[1400px] mx-auto">
+    ${pageHeader(t().dash.welcome, t().dash.sub, btnGhost(t().common.export)+btnGold(t().common.addProject))}
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">${kpis.map(kpiCard).join('')}</div>
+
+    <div class="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
+      <div class="xl:col-span-2 glass rounded-3xl p-6">
+        <div class="flex items-center justify-between mb-5">
+          <h3 class="font-serif text-xl font-bold">${t().dash.trend}</h3>
+          <span class="flex items-center gap-1.5 text-xs text-emerald-500 font-semibold"><span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>${t().dash.live}</span>
+        </div>
+        <div class="relative h-[300px]"><canvas id="trendChart"></canvas></div>
+      </div>
+      <div class="glass rounded-3xl p-6">
+        <h3 class="font-serif text-xl font-bold mb-1">${t().dash.funnel}</h3>
+        <p class="text-xs text-neutral-400 mb-4">${t().dash.pipeline}: <span class="text-gold font-bold font-mono">${LANG==='ar'?fmtM(pipeline)+' مليار':'EGP '+pipeline+'B'}</span></p>
+        <div class="relative h-[230px]"><canvas id="funnelChart"></canvas></div>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+      <div class="glass rounded-3xl p-6">
+        <h3 class="font-serif text-xl font-bold mb-5">${t().dash.revenue}</h3>
+        <div class="relative h-[230px]"><canvas id="revChart"></canvas></div>
+      </div>
+      <div class="xl:col-span-2 glass rounded-3xl p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-serif text-xl font-bold flex items-center gap-2">${icon('map','w-5 h-5 text-gold')}${t().dash.map}</h3>
+          <span class="text-xs text-neutral-400">${fmtM(PROJECTS.length)} ${LANG==='ar'?'مشاريع':'projects'}</span>
+        </div>
+        <div id="dashMap" class="h-[280px] rounded-2xl overflow-hidden ring-1 ring-black/5 dark:ring-white/10"></div>
+      </div>
+    </div>
+
+    <div class="glass rounded-3xl p-6 mt-6">
+      <h3 class="font-serif text-xl font-bold mb-5">${t().dash.activity}</h3>
+      <div class="space-y-1">
+        ${ACTIVITY.map(a=>`<div class="flex items-center gap-4 p-3 rounded-2xl hover:bg-black/[.03] dark:hover:bg-white/[.04] transition">
+          <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style="background:${a.c}1a;color:${a.c}">${icon(a.ic,'w-5 h-5')}</div>
+          <div class="flex-1 min-w-0"><p class="text-sm font-medium truncate">${a.txt[LANG]}</p></div>
+          <span class="text-xs text-neutral-400 shrink-0">${a.time[LANG]}</span>
+        </div>`).join('')}
+      </div>
+    </div>
+  </div>`;
+
+  buildCharts();
+  buildMap('dashMap');
+}
+
+/* =======================================================================
+   CHARTS
+   ======================================================================= */
+function chartFont(){ return { family:'Alexandria' }; }
+function buildCharts(){
+  Object.values(charts).forEach(c=>c&&c.destroy());
+  const grid = THEME==='dark' ? 'rgba(255,255,255,.06)' : 'rgba(17,17,17,.06)';
+  const tick = THEME==='dark' ? '#9ca3af' : '#6b7280';
+  const gold = '#C4A661';
+  Chart.defaults.font.family = 'Alexandria';
+  Chart.defaults.color = tick;
+
+  // Trend (area)
+  const tc = document.getElementById('trendChart');
+  const g = tc.getContext('2d').createLinearGradient(0,0,0,260);
+  g.addColorStop(0,'rgba(196,166,97,.35)'); g.addColorStop(1,'rgba(196,166,97,0)');
+  const months = LANG==='ar' ? ['يناير','فبراير','مارس','أبريل','مايو','يونيو'] : ['Jan','Feb','Mar','Apr','May','Jun'];
+  charts.trend = new Chart(tc,{ type:'line',
+    data:{ labels:months, datasets:[
+      { label:LANG==='ar'?'المبيعات':'Sales', data:[1.1,1.4,1.3,1.7,2.1,2.6], borderColor:gold, backgroundColor:g, fill:true, tension:.4, borderWidth:3, pointBackgroundColor:gold, pointRadius:0, pointHoverRadius:6 },
+      { label:LANG==='ar'?'الهدف':'Target', data:[1.2,1.3,1.5,1.6,1.9,2.2], borderColor:'#8E7CC3', borderDash:[6,6], borderWidth:2, fill:false, tension:.4, pointRadius:0 },
+    ]},
+    options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+      plugins:{ legend:{ position:'bottom', labels:{ usePointStyle:true, boxWidth:8, padding:18 } } },
+      scales:{ x:{ grid:{ display:false }, ticks:{font:chartFont()} }, y:{ grid:{ color:grid }, ticks:{ callback:v=>v+'B', font:chartFont() } } } }
+  });
+
+  // Funnel (horizontal bar)
+  const stages = ['new','contacted','viewing','negotiation','won'];
+  charts.funnel = new Chart(document.getElementById('funnelChart'),{ type:'bar',
+    data:{ labels:stages.map(s=>t().stages[s]), datasets:[{ data:[420,260,150,90,46],
+      backgroundColor:['#5B8DEF','#8E7CC3','#C4A661','#A8884A','#22c55e'], borderRadius:8, barThickness:18 }]},
+    options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false} },
+      scales:{ x:{ grid:{color:grid}, ticks:{font:chartFont()} }, y:{ grid:{display:false}, ticks:{font:chartFont()} } } }
+  });
+
+  // Revenue doughnut
+  charts.rev = new Chart(document.getElementById('revChart'),{ type:'doughnut',
+    data:{ labels:DEVELOPERS.map(d=>d.name[LANG]), datasets:[{ data:DEVELOPERS.map(d=>d.revenue),
+      backgroundColor:['#C4A661','#8E7CC3','#5B8DEF'], borderWidth:0, hoverOffset:10 }]},
+    options:{ responsive:true, maintainAspectRatio:false, cutout:'68%',
+      plugins:{ legend:{ position:'bottom', labels:{ usePointStyle:true, boxWidth:8, padding:14, font:chartFont() } } } }
+  });
+}
+
+/* =======================================================================
+   MAP
+   ======================================================================= */
+function buildMap(elId){
+  if(mapInstance){ mapInstance.remove(); mapInstance=null; }
+  const el = document.getElementById(elId); if(!el) return;
+  const map = L.map(el,{ scrollWheelZoom:false, attributionControl:false }).setView([30.02,31.45],9);
+  const tiles = THEME==='dark'
+    ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+    : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+  L.tileLayer(tiles,{ maxZoom:19 }).addTo(map);
+  PROJECTS.forEach(p=>{
+    const d = devById(p.dev);
+    const html = `<div style="position:relative"><div style="width:30px;height:30px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:linear-gradient(135deg,${d.primary},#A8884A);box-shadow:0 6px 18px rgba(0,0,0,.35);border:2px solid #fff"></div>
+      <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:11px;font-family:Space Grotesk">${p.sold}</div></div>`;
+    const ic = L.divIcon({ html, className:'', iconSize:[30,30], iconAnchor:[15,28] });
+    L.marker([p.lat,p.lng],{icon:ic}).addTo(map)
+     .bindPopup(`<div style="font-family:Alexandria;min-width:160px"><b style="color:${d.primary}">${p.name[LANG]}</b><br><span style="font-size:12px;color:#888">${p.loc[LANG]}</span><br><span style="font-size:12px">${t().common.sold}: <b>${p.sold}%</b></span></div>`);
+  });
+  mapInstance = map;
+  setTimeout(()=>map.invalidateSize(),250);
+}
+
+/* =======================================================================
+   PAGE: DEVELOPERS
+   ======================================================================= */
+function renderDevelopers(){
+  document.getElementById('page').innerHTML = `<div class="view max-w-[1400px] mx-auto">
+    ${pageHeader(t().nav.developers, LANG==='ar'?'إدارة المطورين العقاريين متعددي العلامات التجارية.':'Manage your multi-tenant real-estate developers.', btnGold(t().common.addDeveloper))}
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+      ${DEVELOPERS.map(d=>{
+        const pct = Math.round(d.sold/d.units*100);
+        return `<div class="lift glass rounded-3xl overflow-hidden group">
+          <div class="h-36 relative overflow-hidden">
+            <img src="${d.hero}" alt="${d.name[LANG]}" class="w-full h-full object-cover group-hover:scale-105 transition duration-700"/>
+            <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent"></div>
+            <div class="absolute bottom-3 ${LANG==='ar'?'right-4':'left-4'} flex items-center gap-3">
+              <div class="w-12 h-12 rounded-2xl flex items-center justify-center text-white font-serif font-black text-lg shadow-lg" style="background:${d.primary}">${d.logo}</div>
+              <div class="text-white"><div class="font-serif font-bold text-lg leading-tight">${d.name[LANG]}</div><div class="text-xs opacity-80">${d.slogan[LANG]}</div></div>
+            </div>
+          </div>
+          <div class="p-5">
+            <div class="grid grid-cols-3 gap-2 text-center mb-4">
+              <div><div class="font-mono font-bold text-lg">${fmtM(d.projects)}</div><div class="text-[11px] text-neutral-400">${LANG==='ar'?'مشاريع':'Projects'}</div></div>
+              <div><div class="font-mono font-bold text-lg">${fmtM(d.units)}</div><div class="text-[11px] text-neutral-400">${LANG==='ar'?'وحدات':'Units'}</div></div>
+              <div><div class="font-mono font-bold text-lg text-gold">${d.revenue}B</div><div class="text-[11px] text-neutral-400">${LANG==='ar'?'إيرادات':'Revenue'}</div></div>
+            </div>
+            <div class="flex items-center justify-between text-xs mb-1.5"><span class="text-neutral-500">${t().common.sold}</span><span class="font-bold">${pct}%</span></div>
+            <div class="h-2 rounded-full bg-black/5 dark:bg-white/10 overflow-hidden mb-4"><div class="h-full rounded-full" style="width:${pct}%;background:linear-gradient(90deg,${d.primary},#E5D5B5)"></div></div>
+            <button data-landing="${d.id}" class="w-full flex items-center justify-center gap-2 text-sm font-semibold py-2.5 rounded-2xl glass hover:border-gold/40 transition cursor-pointer">${icon('external','w-4 h-4')}${t().common.openLanding}</button>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+  document.querySelectorAll('[data-landing]').forEach(b=>b.onclick=()=>openLanding(b.dataset.landing));
+}
+
+/* =======================================================================
+   PAGE: PROJECTS
+   ======================================================================= */
+function ring(pct,color,size=58){
+  const r=24, c=2*Math.PI*r, off=c-(pct/100)*c;
+  return `<svg width="${size}" height="${size}" viewBox="0 0 56 56" class="ring-prog shrink-0">
+    <circle cx="28" cy="28" r="${r}" fill="none" stroke="currentColor" class="text-black/5 dark:text-white/10" stroke-width="5"/>
+    <circle cx="28" cy="28" r="${r}" fill="none" stroke="${color}" stroke-width="5" stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${off}"/>
+  </svg>`;
+}
+function renderProjects(){
+  const tags = { residential:{ar:'سكني',en:'Residential',c:'#5B8DEF'}, commercial:{ar:'تجاري',en:'Commercial',c:'#8E7CC3'}, mixed:{ar:'متعدد',en:'Mixed-use',c:'#C4A661'} };
+  document.getElementById('page').innerHTML = `<div class="view max-w-[1400px] mx-auto">
+    ${pageHeader(t().nav.projects, LANG==='ar'?'محفظة مشاريعك العقارية النشطة والمخزون.':'Your active project portfolio & inventory.', btnGhost(t().common.filter,'filter')+btnGold(t().common.addProject))}
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+      ${PROJECTS.map(p=>{
+        const d=devById(p.dev); const tg=tags[p.tag];
+        return `<div class="lift glass rounded-3xl overflow-hidden group">
+          <div class="h-44 relative overflow-hidden">
+            <img src="${p.bg}" alt="${p.name[LANG]}" class="w-full h-full object-cover group-hover:scale-105 transition duration-700"/>
+            <div class="absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-transparent"></div>
+            <span class="absolute top-3 ${LANG==='ar'?'right-3':'left-3'} text-[11px] font-bold px-2.5 py-1 rounded-lg text-white backdrop-blur-md" style="background:${tg.c}cc">${tg[LANG]}</span>
+            <span class="absolute top-3 ${LANG==='ar'?'left-3':'right-3'} flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-white/15 backdrop-blur-md text-white">${icon('pin','w-3 h-3')}${d.logo}</span>
+            <div class="absolute bottom-3 ${LANG==='ar'?'right-4':'left-4'} text-white">
+              <div class="font-serif font-bold text-xl leading-tight">${p.name[LANG]}</div>
+              <div class="text-xs opacity-80 flex items-center gap-1 mt-0.5">${icon('pin','w-3 h-3')}${p.loc[LANG]}</div>
+            </div>
+          </div>
+          <div class="p-5">
+            <div class="flex items-center gap-5">
+              <div class="relative flex items-center justify-center">${ring(p.sold,'#C4A661')}<span class="absolute font-mono text-xs font-bold">${p.sold}%</span></div>
+              <div class="flex-1">
+                <div class="text-xs text-neutral-400">${t().common.sold}</div>
+                <div class="text-sm font-semibold mb-1.5">${fmtM(Math.round(p.units*p.sold/100))} <span class="text-neutral-400 font-normal">${t().common.from} ${fmtM(p.units)} ${t().common.units}</span></div>
+                <div class="flex items-center justify-between text-xs mb-1"><span class="text-neutral-400">${t().common.completion}</span><span class="font-semibold">${p.completion}%</span></div>
+                <div class="h-1.5 rounded-full bg-black/5 dark:bg-white/10 overflow-hidden"><div class="h-full rounded-full bg-gradient-to-l from-emerald-400 to-emerald-500" style="width:${p.completion}%"></div></div>
+              </div>
+            </div>
+            <div class="flex items-center justify-between mt-5 pt-4 border-t border-black/5 dark:border-white/5">
+              <div><span class="text-xs text-neutral-400">${LANG==='ar'?'يبدأ من':'From'}</span><div class="font-mono font-bold text-gold">${p.price}M <span class="text-[11px] text-neutral-400 font-sans">EGP</span></div></div>
+              <button data-landing="${p.dev}" class="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl bg-ink dark:bg-white text-white dark:text-ink hover:opacity-90 transition cursor-pointer">${t().common.preview}${icon('chevron','w-3.5 h-3.5'+(LANG==='ar'?' rotate-180':''))}</button>
+            </div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+  document.querySelectorAll('[data-landing]').forEach(b=>b.onclick=()=>openLanding(b.dataset.landing));
+}
+
+/* =======================================================================
+   PAGE: VISITS (AI summaries)
+   ======================================================================= */
+function renderVisits(){
+  const st = { done:{c:'#22c55e'}, progress:{c:'#C4A661'}, scheduled:{c:'#5B8DEF'} };
+  const mediaLabel = { drone:{ar:'تصوير جوي',en:'Drone'}, video:{ar:'فيديو',en:'Video'}, cube:{ar:'نموذج 3D',en:'3D Model'} };
+  document.getElementById('page').innerHTML = `<div class="view max-w-[1100px] mx-auto">
+    ${pageHeader(t().nav.visits, LANG==='ar'?'تقارير الزيارات الميدانية مع ملخّصات الذكاء الاصطناعي.':'Field-visit reports with AI-generated summaries.', btnGhost(t().common.export)+btnGold(LANG==='ar'?'زيارة جديدة':'New Visit'))}
+    <div class="relative ${LANG==='ar'?'pr-6':'pl-6'}">
+      <div class="absolute ${LANG==='ar'?'right-2':'left-2'} top-2 bottom-2 w-px bg-gradient-to-b from-gold via-gold/30 to-transparent"></div>
+      <div class="space-y-6">
+      ${VISITS.map(v=>{
+        const p=projById(v.project), d=devById(p.dev), s=st[v.status];
+        return `<div class="relative">
+          <span class="absolute ${LANG==='ar'?'-right-[26px]':'-left-[26px]'} top-6 w-4 h-4 rounded-full ring-4 ring-[#F4F3EF] dark:ring-[#0B0B0C]" style="background:${s.c}"></span>
+          <div class="lift glass rounded-3xl p-6">
+            <div class="flex flex-wrap items-start justify-between gap-3 mb-4">
+              <div class="flex items-center gap-3">
+                <div class="w-11 h-11 rounded-2xl flex items-center justify-center text-white font-serif font-bold" style="background:${d.primary}">${d.logo}</div>
+                <div>
+                  <h3 class="font-serif font-bold text-lg leading-tight">${p.name[LANG]}</h3>
+                  <div class="text-xs text-neutral-400 flex items-center gap-2 mt-0.5"><span>${v.eng[LANG]}</span><span>•</span><span class="flex items-center gap-1">${icon('clock','w-3 h-3')}${v.date}</span></div>
+                </div>
+              </div>
+              <span class="text-xs font-semibold px-3 py-1.5 rounded-xl" style="background:${s.c}1a;color:${s.c}">${t().vstatus[v.status]}</span>
+            </div>
+
+            <div class="rounded-2xl p-4 mb-4 relative overflow-hidden" style="background:linear-gradient(135deg,rgba(196,166,97,.10),rgba(142,124,195,.06))">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="flex items-center gap-1.5 text-xs font-bold text-gold">${icon('sparkles','w-4 h-4')}${t().common.aiSummary}</span>
+                <span class="text-[10px] text-neutral-400 ms-auto">${t().common.generated}</span>
+              </div>
+              <p class="text-sm leading-relaxed text-neutral-700 dark:text-neutral-300">${v.summary[LANG]}</p>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+              ${v.media.map(m=>`<span class="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-xl glass">${icon(m,'w-3.5 h-3.5 text-gold')}${mediaLabel[m][LANG]}</span>`).join('')}
+              <button class="ms-auto flex items-center gap-1.5 text-xs font-semibold text-gold hover:gap-2.5 transition-all cursor-pointer">${LANG==='ar'?'عرض التقرير الكامل':'View full report'}${icon('chevron','w-3.5 h-3.5'+(LANG==='ar'?' rotate-180':''))}</button>
+            </div>
+          </div>
+        </div>`;
+      }).join('')}
+      </div>
+    </div>
+  </div>`;
+}
+
+/* =======================================================================
+   PAGE: LEADS (CRM kanban)
+   ======================================================================= */
+function renderLeads(){
+  const stages = ['new','contacted','viewing','negotiation','won'];
+  const colors = { new:'#5B8DEF', contacted:'#8E7CC3', viewing:'#C4A661', negotiation:'#A8884A', won:'#22c55e' };
+  document.getElementById('page').innerHTML = `<div class="view max-w-[1500px] mx-auto">
+    ${pageHeader(t().nav.leads, LANG==='ar'?'مسار مبيعاتك التفاعلي لإدارة العملاء المحتملين.':'Your interactive sales pipeline for managing leads.', btnGhost(t().common.filter,'filter')+btnGold(LANG==='ar'?'عميل جديد':'New Lead'))}
+    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
+      ${stages.map(s=>{
+        const items = LEADS.filter(l=>l.stage===s);
+        const total = items.reduce((a,l)=>a+l.value,0).toFixed(1);
+        return `<div class="flex flex-col">
+          <div class="flex items-center justify-between mb-3 px-1">
+            <div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full" style="background:${colors[s]}"></span><span class="font-semibold text-sm">${t().stages[s]}</span><span class="text-xs text-neutral-400 bg-black/5 dark:bg-white/10 px-1.5 rounded-md">${items.length}</span></div>
+          </div>
+          <div class="text-[11px] text-neutral-400 mb-3 px-1 font-mono">${total}M EGP</div>
+          <div class="space-y-3 flex-1">
+            ${items.map(l=>{
+              const p=projById(l.project), d=devById(p.dev);
+              return `<div class="lift glass rounded-2xl p-4 cursor-grab active:cursor-grabbing">
+                <div class="flex items-center gap-2.5 mb-3">
+                  <div class="w-9 h-9 rounded-xl flex items-center justify-center text-white text-xs font-bold" style="background:${d.primary}">${(l.name[LANG][0]||'')}</div>
+                  <div class="min-w-0"><div class="text-sm font-semibold truncate">${l.name[LANG]}</div><div class="text-[11px] text-neutral-400 truncate">${p.name[LANG]}</div></div>
+                </div>
+                <div class="flex items-center justify-between">
+                  <span class="font-mono text-sm font-bold text-gold">${l.value}M</span>
+                  <div class="flex items-center gap-1">
+                    <a href="tel:" class="p-1.5 rounded-lg bg-black/5 dark:bg-white/10 hover:bg-gold/20 hover:text-gold transition cursor-pointer">${icon('phone','w-3.5 h-3.5')}</a>
+                    <a href="#" class="p-1.5 rounded-lg bg-black/5 dark:bg-white/10 hover:bg-emerald-500/20 hover:text-emerald-500 transition cursor-pointer">${icon('whatsapp','w-3.5 h-3.5')}</a>
+                  </div>
+                </div>
+              </div>`;
+            }).join('') || `<div class="text-center text-xs text-neutral-300 dark:text-neutral-600 py-8 border-2 border-dashed border-black/5 dark:border-white/5 rounded-2xl">—</div>`}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+
+/* =======================================================================
+   PAGE: LANDING (manager list)
+   ======================================================================= */
+function renderLandingList(){
+  document.getElementById('page').innerHTML = `<div class="view max-w-[1400px] mx-auto">
+    ${pageHeader(t().nav.landing, LANG==='ar'?'صفحات هبوط فاخرة مخصّصة لكل مطوّر — جاهزة للنشر.':'Bespoke luxury landing pages per developer — ready to publish.', '')}
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      ${DEVELOPERS.map(d=>`<button data-landing="${d.id}" class="lift glass rounded-3xl overflow-hidden text-start group cursor-pointer">
+        <div class="h-48 relative overflow-hidden">
+          <img src="${d.hero}" class="w-full h-full object-cover group-hover:scale-105 transition duration-700" alt="${d.name[LANG]}"/>
+          <div class="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent"></div>
+          <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
+            <span class="flex items-center gap-2 bg-white/90 text-ink text-sm font-bold px-5 py-2.5 rounded-2xl">${icon('external','w-4 h-4')}${t().common.preview}</span>
+          </div>
+          <div class="absolute bottom-4 ${LANG==='ar'?'right-5':'left-5'} text-white">
+            <div class="font-serif font-bold text-xl">${d.name[LANG]}</div>
+            <div class="text-xs opacity-80">/p/${d.slug}</div>
+          </div>
+        </div>
+        <div class="p-4 flex items-center justify-between">
+          <span class="flex items-center gap-1.5 text-xs text-emerald-500 font-semibold"><span class="w-2 h-2 rounded-full bg-emerald-500"></span>${LANG==='ar'?'منشورة':'Published'}</span>
+          <span class="text-xs text-neutral-400">${fmtM(d.projects)} ${LANG==='ar'?'مشاريع':'projects'}</span>
+        </div>
+      </button>`).join('')}
+    </div>
+  </div>`;
+  document.querySelectorAll('[data-landing]').forEach(b=>b.onclick=()=>openLanding(b.dataset.landing));
+}
+
+/* =======================================================================
+   PAGE: SETTINGS
+   ======================================================================= */
+function renderSettings(){
+  const S=t().settings;
+  document.getElementById('page').innerHTML = `<div class="view max-w-[900px] mx-auto">
+    ${pageHeader(S.title, LANG==='ar'?'تخصيص النظام والهوية البصرية وإعدادات الفريق.':'Customize the system, branding, and team settings.', '')}
+    <div class="space-y-6">
+      <div class="glass rounded-3xl p-6">
+        <h3 class="font-serif text-xl font-bold mb-5">${S.appearance}</h3>
+        <div class="grid sm:grid-cols-2 gap-5">
+          <div>
+            <label class="text-sm font-medium block mb-2">${S.theme}</label>
+            <div class="flex gap-2">
+              <button id="setDark" class="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold transition cursor-pointer ${THEME==='dark'?'bg-ink text-white dark:bg-white dark:text-ink':'glass'}">${icon('moon','w-4 h-4')}${S.dark}</button>
+              <button id="setLight" class="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold transition cursor-pointer ${THEME==='light'?'bg-ink text-white':'glass'}">${icon('sun','w-4 h-4')}${S.light}</button>
+            </div>
+          </div>
+          <div>
+            <label class="text-sm font-medium block mb-2">${S.language}</label>
+            <div class="flex gap-2">
+              <button id="setAr" class="flex-1 py-3 rounded-2xl text-sm font-semibold transition cursor-pointer ${LANG==='ar'?'bg-gold text-white':'glass'}">العربية</button>
+              <button id="setEn" class="flex-1 py-3 rounded-2xl text-sm font-semibold transition cursor-pointer ${LANG==='en'?'bg-gold text-white':'glass'}">English</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="glass rounded-3xl p-6">
+        <div class="flex items-center gap-2 mb-2">${icon('sparkles','w-5 h-5 text-gold')}<h3 class="font-serif text-xl font-bold">${S.ai}</h3></div>
+        <p class="text-sm text-neutral-500 dark:text-neutral-400 mb-4">${LANG==='ar'?'متصل عبر Google Gemini لتوليد ملخصات الزيارات والتوصيات الذكية.':'Connected via Google Gemini to generate visit summaries & smart recommendations.'}</p>
+        <label class="text-sm font-medium block mb-2">${S.apiKey}</label>
+        <div class="flex gap-2">
+          <input type="password" value="AIza••••••••••••••••••••••••" class="flex-1 bg-black/[.04] dark:bg-white/[.05] border-0 rounded-2xl px-4 py-3 text-sm font-mono focus:ring-2 focus:ring-gold/40"/>
+          <span class="flex items-center gap-1.5 text-xs font-semibold px-4 rounded-2xl bg-emerald-500/10 text-emerald-500">${icon('check','w-4 h-4')}${LANG==='ar'?'متصل':'Connected'}</span>
+        </div>
+      </div>
+
+      <div class="glass rounded-3xl p-6">
+        <h3 class="font-serif text-xl font-bold mb-5">${S.team}</h3>
+        <div class="space-y-2">
+          ${[
+            {n:{ar:'باسل المعماري',en:'Basel Architect'},r:'admin',img:12},
+            {n:{ar:'م. أحمد سالم',en:'Eng. Ahmed Salem'},r:'manager',img:33},
+            {n:{ar:'ليلى منصور',en:'Laila Mansour'},r:'developer',img:45},
+            {n:{ar:'كريم فؤاد',en:'Karim Fouad'},r:'viewer',img:60},
+          ].map(m=>`<div class="flex items-center gap-3 p-3 rounded-2xl hover:bg-black/[.03] dark:hover:bg-white/[.04] transition">
+            <img src="https://i.pravatar.cc/64?img=${m.img}" class="w-10 h-10 rounded-xl object-cover ring-2 ring-gold/30" alt="${m.n[LANG]}"/>
+            <div class="flex-1"><div class="text-sm font-semibold">${m.n[LANG]}</div></div>
+            <span class="text-xs font-semibold px-3 py-1 rounded-lg bg-gold/15 text-gold capitalize">${m.r}</span>
+          </div>`).join('')}
+        </div>
+      </div>
+    </div>
+  </div>`;
+  document.getElementById('setDark').onclick=()=>{ if(THEME!=='dark') toggleTheme(); };
+  document.getElementById('setLight').onclick=()=>{ if(THEME!=='light') toggleTheme(); };
+  document.getElementById('setAr').onclick=()=>{ if(LANG!=='ar') toggleLang(); };
+  document.getElementById('setEn').onclick=()=>{ if(LANG!=='en') toggleLang(); };
+}
+
+/* =======================================================================
+   PUBLIC LANDING PAGE (full-screen luxury)
+   ======================================================================= */
+function openLanding(devId){
+  const d = devById(devId);
+  const projects = PROJECTS.filter(p=>p.dev===devId);
+  const L18 = t().landing;
+  const root = document.getElementById('landingRoot');
+  document.getElementById('app').classList.add('hidden');
+  root.classList.remove('hidden');
+  root.innerHTML = `
+  <div class="min-h-screen bg-[#0B0B0C] text-white view">
+    <!-- Nav -->
+    <header class="fixed top-0 inset-x-0 z-50 px-4 md:px-8 py-4">
+      <div class="max-w-6xl mx-auto glass rounded-2xl px-5 py-3 flex items-center justify-between" style="background:rgba(11,11,12,.6)">
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-xl flex items-center justify-center font-serif font-black" style="background:${d.primary};color:#fff">${d.logo}</div>
+          <span class="font-serif font-bold">${d.name[LANG]}</span>
+        </div>
+        <div class="hidden md:flex items-center gap-7 text-sm text-neutral-300">
+          <a href="#about" class="hover:text-gold transition">${L18.about}</a>
+          <a href="#projects" class="hover:text-gold transition">${L18.projects}</a>
+          <a href="#contact" class="hover:text-gold transition">${L18.contact}</a>
+        </div>
+        <button id="backBtn" class="flex items-center gap-2 text-xs font-semibold px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 transition cursor-pointer">${icon('logout','w-4 h-4 '+(LANG==='ar'?'':'rotate-180'))}${L18.back}</button>
+      </div>
+    </header>
+
+    <!-- Hero -->
+    <section class="relative h-screen flex items-center justify-center overflow-hidden">
+      <img src="${d.hero}" class="absolute inset-0 w-full h-full object-cover scale-105 animate-floaty" alt="${d.name[LANG]}"/>
+      <div class="absolute inset-0 bg-gradient-to-b from-black/70 via-black/50 to-[#0B0B0C]"></div>
+      <div class="relative text-center px-6 max-w-4xl">
+        <div class="inline-flex items-center gap-2 text-gold text-xs font-semibold uppercase tracking-[.3em] mb-6 px-4 py-2 rounded-full border border-gold/30 backdrop-blur-sm">${icon('star','w-3.5 h-3.5')}${LANG==='ar'?'مطوّر عقاري معتمد':'Certified Developer'}</div>
+        <h1 class="font-serif text-5xl md:text-7xl font-black leading-[1.05] mb-6">${d.name[LANG]}</h1>
+        <p class="text-lg md:text-2xl text-neutral-200 font-light italic mb-10">${d.slogan[LANG]}</p>
+        <div class="flex flex-wrap items-center justify-center gap-4">
+          <a href="#projects" class="flex items-center gap-2 bg-gradient-to-l from-gold to-gold-deep text-white font-semibold px-8 py-4 rounded-2xl shadow-gold hover:brightness-110 transition cursor-pointer">${L18.explore}${icon('chevron','w-4 h-4'+(LANG==='ar'?' rotate-180':''))}</a>
+          <a href="#contact" class="flex items-center gap-2 bg-white/10 backdrop-blur-md border border-white/20 font-semibold px-8 py-4 rounded-2xl hover:bg-white/20 transition cursor-pointer">${icon('phone','w-4 h-4')}${L18.contact}</a>
+        </div>
+      </div>
+      <div class="absolute bottom-8 inset-x-0 flex justify-center"><div class="w-6 h-10 rounded-full border-2 border-white/30 flex items-start justify-center p-1.5"><div class="w-1.5 h-1.5 rounded-full bg-gold animate-bounce"></div></div></div>
+    </section>
+
+    <!-- Achievements -->
+    <section class="max-w-6xl mx-auto px-6 -mt-20 relative z-10">
+      <div class="glass rounded-3xl grid grid-cols-2 md:grid-cols-4 divide-x divide-white/5 ${LANG==='ar'?'divide-x-reverse':''}" style="background:rgba(22,22,22,.7)">
+        ${d.achievements.map(a=>`<div class="p-7 text-center"><div class="font-serif text-3xl md:text-4xl font-black gold-text">${a.v}</div><div class="text-xs text-neutral-400 mt-1">${a.l[LANG]}</div></div>`).join('')}
+      </div>
+    </section>
+
+    <!-- About -->
+    <section id="about" class="max-w-6xl mx-auto px-6 py-24 grid md:grid-cols-2 gap-12 items-center">
+      <div>
+        <div class="text-gold text-xs font-semibold uppercase tracking-[.3em] mb-4">${L18.about}</div>
+        <h2 class="font-serif text-3xl md:text-4xl font-black mb-6 leading-tight">${LANG==='ar'?'نصنع المساحات التي تروي قصص النجاح':'We craft spaces that tell stories of success'}</h2>
+        <p class="text-neutral-300 leading-relaxed mb-6">${d.about[LANG]}</p>
+        <div class="glass rounded-2xl p-5 border-s-2 border-gold" style="background:rgba(196,166,97,.08)">
+          <div class="text-gold text-xs font-semibold uppercase tracking-wider mb-2">${L18.vision}</div>
+          <p class="text-sm text-neutral-200 italic">"${d.vision[LANG]}"</p>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-4">
+        ${projects.slice(0,1).map(p=>`<img src="${p.bg}" class="rounded-3xl h-64 w-full object-cover col-span-2" alt=""/>`).join('')}
+        <img src="${d.hero}" class="rounded-3xl h-44 w-full object-cover" alt=""/>
+        <div class="rounded-3xl h-44 flex flex-col items-center justify-center text-center p-4" style="background:linear-gradient(135deg,${d.primary},#A8884A)">
+          <div class="font-serif text-4xl font-black">${d.revenue}B</div><div class="text-xs opacity-90 mt-1">${LANG==='ar'?'محفظة بالجنيه':'Portfolio (EGP)'}</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Before / After -->
+    <section class="max-w-6xl mx-auto px-6 pb-24">
+      <div class="text-center mb-10">
+        <div class="text-gold text-xs font-semibold uppercase tracking-[.3em] mb-3">${L18.baTitle}</div>
+        <h2 class="font-serif text-3xl md:text-4xl font-black">${LANG==='ar'?'من الرؤية إلى الواقع':'From vision to reality'}</h2>
+      </div>
+      <div id="baWrap" class="relative max-w-3xl mx-auto h-[420px] rounded-3xl overflow-hidden select-none ring-1 ring-white/10">
+        <img src="https://images.unsplash.com/photo-1503387762-592deb58ef4e?q=80&w=1600&auto=format&fit=crop" class="absolute inset-0 w-full h-full object-cover" alt="before"/>
+        <div id="baTop" class="absolute inset-0 overflow-hidden" style="width:50%">
+          <img src="${projects[0]?projects[0].bg:d.hero}" class="absolute inset-0 h-full object-cover" style="width:48rem;max-width:none" alt="after"/>
+        </div>
+        <div id="baLine" class="absolute top-0 bottom-0 w-1 bg-gold" style="left:50%"></div>
+        <input id="baRange" type="range" min="0" max="100" value="50" class="ba-range absolute inset-0 w-full h-full opacity-0 cursor-ew-resize"/>
+        <span class="absolute top-4 left-4 text-xs font-bold px-3 py-1.5 rounded-lg bg-black/50 backdrop-blur">${LANG==='ar'?'قبل':'Before'}</span>
+        <span class="absolute top-4 right-4 text-xs font-bold px-3 py-1.5 rounded-lg text-white" style="background:${d.primary}cc">${LANG==='ar'?'بعد':'After'}</span>
+      </div>
+    </section>
+
+    <!-- Projects -->
+    <section id="projects" class="max-w-6xl mx-auto px-6 pb-24">
+      <div class="text-center mb-12">
+        <div class="text-gold text-xs font-semibold uppercase tracking-[.3em] mb-3">${L18.projects}</div>
+        <h2 class="font-serif text-3xl md:text-4xl font-black">${LANG==='ar'?'مشاريع تستحق الانتماء إليها':'Projects worth belonging to'}</h2>
+      </div>
+      <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+        ${projects.map(p=>`<div class="lift group rounded-3xl overflow-hidden relative h-80 cursor-pointer">
+          <img src="${p.bg}" class="absolute inset-0 w-full h-full object-cover group-hover:scale-110 transition duration-700" alt="${p.name[LANG]}"/>
+          <div class="absolute inset-0 bg-gradient-to-t from-black via-black/30 to-transparent"></div>
+          <div class="absolute bottom-0 inset-x-0 p-6">
+            <div class="text-xs text-gold mb-1 flex items-center gap-1">${icon('pin','w-3 h-3')}${p.loc[LANG]}</div>
+            <h3 class="font-serif text-2xl font-bold mb-2">${p.name[LANG]}</h3>
+            <div class="flex items-center justify-between">
+              <span class="text-sm text-neutral-300">${LANG==='ar'?'يبدأ من':'From'} <b class="text-white font-mono">${p.price}M</b></span>
+              <span class="flex items-center gap-1 text-xs font-semibold text-gold opacity-0 group-hover:opacity-100 transition">${L18.contact}${icon('chevron','w-3.5 h-3.5'+(LANG==='ar'?' rotate-180':''))}</span>
+            </div>
+          </div>
+        </div>`).join('')}
+      </div>
+    </section>
+
+    <!-- CTA / Contact -->
+    <section id="contact" class="max-w-6xl mx-auto px-6 pb-24">
+      <div class="relative rounded-[2rem] overflow-hidden p-10 md:p-16 text-center" style="background:linear-gradient(135deg,${d.primary}22,rgba(196,166,97,.12))">
+        <div class="absolute -top-20 -right-20 w-72 h-72 rounded-full blur-3xl opacity-30" style="background:${d.primary}"></div>
+        <div class="relative">
+          <h2 class="font-serif text-3xl md:text-5xl font-black mb-4">${L18.cta}</h2>
+          <p class="text-neutral-300 mb-8 max-w-xl mx-auto">${LANG==='ar'?'سيتواصل معك مستشار عقاري خلال ٢٤ ساعة لترتيب جولة خاصة.':'A property consultant will contact you within 24 hours to arrange a private tour.'}</p>
+          <form id="ctaForm" class="flex flex-col sm:flex-row gap-3 max-w-lg mx-auto">
+            <input required placeholder="${LANG==='ar'?'رقم هاتفك':'Your phone number'}" class="flex-1 bg-white/10 border border-white/20 rounded-2xl px-5 py-4 text-sm placeholder:text-neutral-400 focus:ring-2 focus:ring-gold/50"/>
+            <button class="bg-gradient-to-l from-gold to-gold-deep text-white font-semibold px-7 py-4 rounded-2xl shadow-gold hover:brightness-110 transition cursor-pointer whitespace-nowrap">${L18.cta}</button>
+          </form>
+          <div id="ctaDone" class="hidden mt-5 text-emerald-400 font-semibold">${L18.booked}</div>
+          <div class="flex items-center justify-center gap-4 mt-8">
+            ${['whatsapp','instagram','facebook','phone','mail'].map(s=>`<a href="#" class="w-11 h-11 rounded-full glass flex items-center justify-center hover:text-gold hover:border-gold/40 transition cursor-pointer" style="background:rgba(255,255,255,.06)">${icon(s,'w-4 h-4')}</a>`).join('')}
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="border-t border-white/5 py-8 text-center text-xs text-neutral-500">
+      <div class="font-serif font-bold text-white mb-1">${d.name[LANG]}</div>
+      © 2026 — ${LANG==='ar'?'مدعوم بواسطة':'Powered by'} <span class="text-gold">BMK Solutions</span>
+    </footer>
+  </div>`;
+
+  document.getElementById('backBtn').onclick = closeLanding;
+  // before/after slider
+  const range=document.getElementById('baRange'), top=document.getElementById('baTop'), line=document.getElementById('baLine');
+  range.oninput = ()=>{ top.style.width=range.value+'%'; line.style.left=range.value+'%'; };
+  // cta
+  document.getElementById('ctaForm').onsubmit = e=>{ e.preventDefault(); document.getElementById('ctaDone').classList.remove('hidden'); e.target.querySelector('input').value=''; };
+  window.scrollTo(0,0);
+}
+function closeLanding(){
+  document.getElementById('landingRoot').classList.add('hidden');
+  document.getElementById('landingRoot').innerHTML='';
+  document.getElementById('app').classList.remove('hidden');
+}
+
+/* =======================================================================
+   ROUTER + TOGGLES
+   ======================================================================= */
+const ROUTES = { dashboard:renderDashboard, developers:renderDevelopers, projects:renderProjects, visits:renderVisits, leads:renderLeads, landing:renderLandingList, settings:renderSettings };
+function go(page){ PAGE=page; renderShell(); (ROUTES[page]||renderDashboard)(); document.getElementById('page').scrollTop=0; }
+
+function toggleTheme(){
+  THEME = THEME==='dark'?'light':'dark';
+  document.documentElement.classList.toggle('dark', THEME==='dark');
+  go(PAGE);
+}
+function toggleLang(){
+  LANG = LANG==='ar'?'en':'ar';
+  document.documentElement.lang = LANG;
+  document.documentElement.dir = t().dir;
+  go(PAGE);
+}
+
+/* ---------- Boot ---------- */
+document.documentElement.classList.add('dark');
+go('dashboard');
+</script>
+</body>
+</html>

@@ -24,6 +24,28 @@ export const metadata: Metadata = {
   twitter: { card: "summary_large_image", images: ["/assets/hero.webp"] },
 };
 
+const orgJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  name: "BMK Solutions",
+  legalName: "Haykal Tak Company",
+  alternateName: ["شركة هيكل تك", "BMK Solutions"],
+  brand: { "@type": "Brand", name: "BMK Solutions" },
+  url: "https://www.bmk.solutions",
+  logo: "https://www.bmk.solutions/assets/brand/lockup-white.png",
+  email: "info@bmk.solutions",
+  telephone: "+966568279558",
+  address: {
+    "@type": "PostalAddress",
+    addressLocality: "Jeddah",
+    addressCountry: "SA",
+  },
+  sameAs: [
+    "https://instagram.com/_bmk.solutions",
+    "https://x.com/_bmk_solutions",
+  ],
+};
+
 export const viewport: Viewport = {
   themeColor: "#090b11",
   width: "device-width",
@@ -36,6 +58,10 @@ export default function RootLayout({
   return (
     <html lang="ar" dir="rtl" data-theme="dark">
       <body>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(orgJsonLd) }}
+        />
         <Frag name="_chrome" />
         <Frag name="_header" />
         {children}

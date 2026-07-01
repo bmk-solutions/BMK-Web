@@ -378,7 +378,7 @@ html[lang="en"] .pkg .pbtn,html[lang="en"] .pkg .ph{font-family:var(--f-en)}
 #cta .cta-row .cta-btn{padding:15px 30px;font-size:15px}
 
 /* ============ FOOTER ============ */
-footer{border-top:1px solid var(--line);background:var(--bg2);padding:70px 0 30px}
+footer{border-top:1px solid var(--line);background:var(--bg2);padding:70px 0 90px}
 .foot-grid{display:grid;grid-template-columns:1.6fr 1fr 1fr 1.2fr;gap:40px;margin-bottom:54px}
 .foot-brand svg{width:34px;color:var(--tx);margin-bottom:18px}
 .foot-brand p{color:var(--muted);font-size:14px;line-height:1.7;max-width:34ch}
@@ -393,6 +393,8 @@ footer{border-top:1px solid var(--line);background:var(--bg2);padding:70px 0 30p
 .foot-bot{border-top:1px solid var(--line);padding-top:26px;display:flex;justify-content:space-between;
   align-items:center;gap:18px;flex-wrap:wrap}
 .foot-bot p{font-size:12.5px;color:var(--faint)}
+.foot-copy{display:grid;gap:6px;min-width:0}
+.foot-copy .foot-legal{color:var(--muted)}
 .foot-bot .fl{display:flex;gap:24px}
 .foot-bot .fl span{font-family:var(--f-mono);font-size:11px;color:var(--faint);letter-spacing:.08em}
 

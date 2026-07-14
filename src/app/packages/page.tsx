@@ -12,6 +12,7 @@ export default function Packages() {
     <main>
       <Frag name="banner-packages" />
       <Frag name="packages" />
+      <Frag name="how-we-work" />
       <Frag name="value-7-types" />
       <Frag name="cta" />
     </main>

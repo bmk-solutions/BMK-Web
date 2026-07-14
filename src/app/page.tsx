@@ -11,6 +11,7 @@ export default function Home() {
       <Frag name="services-teaser" />
       <Frag name="selected-work" />
       <Frag name="clients" />
+      <Frag name="how-we-work" />
       <Frag name="cta" />
     </main>
   );

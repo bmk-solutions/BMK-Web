@@ -36,7 +36,8 @@ const orgJsonLd = {
     name: "Commercial Registration (سجل تجاري)",
     value: "7007295608",
   },
-  taxID: "7007295608",
+  vatID: "314084197400003",
+  taxID: "314084197400003",
   brand: { "@type": "Brand", name: "BMK Solutions" },
   url: "https://www.bmk.solutions",
   logo: "https://www.bmk.solutions/assets/brand/lockup-white.png",
@@ -44,7 +45,9 @@ const orgJsonLd = {
   telephone: "+966568279558",
   address: {
     "@type": "PostalAddress",
+    streetAddress: "مبنى 2989، شارع ابن الصقر، حي الروضة",
     addressLocality: "Jeddah",
+    postalCode: "23435",
     addressCountry: "SA",
   },
   sameAs: [

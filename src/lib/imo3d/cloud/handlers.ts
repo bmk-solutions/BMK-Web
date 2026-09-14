@@ -1,6 +1,6 @@
 import {randomUUID} from "node:crypto";
 import {z} from "zod";
-import {cloudAccess,cloudLogin,cloudSameOrigin} from "./auth";
+import {cloudAccess,cloudChangePassword,cloudLogin,cloudSameOrigin} from "./auth";
 import {cloudQuery,cloudRpc,cloudSignedDownload} from "./client";
 import {createProject,deleteTour,getAsset,getBranding,getTour,listProjects,listTours,saveTour,withinRateLimit} from "./repository";
 import {cloudManagement,cloudDevelopers} from "./management";
@@ -26,9 +26,18 @@ async function handle(request:Request){
  if(!pathname.startsWith(prefix))return fail("المسار غير موجود.",404);
  const segments=pathname.slice(prefix.length).split("/").filter(Boolean).map(decodeURIComponent);
  if(segments.length>4||segments.some(segment=>segment.length>160||!/^[-\w]+$/.test(segment)))return fail("المسار غير موجود.",404);
- const[resource,id,action,last]=segments,method=request.method,access=await cloudAccess(request);
+ const[resource,id,action,last]=segments,method=request.method;
+ if(method!=="GET"&&!request.headers.has('authorization')&&!cloudSameOrigin(request))return fail("المصدر غير مسموح.",403);
+ const access=await cloudAccess(request);
  if(request.headers.has("authorization")&&!access.integration)return fail("مفتاح API غير صالح أو أُلغي.",401);
  if(method!=="GET"&&!access.integration&&!cloudSameOrigin(request))return fail("المصدر غير مسموح.",403);
+ if(resource==='settings'&&id==='password'&&segments.length===2){
+  if(!access.sessionAdmin||access.integration)return fail('دخول الإدارة مطلوب.',401);
+  if(method!=='POST')return fail('العملية غير متاحة.',405);
+  const input=z.object({currentPassword:z.string().min(1).max(256),newPassword:z.string().min(12,'استخدم 12 حرفًا على الأقل.').max(128),confirmPassword:z.string().max(128)}).strict().refine(value=>value.newPassword===value.confirmPassword,{message:'كلمتا المرور الجديدتان غير متطابقتين.'}).parse(await readJSON(request,3000));
+  const cookie=await cloudChangePassword(request,input.currentPassword,input.newPassword);
+  return new Response(JSON.stringify({ok:true}),{headers:{'Content-Type':'application/json','Cache-Control':'no-store','Set-Cookie':cookie}});
+ }
  if(resource==="session"&&segments.length===1){
   if(method==="GET")return json({admin:access.sessionAdmin,local:false,cloud:true,uploadMode:"signed"});
   if(access.integration)return fail("استخدم دخول الاستوديو لإدارة الجلسة.",403);

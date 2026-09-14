@@ -9,16 +9,73 @@ import {applyMetadata} from '../src/lib/imo3d/cloud/geometry';
 import {publicProcessingJob} from '../src/lib/imo3d/cloud/jobs';
 import {aiPlanFingerprint} from '../src/lib/imo3d/ai-plan-jobs';
 import {syntheticTour} from './fixtures/imo3d-synthetic-tour';
+import {hashAdminPassword,verifyAdminPassword} from '../src/lib/imo3d/admin-password';
 const origin='https://imo3d.example',secret='synthetic-test-secret-is-at-least-32-characters',fetchOriginal=globalThis.fetch,envOriginal={...process.env};
 const adminCookie=()=>{const expiry=String(Date.now()+60_000);return `imo3d_session=${expiry}.${createHmac('sha256',secret).update(expiry).digest('hex')}`;};
 const req=(url:string,options:RequestInit={},admin=false)=>new Request(origin+'/api/imo3d/'+url,{...options,headers:{...(admin?{cookie:adminCookie()}:{}),...(options.method&&options.method!=='GET'?{Origin:origin,'Content-Type':'application/json'}:{}),...Object.fromEntries(new Headers(options.headers))}});
 const result=(value:unknown,status=200)=>new Response(JSON.stringify(value),{status,headers:{'Content-Type':'application/json'}});
-type Call={url:URL;method:string;body:Record<string,unknown>|null};let calls:Call[]=[];let mock:(call:Call)=>Response|Promise<Response>;
-beforeEach(()=>{Object.assign(process.env,{IMO3D_CLOUD:'1',SUPABASE_URL:'https://synthetic.supabase.co',SUPABASE_SERVICE_ROLE_KEY:'synthetic-key',IMO3D_ADMIN_SECRET:secret,IMO3D_PUBLIC_ORIGIN:origin,IMO3D_DATA_DIR:path.resolve('work/cloud-test-must-not-create-database')});calls=[];mock=call=>{throw Error('Unexpected cloud request '+call.url.pathname);};globalThis.fetch=async(input,init)=>{const call={url:new URL(String(input)),method:init?.method??'GET',body:typeof init?.body==='string'?JSON.parse(init.body):null};calls.push(call);return mock(call);};});
+type Call={url:URL;method:string;body:Record<string,unknown>|null};let storedCredential:Record<string,unknown>|null=null;let calls:Call[]=[];let mock:(call:Call)=>Response|Promise<Response>;
+beforeEach(()=>{Object.assign(process.env,{IMO3D_CLOUD:'1',SUPABASE_URL:'https://synthetic.supabase.co',SUPABASE_SERVICE_ROLE_KEY:'synthetic-key',IMO3D_ADMIN_SECRET:secret,IMO3D_PUBLIC_ORIGIN:origin,IMO3D_DATA_DIR:path.resolve('work/cloud-test-must-not-create-database')});storedCredential=null;calls=[];mock=call=>{throw Error('Unexpected cloud request '+call.url.pathname);};globalThis.fetch=async(input,init)=>{const call={url:new URL(String(input)),method:init?.method??'GET',body:typeof init?.body==='string'?JSON.parse(init.body):null};if(call.url.pathname.endsWith("/imo3d_admin_credentials")&&call.method==="GET")return result(storedCredential?[storedCredential]:[]);calls.push(call);return mock(call);};});
 afterEach(()=>{globalThis.fetch=fetchOriginal;for(const key of Object.keys(process.env))if(!(key in envOriginal))delete process.env[key];Object.assign(process.env,envOriginal);});
+
+test('password changes store only a salted hash, revoke previous cookies and keep the new session',async()=>{
+ const password='New synthetic passphrase 2026';
+ mock=call=>{
+  if(call.url.pathname.endsWith('/imo3d_rate_limit'))return result(true);
+  if(call.url.pathname.endsWith('/imo3d_admin_credentials')&&call.method==='POST'){storedCredential=call.body;return result([storedCredential]);}
+  throw Error('Unexpected mutation');
+ };
+ const oldRequest=req('session',{},true);
+ const response=await cloudRoute(req('settings/password',{method:'POST',body:JSON.stringify({currentPassword:secret,newPassword:password,confirmPassword:password})},true));
+ assert.equal(response.status,200);assert.deepEqual(await response.json(),{ok:true});
+ assert.equal(JSON.stringify(storedCredential).includes(password),false);
+ assert.match(String(storedCredential!.password_hash),/^scrypt:/);
+ assert.equal(await verifyAdminPassword(password,String(storedCredential!.password_hash)),true);
+ assert.equal(await cloudIsAdmin(oldRequest),false);
+ const cookie=response.headers.get('set-cookie')!.split(';')[0];
+ assert.equal(await cloudIsAdmin(req('session',{headers:{cookie}})),true);
+ assert.match(response.headers.get('set-cookie')!,/HttpOnly; SameSite=Strict.*Secure/);
+ const oldLogin=await cloudRoute(req('session',{method:'POST',body:JSON.stringify({password:secret})}));assert.equal(oldLogin.status,401);
+ const newLogin=await cloudRoute(req('session',{method:'POST',body:JSON.stringify({password})}));assert.equal(newLogin.status,200);
+});
+
+test('password settings reject anonymous, cross-origin, mismatched, short and incorrect-current requests without credential writes',async()=>{
+ mock=call=>call.url.pathname.endsWith('/imo3d_rate_limit')?result(true):(()=>{throw Error('Unexpected write');})();
+ const payload={currentPassword:secret,newPassword:'A different long passphrase',confirmPassword:'A different long passphrase'};
+ assert.equal((await cloudRoute(req('settings/password',{method:'POST',body:JSON.stringify(payload)}))).status,401);
+ assert.equal((await cloudRoute(req('settings/password',{method:'POST',headers:{Origin:'https://outside.example'},body:JSON.stringify(payload)},true))).status,403);
+ for(const body of [{...payload,confirmPassword:'wrong'},{...payload,newPassword:'short',confirmPassword:'short'},{...payload,currentPassword:'incorrect'}]){
+  assert.equal((await cloudRoute(req('settings/password',{method:'POST',body:JSON.stringify(body)},true))).status,400);
+ }
+ assert.equal(calls.some(call=>call.url.pathname.endsWith('/imo3d_admin_credentials')),false);
+});
+
+test('stored password changes use a version condition and report a concurrent edit',async()=>{
+ const password='Existing synthetic passphrase';
+ storedCredential={password_hash:await hashAdminPassword(password),version:'971ad4c8-4c16-4a68-9d50-d537c325d425'};
+ mock=call=>{if(call.url.pathname.endsWith('/imo3d_rate_limit'))return result(true);if(call.method==='PATCH'){assert.equal(call.url.searchParams.get('version'),'eq.'+storedCredential!.version);return result([]);}throw Error('Unexpected request');};
+ const login=await cloudRoute(req('session',{method:'POST',body:JSON.stringify({password})}));const cookie=login.headers.get('set-cookie')!.split(';')[0];
+ const response=await cloudRoute(req('settings/password',{method:'POST',headers:{cookie},body:JSON.stringify({currentPassword:password,newPassword:'Next synthetic passphrase',confirmPassword:'Next synthetic passphrase'})}));
+ assert.equal(response.status,409);assert.equal(response.headers.has('set-cookie'),false);
+ assert.equal(await cloudIsAdmin(req('session',{headers:{cookie}})),true);
+});
+
+test('password hashes have independent salts and fail closed on malformed encodings',async()=>{
+ const a=await hashAdminPassword('A long test passphrase'),b=await hashAdminPassword('A long test passphrase');
+ assert.notEqual(a,b);assert.equal(await verifyAdminPassword('wrong',a),false);assert.equal(await verifyAdminPassword('anything','scrypt:broken'),false);
+});
+
+test('the session signing key can be independent of the administrator password',async()=>{
+ process.env.IMO3D_SESSION_SECRET='independent-server-only-session-signing-key';
+ mock=call=>call.url.pathname.endsWith('/imo3d_rate_limit')?result(true):(()=>{throw Error('Unexpected request');})();
+ assert.equal(await cloudIsAdmin(req('session',{},true)),false);
+ const response=await cloudRoute(req('session',{method:'POST',body:JSON.stringify({password:secret})}));
+ assert.equal(response.status,200);
+ assert.equal(await cloudIsAdmin(req('session',{headers:{cookie:response.headers.get('set-cookie')!.split(';')[0]}})),true);
+});
 test('cloud sessions require a valid signed cookie even on localhost',async()=>{
- assert.equal(cloudIsAdmin(new Request('http://127.0.0.1:3000')),false);
- assert.equal(cloudIsAdmin(req('session',{},true)),true);
+ assert.equal(await cloudIsAdmin(new Request('http://127.0.0.1:3000')),false);
+ assert.equal(await cloudIsAdmin(req('session',{},true)),true);
  const response=await cloudRoute(req('session'));assert.equal(response.status,200);assert.deepEqual(await response.json(),{admin:false,local:false,cloud:true,uploadMode:'signed'});assert.equal(calls.length,0);
 });
 test('invalid bearer never falls back to a valid admin session',async()=>{
@@ -43,7 +100,7 @@ test('published assets authorize first then redirect to short-lived storage URL'
   if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);
   if(call.url.pathname.includes('/object/sign/')){assert.equal(call.body?.expiresIn,300);return result({signedURL:'/object/sign/imo3d-private/assets/a.webp?token=synthetic'});}throw Error('unexpected');
  };
- const response=await cloudRoute(req('assets/asset'));assert.equal(response.status,307);assert.match(response.headers.get('location')!,/^https:\/\/synthetic\.supabase\.co\/storage\/v1\/object\/sign\//);assert.equal(response.headers.get('cache-control'),'private, no-store');
+ const response=await cloudRoute(req('assets/asset'));assert.equal(response.status,307);assert.match(response.headers.get('location')!,/^https:\/\/synthetic\.storage\.supabase\.co\/storage\/v1\/object\/sign\//);assert.equal(response.headers.get('cache-control'),'private, no-store');
 });
 test('integration cannot read another project even when it is published',async()=>{
  const token='imo3d_'+'a'.repeat(43),tour={...syntheticTour(),published:true};mock=call=>{
@@ -126,3 +183,4 @@ for(const newFloor of [0,1])test(`actual Sharp finalization commits spatial data
  };
  const response=await cloudRoute(req(`tours/${tour.id}/images-finalize`,{method:'POST',body:JSON.stringify({uploadId,revision:tour.revision})},true));assert.equal(response.status,201);assert.equal(calls.filter(call=>call.url.pathname.endsWith('/imo3d_commit_upload_v2')).length,1);assert.ok(!calls.some(call=>call.url.pathname.endsWith('/imo3d_save_tour')));
 });
+

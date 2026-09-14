@@ -1,6 +1,7 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 import {useEffect,useRef,useState} from "react";
+import {AdminSettings} from './AdminSettings';
 import {AIPlanPanel} from "./AIPlanPanel";
 import {DeveloperDirectory} from "./DeveloperDirectory";
 import type {Developer,Lead,Project,Scene,Tour} from "@/lib/imo3d/model";
@@ -26,13 +27,13 @@ import {processingActive,type ProcessingJob} from "@/lib/imo3d/processing-model"
 import "./studio-workflows.css";
 import "./liquid-glass.css";
 
-type Dashboard={features?:{privateExample:{id:string;title:string;thumbnail:string}|null};developers:Developer[];projects:Project[];tours:Tour[];leads:Lead[];leadTotal?:number};
+type Dashboard={features?:{cloud?:boolean;privateExample:{id:string;title:string;thumbnail:string}|null};developers:Developer[];projects:Project[];tours:Tour[];leads:Lead[];leadTotal?:number};
 export default function Studio(){
   const [data,setData]=useState<Dashboard|null>(null),[auth,setAuth]=useState(false),[error,setError]=useState("");
   const [view,setView]=useState<"projects"|"leads">("projects"),[query,setQuery]=useState(""),[projectId,setProjectId]=useState("");
   const [modal,setModal]=useState<"project"|"tour"|null>(null),[selected,setSelected]=useState<Tour|null>(null),[working,setWorking]=useState(false);
   const [developerId,setDeveloperId]=useState<string|null>(null);
-  const [notice,setNotice]=useState("");
+  const [notice,setNotice]=useState(""); const [adminSettings,setAdminSettings]=useState(false);
   const [usageProject,setUsageProject]=useState<string|null>(null);
   const [managedProject,setManagedProject]=useState<Project|null>(null),[tourRemoval,setTourRemoval]=useState<Tour|null>(null);
   const [preview,setPreview]=useState<{projectId:string;tourId?:string;sceneId?:string}|null>(null);
@@ -49,7 +50,7 @@ export default function Studio(){
   const visibleTours=data.tours.filter(t=>scopedProjects.some(project=>project.id===t.projectId)).filter(t=>(!projectId||t.projectId===projectId)&&`${t.title} ${data.projects.find(p=>p.id===t.projectId)?.name}`.includes(query));
   const scopedTours=data.tours.filter(tour=>scopedProjects.some(project=>project.id===tour.projectId));
   const activeProject=scopedProjects.find(project=>project.id===projectId)||scopedProjects[0];
-  return <main className="imo-shell imo-studio"><aside className="imo-sidebar"><a href="/imo3d" onClick={event=>{if(editorBlocked){event.preventDefault();setError("احفظ تعديلات الجولة قبل العودة إلى الاستوديو.");}}}><Brand/></a><div className="imo-sidebar-label">مساحة العمل</div><nav><button aria-label="المطورون" className={view==="projects"?"active":""} onClick={()=>changeView("projects")}><Icon name="grid"/>المطورون<span>{data.developers?.length??0}</span></button><button aria-label="طلبات الاهتمام" className={view==="leads"?"active":""} onClick={()=>changeView("leads")}><Icon name="people"/>طلبات الاهتمام<span>{(data.leadTotal??data.leads.length)}</span></button></nav><div className="imo-sidebar-bottom"><div className="imo-brand-avatar">B</div><div><strong>BMK Solutions</strong><small>IMO 3D Studio</small></div></div></aside>
+  return <main className="imo-shell imo-studio"><aside className="imo-sidebar"><a href="/imo3d" onClick={event=>{if(editorBlocked){event.preventDefault();setError("احفظ تعديلات الجولة قبل العودة إلى الاستوديو.");}}}><Brand/></a><div className="imo-sidebar-label">مساحة العمل</div><nav><button aria-label="المطورون" className={view==="projects"?"active":""} onClick={()=>changeView("projects")}><Icon name="grid"/>المطورون<span>{data.developers?.length??0}</span></button><button aria-label="طلبات الاهتمام" className={view==="leads"?"active":""} onClick={()=>changeView("leads")}><Icon name="people"/>طلبات الاهتمام<span>{(data.leadTotal??data.leads.length)}</span></button>{data.features?.cloud&&<button aria-label="الإعدادات" onClick={()=>setAdminSettings(true)}><Icon name="settings"/>الإعدادات</button>}</nav><div className="imo-sidebar-bottom"><div className="imo-brand-avatar">B</div><div><strong>BMK Solutions</strong><small>IMO 3D Studio</small></div></div></aside>
     <div className="imo-workspace"><header className="imo-studio-top"><div><span className="imo-breadcrumb">الاستوديو</span><span>/</span><b>{selected?selected.title:view==="leads"?"طلبات الاهتمام":"المطورون"}</b></div><span className="imo-private"><span className="imo-status-dot"/> مساحة الإدارة</span></header>
       {error&&<div className="imo-banner error" role="alert">{error}<button aria-label="إغلاق الرسالة" onClick={()=>setError("")}><Icon name="close"/></button></div>}
       {notice&&<div className="imo-banner" role="status">{notice}<button aria-label="إغلاق الرسالة" onClick={()=>setNotice("")}><Icon name="close"/></button></div>}
@@ -65,6 +66,7 @@ export default function Studio(){
       </>}
       </div>}
     </div>
+    {adminSettings&&<AdminSettings onClose={()=>setAdminSettings(false)} onSaved={()=>{setAdminSettings(false);setNotice("تم تغيير كلمة المرور. استخدم الكلمة الجديدة عند الدخول من الأجهزة الأخرى.");}}/>}
     {modal&&<Dialog title={modal==="project"?"مشروع جديد":"جولة جديدة"} onClose={()=>setModal(null)}><form className="imo-form" onSubmit={e=>{e.preventDefault();const form=new FormData(e.currentTarget);void run(async()=>{if(modal==="project"){const project=await api<Project>("projects",{method:"POST",body:JSON.stringify({name:form.get("name"),location:form.get("location"),developerId:form.get("developerId")||null})});await refresh();setDeveloperId(project.developerId??"");setProjectId(project.id);setModal("tour");}else{const tour=await api<Tour>("tours",{method:"POST",body:JSON.stringify({projectId:form.get("projectId"),title:form.get("name")})});await refresh();setSelected(tour);setModal(null);}});}}>
       {modal==="tour"&&<label>المشروع<select name="projectId" defaultValue={projectId||scopedProjects[0]?.id}>{scopedProjects.map(project=><option key={project.id} value={project.id}>{project.name}</option>)}</select></label>}
       <label>{modal==="project"?"اسم المشروع":"اسم الجولة أو الوحدة"}<input name="name" required minLength={2} maxLength={120} placeholder={modal==="project"?"مثال: مساكن الروضة":"مثال: شقة ١٠١"}/></label>
@@ -197,3 +199,4 @@ function Editor({initial,onChange,onBack,onError,onNotice,onBlockedChange,onSett
     {publish&&<Dialog title={tour.published?"إيقاف إتاحة الرابط":"إتاحة رابط المشاهدة"} onClose={()=>setPublish(false)}><p>{tour.published?"ستصبح الجولة خاصة بالإدارة، ولن يستطيع الزوار فتح رابطها.":"سيتمكن من يملك رابط الجولة من مشاهدة الصور والمخطط وبيانات الوحدة."}</p>{processing&&<p className="imo-muted">المعالجة ما زالت جارية؛ ستُحدّث نتيجتها الجولة عند اكتمالها.</p>}<div className="imo-dialog-actions"><button className="imo-button primary" disabled={working} onClick={()=>void run(async()=>{await save(!tour.published);setPublish(false);onNotice("تم تحديث إتاحة الجولة.");})}>{tour.published?"جعلها مسودة":"إتاحة الرابط"}</button><button className="imo-button secondary" disabled={working} onClick={()=>setPublish(false)}>إلغاء</button></div></Dialog>}
   </div>;
 }
+

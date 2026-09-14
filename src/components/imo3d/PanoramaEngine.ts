@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import {PanoramaBlobCache} from './PanoramaBlobCache';
 import type { Plan, Point, Scene } from "@/lib/imo3d/model";
 import type { NavigationBearings } from "@/lib/imo3d/navigation";
 import { angleDifference,radians, sampleDepth, worldRay } from "@/lib/imo3d/spatial";
@@ -84,7 +85,8 @@ export class PanoramaEngine {
   onView?: (yaw: number, pitch: number, position: Point) => void;
   onError?: (message: string) => void;
 
-  constructor(private canvas: HTMLCanvasElement, private options: { plans?: Plan[] } = {}) {
+  private blobs=new PanoramaBlobCache(24*1024*1024);
+  constructor(private canvas: HTMLCanvasElement, private options: { plans?: Plan[];resolveAsset?:(url:string)=>string } = {}) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: "high-performance" });
     this.pixelRatio=Math.min(window.devicePixelRatio, 1.5);
     this.renderer.setPixelRatio(this.pixelRatio);
@@ -190,9 +192,17 @@ export class PanoramaEngine {
     const timer=window.setTimeout(()=>abort.abort(),20000);
     try {
       if(signal.aborted||this.destroyed)throw cancelled();
-      const response=await fetch(url,{signal:abort.signal,credentials:"same-origin"});
-      if(!response.ok)throw new Error("تعذر تحميل صورة الجولة.");
-      const blob=await response.blob();
+      let blob=this.blobs.get(url);
+      if(!blob){
+        const resolved=this.options.resolveAsset?.(url)??url;
+        let response:Response;
+        try{response=await fetch(resolved,{signal:abort.signal,credentials:"same-origin"});}
+        catch(error){if(resolved===url||abort.signal.aborted)throw error;response=await fetch(url,{signal:abort.signal,credentials:"same-origin"});}
+        if(!response.ok&&resolved!==url)response=await fetch(url,{signal:abort.signal,credentials:"same-origin"});
+        if(!response.ok)throw new Error("تعذر تحميل صورة الجولة.");
+        blob=await response.blob();
+        if(!signal.aborted&&!this.destroyed)this.blobs.set(url,blob);
+      }
       if(signal.aborted||this.destroyed)throw cancelled();
       // ImageBitmap ignores Texture.flipY; apply the panorama's flip at decode.
       const decoding=createImageBitmap(blob,{imageOrientation:"flipY",premultiplyAlpha:"none",colorSpaceConversion:"none",...(resizeWidth?{resizeWidth,resizeHeight:resizeWidth/2,resizeQuality:"high" as const}:{})});
@@ -215,7 +225,7 @@ export class PanoramaEngine {
   private texture(url: string, signal: AbortSignal,resizeWidth?:number): Promise<THREE.Texture> {
     if(typeof createImageBitmap==="function"&&typeof fetch==="function")return this.bitmapTexture(url,signal,resizeWidth);
     return new Promise((resolve,reject) => {
-      const image = new Image(); image.decoding = "async";
+      const image = new Image(); image.decoding = "async";image.crossOrigin="anonymous";
       const cleanup = () => {
         clearTimeout(timer); image.onload=null; image.onerror=null; signal.removeEventListener("abort",abort);
       };
@@ -235,7 +245,7 @@ export class PanoramaEngine {
       };
       image.onerror = () => { cleanup(); image.removeAttribute("src"); reject(new Error("تعذر تحميل صورة الجولة. تحقق من الاتصال وحاول مجددًا.")); };
       signal.addEventListener("abort",abort,{once:true});
-      if (signal.aborted) abort(); else image.src=url;
+      if (signal.aborted) abort(); else image.src=this.options.resolveAsset?.(url)??url;
     });
   }
 
@@ -607,7 +617,7 @@ export class PanoramaEngine {
     for(const job of this.preparations)job.abort();this.preparations.clear();
     for (const entry of this.cache.values()) this.release(entry); this.cache.clear();
     this.renderA.dispose(); this.renderB.dispose(); this.blendQuad.geometry.dispose(); this.blendMaterial.dispose();
-    this.cursorMesh.geometry.dispose();this.cursorMaterial.dispose();this.renderer.dispose();
+    this.blobs.clear();this.cursorMesh.geometry.dispose();this.cursorMaterial.dispose();this.renderer.dispose();
     this.canvas.removeEventListener("webglcontextlost",this.contextLost);
     this.canvas.removeEventListener("webglcontextrestored",this.contextRestored);
     this.onView=undefined; this.onLoading=undefined; this.onError=undefined;

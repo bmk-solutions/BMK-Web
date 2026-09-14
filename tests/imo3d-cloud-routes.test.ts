@@ -10,6 +10,8 @@ import {publicProcessingJob} from '../src/lib/imo3d/cloud/jobs';
 import {aiPlanFingerprint} from '../src/lib/imo3d/ai-plan-jobs';
 import {syntheticTour} from './fixtures/imo3d-synthetic-tour';
 import {hashAdminPassword,verifyAdminPassword} from '../src/lib/imo3d/admin-password';
+import {PanoramaBlobCache} from '../src/components/imo3d/PanoramaBlobCache';
+import {cloudSignedDownloads} from '../src/lib/imo3d/cloud/client';
 const origin='https://imo3d.example',secret='synthetic-test-secret-is-at-least-32-characters',fetchOriginal=globalThis.fetch,envOriginal={...process.env};
 const adminCookie=()=>{const expiry=String(Date.now()+60_000);return `imo3d_session=${expiry}.${createHmac('sha256',secret).update(expiry).digest('hex')}`;};
 const req=(url:string,options:RequestInit={},admin=false)=>new Request(origin+'/api/imo3d/'+url,{...options,headers:{...(admin?{cookie:adminCookie()}:{}),...(options.method&&options.method!=='GET'?{Origin:origin,'Content-Type':'application/json'}:{}),...Object.fromEntries(new Headers(options.headers))}});
@@ -17,6 +19,54 @@ const result=(value:unknown,status=200)=>new Response(JSON.stringify(value),{sta
 type Call={url:URL;method:string;body:Record<string,unknown>|null};let storedCredential:Record<string,unknown>|null=null;let calls:Call[]=[];let mock:(call:Call)=>Response|Promise<Response>;
 beforeEach(()=>{Object.assign(process.env,{IMO3D_CLOUD:'1',SUPABASE_URL:'https://synthetic.supabase.co',SUPABASE_SERVICE_ROLE_KEY:'synthetic-key',IMO3D_ADMIN_SECRET:secret,IMO3D_PUBLIC_ORIGIN:origin,IMO3D_DATA_DIR:path.resolve('work/cloud-test-must-not-create-database')});storedCredential=null;calls=[];mock=call=>{throw Error('Unexpected cloud request '+call.url.pathname);};globalThis.fetch=async(input,init)=>{const call={url:new URL(String(input)),method:init?.method??'GET',body:typeof init?.body==='string'?JSON.parse(init.body):null};if(call.url.pathname.endsWith("/imo3d_admin_credentials")&&call.method==="GET")return result(storedCredential?[storedCredential]:[]);calls.push(call);return mock(call);};});
 afterEach(()=>{globalThis.fetch=fetchOriginal;for(const key of Object.keys(process.env))if(!(key in envOriginal))delete process.env[key];Object.assign(process.env,envOriginal);});
+
+test('viewer media signs only current display images in one batch and preserves canonical scene references',async()=>{
+ const tour={...syntheticTour(),published:true};tour.scenes[0].image='/api/imo3d/assets/display';
+ const started=Date.now();
+ mock=call=>{
+  if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);
+  if(call.url.pathname.endsWith('/imo3d_project_branding'))return result([]);
+  if(call.url.pathname.endsWith('/imo3d_assets')){assert.equal(call.url.searchParams.get('tour_id'),'eq.'+tour.id);return result([{id:'display',storage_key:'tour/display.webp',mime:'image/webp'},{id:'unused',storage_key:'tour/unused.webp',mime:'image/webp'},{id:'model',storage_key:'tour/mesh',mime:'application/octet-stream'}]);}
+  assert.equal(call.url.pathname,'/storage/v1/object/sign/imo3d-private');
+  assert.deepEqual(call.body,{paths:['tour/display.webp'],expiresIn:300});
+  return result([{path:'tour/display.webp',signedURL:'/object/sign/imo3d-private/tour/display.webp?token=test'}]);
+ };
+ const response=await cloudRoute(req(`tours/${tour.id}?media=1`));assert.equal(response.status,200);
+ const body=await response.json();assert.equal(body.scenes[0].image,tour.scenes[0].image);
+ assert.deepEqual(Object.keys(body.media.urls),['/api/imo3d/assets/display']);
+ assert.match(body.media.urls['/api/imo3d/assets/display'],/^https:\/\/synthetic.storage.supabase.co\/storage\/v1\//);
+ assert.ok(body.media.expiresAt>=started+269000&&body.media.expiresAt<=Date.now()+270000);
+ assert.match(response.headers.get('cache-control')!,/no-store/);
+ assert.equal(calls.filter(call=>call.url.pathname.includes('/object/sign/')).length,1);
+});
+
+test('media refresh rejects unpublished tours without a session before looking up assets',async()=>{
+ const tour={...syntheticTour(),published:false};mock=()=>result([{payload:tour}]);
+ assert.equal((await cloudRoute(req(`tours/${tour.id}/media`))).status,404);
+ assert.equal(calls.length,1);
+});
+
+test('authorized media refresh permits a private tour and omits missing signed objects',async()=>{
+ const tour={...syntheticTour(),published:false};tour.scenes[0].image='/api/imo3d/assets/display';
+ mock=call=>call.url.pathname.endsWith('/imo3d_tours')?result([{payload:tour}]):call.url.pathname.endsWith('/imo3d_assets')?result([{id:'display',storage_key:'missing.webp',mime:'image/webp'}]):result([{path:'missing.webp',error:'not found',signedURL:null}]);
+ const response=await cloudRoute(req(`tours/${tour.id}/media`,{},true));assert.equal(response.status,200);assert.deepEqual((await response.json()).urls,{});
+});
+
+test('batch storage signing rejects untrusted origins and ignores unsolicited paths',async()=>{
+ mock=()=>result([{path:'ok.webp',signedURL:'https://untrusted.example/image'}]);
+ await assert.rejects(cloudSignedDownloads(['ok.webp']),/Unexpected storage URL/);
+ mock=()=>result([{path:'other.webp',signedURL:'/object/sign/other'}]);
+ assert.equal((await cloudSignedDownloads(['ok.webp'])).size,0);
+});
+
+test('compressed panorama cache evicts by byte budget and recency and clears on disposal',()=>{
+ const cache=new PanoramaBlobCache(6),blob=()=>new Blob(['abc']);
+ cache.set('a',blob());cache.set('b',blob());assert.ok(cache.get('a'));
+ cache.set('c',blob());assert.equal(cache.get('b'),undefined);assert.ok(cache.get('a'));
+ cache.set('huge',new Blob(['1234567']));assert.equal(cache.get('huge'),undefined);
+ cache.set('a',new Blob(['1']));cache.set('d',new Blob(['12']));assert.ok(cache.get('c'));
+ cache.clear();assert.equal(cache.get('a'),undefined);assert.equal(cache.get('d'),undefined);
+});
 
 test('password changes store only a salted hash, revoke previous cookies and keep the new session',async()=>{
  const password='New synthetic passphrase 2026';

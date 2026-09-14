@@ -51,6 +51,24 @@ export async function cloudSignedDownload(key:string,expiresIn=300):Promise<stri
   const config=cloudConfig(),url=new URL(candidate.startsWith('/object/')?`/storage/v1${candidate}`:candidate,config.storageUrl);
   if(![config.url,config.storageUrl].includes(url.origin)||url.username||url.password)throw new Error('Unexpected storage URL.');return url.href;
 }
+/** Sign display assets in one storage round trip, instead of one redirect per frame. */
+export async function cloudSignedDownloads(keys:string[],expiresIn=300):Promise<Map<string,string>>{
+  if(!Number.isInteger(expiresIn)||expiresIn<1||expiresIn>3600)throw new Error('Invalid download expiry.');
+  const paths=[...new Set(keys)];paths.forEach(cloudObjectPath);
+  if(!paths.length)return new Map();
+  const config=cloudConfig();
+  const response=await request(`/storage/v1/object/sign/${config.bucket}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paths,expiresIn})});
+  const data:unknown=await response.json();if(!Array.isArray(data))throw new Error('Invalid storage response.');
+  const allowed=new Set(paths),signed=new Map<string,string>();
+  for(const row of data){
+    if(!row||!allowed.has(row.path)||row.error)continue;
+    const candidate=row.signedURL??row.signedUrl;if(typeof candidate!=='string')continue;
+    const url=new URL(candidate.startsWith('/object/')?`/storage/v1${candidate}`:candidate,config.storageUrl);
+    if(![config.url,config.storageUrl].includes(url.origin)||url.username||url.password)throw new Error('Unexpected storage URL.');
+    signed.set(row.path,url.href);
+  }
+  return signed;
+}
 export async function cloudSignedUpload(key:string):Promise<{url:string;token:string;path:string}>{
   const response=await request(`/storage/v1/object/upload/sign/${cloudConfig().bucket}/${cloudObjectPath(key)}`,{method:'POST',headers:{'Content-Type':'application/json','x-upsert':'false'},body:'{}'});
   const data=await response.json();const candidate=data.url??data.signedURL;

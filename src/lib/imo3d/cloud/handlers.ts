@@ -1,4 +1,5 @@
 import {randomUUID} from "node:crypto";
+import {tourMedia} from './media';
 import {z} from "zod";
 import {cloudAccess,cloudChangePassword,cloudLogin,cloudSameOrigin} from "./auth";
 import {cloudQuery,cloudRpc,cloudSignedDownload} from "./client";
@@ -52,7 +53,12 @@ async function handle(request:Request){
   if(asset.mime===meshModelMime){const mesh=tour.plans.map(plan=>currentTexturedMesh(plan,tour.scenes)).find(model=>model?.url===`/api/imo3d/assets/${id}`);if(!mesh||asset.byte_size!==mesh.byteLength||asset.byte_size>maxMeshBytes)return fail("النموذج لم يعد يطابق صور الجولة وحدودها.",404);}
   return signedRedirect(await cloudSignedDownload(asset.storage_key));
  }
- if(resource==="tours"&&id&&method==="GET"&&segments.length===2){const tour=await getTour(id);if(!tour||!access.allowed(tour.projectId)&&(!tour.published||!!access.integration))return fail("الجولة غير متاحة.",404);return json({...tour,branding:await getBranding(tour.projectId)});}
+ if(resource==="tours"&&id&&method==="GET"&&(segments.length===2||segments.length===3&&action==='media')){
+  const tour=await getTour(id);if(!tour||!access.allowed(tour.projectId)&&(!tour.published||!!access.integration))return fail("الجولة غير متاحة.",404);
+  if(action==='media')return json(await tourMedia(tour));
+  const [branding,media]=await Promise.all([getBranding(tour.projectId),new URL(request.url).searchParams.get('media')==='1'?tourMedia(tour).catch(()=>undefined):undefined]);
+  return json({...tour,branding,...(media?{media}:{})});
+ }
  if(resource==="tours"&&id&&action==="ai-plan"){
   if(last&&last!=="image")return fail("المسار غير موجود.",404);
   const tour=await getTour(id);if(!tour)return fail("الجولة غير متاحة.",404);return cloudAIPlan(request,tour,last,access);

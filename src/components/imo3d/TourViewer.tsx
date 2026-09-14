@@ -19,16 +19,33 @@ import "./room-functions.css";
 import "./liquid-glass.css";
 import "./viewer-clean.css";
 import {hasReviewedArchitecture} from "@/lib/imo3d/architecture-visibility";
+type ViewerMedia={expiresAt:number;urls:Record<string,string>};
+type ViewerTour=Tour&{media?:ViewerMedia};
 
 export default function TourViewer({id,embedded=false,initialSceneId}:{id:string;embedded?:boolean;initialSceneId?:string}) {
-  const [tour,setTour]=useState<Tour|null>(null),[error,setError]=useState("");
-  useEffect(()=>{let active=true;api<Tour>(`tours/${id}`).then(value=>{if(active)setTour(value);}).catch(e=>{if(active)setError(e.message);});return()=>{active=false;};},[id]);
+  const [tour,setTour]=useState<ViewerTour|null>(null),[error,setError]=useState("");
+  useEffect(()=>{let active=true;api<ViewerTour>(`tours/${id}?media=1`).then(value=>{if(active)setTour(value);}).catch(e=>{if(active)setError(e.message);});return()=>{active=false;};},[id]);
   if(error)return <main className="imo-shell imo-load"><Icon name="info" size={32}/><h1>تعذر فتح الجولة</h1><p>{error}</p><a className="imo-button primary" href="/imo3d">العودة إلى الاستوديو</a></main>;
   if(!tour)return <main className="imo-shell imo-load"><span className="imo-spinner"/><p>جارٍ تحضير جولتك…</p></main>;
   if(!tour.scenes.length)return <main className="imo-shell imo-load"><h1>{tour.title}</h1><p>لم تُضف لقطات لهذه الجولة بعد.</p><a href="/imo3d" className="imo-button primary">فتح الاستوديو</a></main>;
   return <Viewer tour={tour} embedded={embedded} initialSceneId={tour.scenes.some(scene=>scene.id===initialSceneId)?initialSceneId:undefined}/>;
 }
-function Viewer({tour,embedded,initialSceneId}:{tour:Tour;embedded:boolean;initialSceneId?:string}) {
+function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean;initialSceneId?:string}) {
+  const media=useRef(tour.media);
+  useEffect(()=>{
+    if(!tour.media)return;
+    let active=true,pending=false;
+    const refresh=async()=>{
+      if(pending||document.hidden||Date.now()<(media.current?.expiresAt??0)-60_000)return;
+      pending=true;
+      try{const next=await api<ViewerMedia>(`tours/${tour.id}/media`);if(active)media.current=next;}
+      catch{/* Expired grants fall back to the authenticated asset route. */}
+      finally{pending=false;}
+    };
+    const timer=window.setInterval(()=>void refresh(),30_000);
+    document.addEventListener('visibilitychange',refresh);
+    return()=>{active=false;clearInterval(timer);document.removeEventListener('visibilitychange',refresh);};
+  },[tour.id,tour.media]);
   const initialScene=tour.scenes.find(scene=>scene.id===initialSceneId)||tour.scenes[0];
   const canvas=useRef<HTMLCanvasElement>(null),container=useRef<HTMLDivElement>(null),engine=useRef<PanoramaEngine|null>(null);
   const [current,setCurrent]=useState(initialScene),currentRef=useRef(initialScene);
@@ -114,7 +131,7 @@ function Viewer({tour,embedded,initialSceneId}:{tour:Tour;embedded:boolean;initi
     mounted.current=true;let cancelled=false;let resize:ResizeObserver|undefined;let instance:PanoramaEngine|undefined;
     const el=canvas.current!;
     void import("./PanoramaEngine").then(async({PanoramaEngine})=>{
-      if(cancelled)return;instance=new PanoramaEngine(el,{plans:tour.plans});engine.current=instance;
+      if(cancelled)return;instance=new PanoramaEngine(el,{plans:tour.plans,resolveAsset:url=>media.current&&Date.now()<media.current.expiresAt?media.current.urls[url]??url:url});engine.current=instance;
       instance.onError=setError;instance.onLoading=loading=>{if(!cancelled)setBusy(loading);};
       instance.onView=(nextYaw,_pitch,nextPosition)=>{
         if(cancelled)return;

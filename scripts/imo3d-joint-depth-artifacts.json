@@ -1,0 +1,225 @@
+{
+  "schemaVersion": 1,
+  "model": "depth-anything/DA3-BASE",
+  "license": "Apache-2.0",
+  "modelRevision": "f4a6c9b3c95e41c82048423d3493a81ec3fa810e",
+  "sourceRevision": "cfa6140634d538a5a3609178ae7a9fdc3e91a514",
+  "sourceScope": "26 official inference package files only; demo/app/export assets and unused BSD or no-header helpers excluded",
+  "licenseEvidence": [
+    "https://huggingface.co/depth-anything/DA3-BASE",
+    "Official pinned pyproject.toml package license Apache-2.0; ByteDance source headers retained.",
+    "Meta DINOv2 vision_transformer.py explicitly Apache-2.0, inherited layer headers retained; https://huggingface.co/facebook/dinov2-base"
+  ],
+  "artifacts": [
+    {
+      "name": "model.safetensors",
+      "target": "work/da3-model/model.safetensors",
+      "url": "https://huggingface.co/depth-anything/DA3-BASE/resolve/f4a6c9b3c95e41c82048423d3493a81ec3fa810e/model.safetensors",
+      "bytes": 541518028,
+      "sha256": "e01067dc1659613083d9145a9a2547ccdbe6ccbbf83c4fe7b3e8a4e2bdae78b5"
+    },
+    {
+      "name": "config.json",
+      "target": "work/da3-model/config.json",
+      "url": "https://huggingface.co/depth-anything/DA3-BASE/resolve/f4a6c9b3c95e41c82048423d3493a81ec3fa810e/config.json",
+      "bytes": 1205,
+      "sha256": "5e34115ebc17bd2d8d43033c5f72e9446ac8833fd61d3fa160b7e67e0bb5b7b5"
+    },
+    {
+      "name": "README.md",
+      "target": "work/da3-model/README.md",
+      "url": "https://huggingface.co/depth-anything/DA3-BASE/resolve/f4a6c9b3c95e41c82048423d3493a81ec3fa810e/README.md",
+      "bytes": 5682,
+      "sha256": "5388563071b4361b11d6d811b354d454f26aed2adba634fcf4ee3775c8eda480"
+    },
+    {
+      "name": "depth_anything_3/cfg.py",
+      "target": "work/da3-python/depth_anything_3/cfg.py",
+      "url": "https://huggingface.co/spaces/depth-anything/depth-anything-3/resolve/cfa6140634d538a5a3609178ae7a9fdc3e91a514/depth_anything_3/cfg.py",
+      "bytes": 5037,
+      "sha256": "655a018ab35ad715454fdbca047354591287b6b86c10c91b8c0a920df0153014"
+    },
+    {
+      "name": "depth_anything_3/model/__init__.py",
+      "target": "work/da3-python/depth_anything_3/model/__init__.py",
+      "url": "https://huggingface.co/spaces/depth-anything/depth-anything-3/resolve/cfa6140634d538a5a3609178ae7a9fdc3e91a514/depth_anything_3/model/__init__.py",
+      "bytes": 755,
+      "sha256": "e6fd99e59aec06a5f8a19255d11e7ecd9fa6482bdacad0e3e1a8fe2991cd64b6"
+    },
+    {
+      "name": "depth_anything_3/model/cam_dec.py",
+      "target": "work/da3-python/depth_anything_3/model/cam_dec.py",
+      "url": "https://huggingface.co/spaces/depth-anything/depth-anything-3/resolve/cfa6140634d538a5a3609178ae7a9fdc3e91a514/depth_anything_3/model/cam_dec.py",
+      "bytes": 1713,
+      "sha256": "f7bc81d846b786e314c03eaaf809126505fa0c82eb5177b95eadbfad5beefd63"
+    },
+    {
+      "name": "depth_anything_3/model/cam_enc.py",
+      "target": "work/da3-python/depth_anything_3/model/cam_enc.py",
+      "url": "https://huggingface.co/spaces/depth-anything/depth-anything-3/resolve/cfa6140634d538a5a3609178ae7a9fdc3e91a514/depth_anything_3/model/cam_enc.py",
+      "bytes": 2538,
+      "sha256": "3831baa5d661d9693222d209f5908279a350c7711d03c0daf50f7d1aac9b59a2"
+    },
+    {
+      "name": "depth_anything_3/model/da3.py",
+      "target": "work/da3-python/depth_anything_3/model/da3.py",
+      "url": "https://huggingface.co/spaces/depth-anything/depth-anything-3/resolve/cfa6140634d538a5a3609178ae7a9fdc3e91a514/depth_anything_3/model/da3.py",
+      "bytes": 14549,
+      "sha256": "b9a948a99db6a471e85c6a608590a5fee38daa112cb9cf04b49a919238869264"
+    },
+    {
+      "name": "depth_anything_3/model/dinov2/dinov2.py",
+      "target": "work/da3-python/depth_anything_3/model/dinov2/dinov2.py",
+      "url": "https://huggingface.co/spaces/depth-anything/depth-anything-3/resolve/cfa6140634d538a5a3609178ae7a9fdc3e91a514/depth_anything_3/model/dinov2/dinov2.py",
+      "bytes": 1824,
+      "sha256": "5d8e603113731365b3f46a3df4d159ad58f8723ec011440bf1961a4cbe101ca2"
+    },
+    {
+      "name": "depth_anything_3/model/dinov2/layers/__init__.py",
+      "target": "work/da3-python/depth_anything_3/model/dinov2/layers/__init__.py",
+      "url": "https://huggingface.co/spaces/depth-anything/depth-anything-3/resolve/cfa6140634d538a5a3609178ae7a9fdc3e91a514/depth_anything_3/model/dinov2/layers/__init__.py",
+      "bytes": 644,
+      "sha256": "321a97ffc00375d6d48569cbc851a38e7d2dc8bbdbfcffbee722c6c27783acda"
+    },
+    {
+      "name": "depth_anything_3/model/dinov2/layers/attention.py",
+      "target": "work/da3-python/depth_anything_3/model/dinov2/layers/attention.py",
+      "url": "https://huggingface.co/spaces/depth-anything/depth-anything-3/resolve/cfa6140634d538a5a3609178ae7a9fdc3e91a514/depth_anything_3/model/dinov2/layers/attention.py",
+      "bytes": 3264,
+      "sha256": "d9db2bd66c612df689ec19aa2b60138c4185e38c8cfaaef48fc17f39a5b17c81"
+    },
+    {
+      "name": "depth_anything_3/model/dinov2/layers/block.py",
+      "target": "work/da3-python/depth_anything_3/model/dinov2/layers/block.py",
+      "url": "https://huggingface.co/spaces/depth-anything/depth-anything-3/resolve/cfa6140634d538a5a3609178ae7a9fdc3e91a514/depth_anything_3/model/dinov2/layers/block.py",
+      "bytes": 5010,
+      "sha256": "88924cf5cd9fb18b17a8329e4c9910528205c302d8be40be29ad74e97ae7a3b8"
+    },
+    {
+      "name": "depth_anything_3/model/dinov2/layers/drop_path.py",
+      "target": "work/da3-python/depth_anything_3/model/dinov2/layers/drop_path.py",
+      "url": "https://huggingface.co/spaces/depth-anything/depth-anything-3/resolve/cfa6140634d538a5a3609178ae7a9fdc3e91a514/depth_anything_3/model/dinov2/layers/drop_path.py",
+      "bytes": 1146,
+      "sha256": "80b5cc50297f3049d313c5659c1244901407bdac80cf424c5d7ed64ae79cd141"
+    },
+    {
+      "name": "depth_anything_3/model/dinov2/layers/layer_scale.py",
+      "target": "work/da3-python/depth_anything_3/model/dinov2/layers/layer_scale.py",
+      "url": "https://huggingface.co/spaces/depth-anything/depth-anything-3/resolve/cfa6140634d538a5a3609178ae7a9fdc3e91a514/depth_anything_3/model/dinov2/layers/layer_scale.py",
+      "bytes": 1000,
+      "sha256": "23aba2710d7d425b5abd50c006edef9c9224360d6499171b6c1ec18ef73c0b00"
+    },
+    {
+      "name": "depth_anything_3/model/dinov2/layers/mlp.py",
+      "target": "work/da3-python/depth_anything_3/model/dinov2/layers/mlp.py",
+      "url": "https://huggingface.co/spaces/depth-anything/depth-anything-3/resolve/cfa6140634d538a5a3609178ae7a9fdc3e91a514/depth_anything_3/model/dinov2/layers/mlp.py",
+      "bytes": 1271,
+      "sha256": "4f17c26120d04e4e4368b07a2396a977044b00d1dcbf1bbd1a9d3447be1aa6cf"
+    },
+    {
+      "name": "depth_anything_3/model/dinov2/layers/patch_embed.py",
+      "target": "work/da3-python/depth_anything_3/model/dinov2/layers/patch_embed.py",
+      "url": "https://huggingface.co/spaces/depth-anything/depth-anything-3/resolve/cfa6140634d538a5a3609178ae7a9fdc3e91a514/depth_anything_3/model/dinov2/layers/patch_embed.py",
+      "bytes": 2903,
+      "sha256": "72f14d7b3daf3f545ba93c085b0a90f3b63efcf1a14f8d694dc77763c0607528"
+    },
+    {
+      "name": "depth_anything_3/model/dinov2/layers/rope.py",
+      "target": "work/da3-python/depth_anything_3/model/dinov2/layers/rope.py",
+      "url": "https://huggingface.co/spaces/depth-anything/depth-anything-3/resolve/cfa6140634d538a5a3609178ae7a9fdc3e91a514/depth_anything_3/model/dinov2/layers/rope.py",
+      "bytes": 7793,
+      "sha256": "dcd09808cf03ceae7abfdcbe6805ee36990412b5308b09a86c4b51a040cff38b"
+    },
+    {
+      "name": "depth_anything_3/model/dinov2/layers/swiglu_ffn.py",
+      "target": "work/da3-python/depth_anything_3/model/dinov2/layers/swiglu_ffn.py",
+      "url": "https://huggingface.co/spaces/depth-anything/depth-anything-3/resolve/cfa6140634d538a5a3609178ae7a9fdc3e91a514/depth_anything_3/model/dinov2/layers/swiglu_ffn.py",
+      "bytes": 1858,
+      "sha256": "f0e0bab6e9e835b81c53bd69616af43d254a91af4b119923160b7df1602b1562"
+    },
+    {
+      "name": "depth_anything_3/model/dinov2/vision_transformer.py",
+      "target": "work/da3-python/depth_anything_3/model/dinov2/vision_transformer.py",
+      "url": "https://huggingface.co/spaces/depth-anything/depth-anything-3/resolve/cfa6140634d538a5a3609178ae7a9fdc3e91a514/depth_anything_3/model/dinov2/vision_transformer.py",
+      "bytes": 16550,
+      "sha256": "73271194a5113905dfc7e9debee42de3bb308fa5da3ffa87060ff4c6452a9557"
+    },
+    {
+      "name": "depth_anything_3/model/dpt.py",
+      "target": "work/da3-python/depth_anything_3/model/dpt.py",
+      "url": "https://huggingface.co/spaces/depth-anything/depth-anything-3/resolve/cfa6140634d538a5a3609178ae7a9fdc3e91a514/depth_anything_3/model/dpt.py",
+      "bytes": 17344,
+      "sha256": "60f9f2b9f3d470b991a47d58e30eb77f17c3894bcfc54d230afcb46e7f736cf7"
+    },
+    {
+      "name": "depth_anything_3/model/dualdpt.py",
+      "target": "work/da3-python/depth_anything_3/model/dualdpt.py",
+      "url": "https://huggingface.co/spaces/depth-anything/depth-anything-3/resolve/cfa6140634d538a5a3609178ae7a9fdc3e91a514/depth_anything_3/model/dualdpt.py",
+      "bytes": 19568,
+      "sha256": "d9ab43051a24c575fffb2cf8557adc6245cb2690f910882ae4575c68dd76149a"
+    },
+    {
+      "name": "depth_anything_3/model/utils/attention.py",
+      "target": "work/da3-python/depth_anything_3/model/utils/attention.py",
+      "url": "https://huggingface.co/spaces/depth-anything/depth-anything-3/resolve/cfa6140634d538a5a3609178ae7a9fdc3e91a514/depth_anything_3/model/utils/attention.py",
+      "bytes": 3811,
+      "sha256": "8e8a3dd3aca75ce403bc1a2f7a0b2086cc516b221fcc394b888ebc5ddc9a8a33"
+    },
+    {
+      "name": "depth_anything_3/model/utils/block.py",
+      "target": "work/da3-python/depth_anything_3/model/utils/block.py",
+      "url": "https://huggingface.co/spaces/depth-anything/depth-anything-3/resolve/cfa6140634d538a5a3609178ae7a9fdc3e91a514/depth_anything_3/model/utils/block.py",
+      "bytes": 2756,
+      "sha256": "b0ec438942816169a5215a3678b4bff72b3783472e35942337b4a1142555c57b"
+    },
+    {
+      "name": "depth_anything_3/model/utils/head_utils.py",
+      "target": "work/da3-python/depth_anything_3/model/utils/head_utils.py",
+      "url": "https://huggingface.co/spaces/depth-anything/depth-anything-3/resolve/cfa6140634d538a5a3609178ae7a9fdc3e91a514/depth_anything_3/model/utils/head_utils.py",
+      "bytes": 8106,
+      "sha256": "c43caeaeea7e47953d9d23d84300a9fa2a7abf353a1fe010339462be40d40147"
+    },
+    {
+      "name": "depth_anything_3/model/utils/transform.py",
+      "target": "work/da3-python/depth_anything_3/model/utils/transform.py",
+      "url": "https://huggingface.co/spaces/depth-anything/depth-anything-3/resolve/cfa6140634d538a5a3609178ae7a9fdc3e91a514/depth_anything_3/model/utils/transform.py",
+      "bytes": 6549,
+      "sha256": "98d5c499f40e6e3e63cdaf0e269b8eeeb998ed125bcd63da41e2dec9ad32b8b9"
+    },
+    {
+      "name": "depth_anything_3/utils/alignment.py",
+      "target": "work/da3-python/depth_anything_3/utils/alignment.py",
+      "url": "https://huggingface.co/spaces/depth-anything/depth-anything-3/resolve/cfa6140634d538a5a3609178ae7a9fdc3e91a514/depth_anything_3/utils/alignment.py",
+      "bytes": 4828,
+      "sha256": "a2ffab39163e26d1f62ec43d9c47e1aa80f105e8ebc439f7557615d779574337"
+    },
+    {
+      "name": "depth_anything_3/utils/geometry.py",
+      "target": "work/da3-python/depth_anything_3/utils/geometry.py",
+      "url": "https://huggingface.co/spaces/depth-anything/depth-anything-3/resolve/cfa6140634d538a5a3609178ae7a9fdc3e91a514/depth_anything_3/utils/geometry.py",
+      "bytes": 11854,
+      "sha256": "aa9fdbaf637967429c9a7f3b1682d1e170cc2b67ec6266c277e0a9a2a3a1e91f"
+    },
+    {
+      "name": "depth_anything_3/utils/logger.py",
+      "target": "work/da3-python/depth_anything_3/utils/logger.py",
+      "url": "https://huggingface.co/spaces/depth-anything/depth-anything-3/resolve/cfa6140634d538a5a3609178ae7a9fdc3e91a514/depth_anything_3/utils/logger.py",
+      "bytes": 2513,
+      "sha256": "03ea0032564443ae6df63aa88ab9e4e63b5933ed10463acee607d0bea5836910"
+    },
+    {
+      "name": "pyproject.toml",
+      "target": "work/da3-python/pyproject.toml",
+      "url": "https://huggingface.co/spaces/depth-anything/depth-anything-3/resolve/cfa6140634d538a5a3609178ae7a9fdc3e91a514/pyproject.toml",
+      "bytes": 2026,
+      "sha256": "03fd38f37fb5e5284bc1e76b1afb99a4d96fde826009dcc760c869cd31754f6f"
+    },
+    {
+      "name": "Apache-2.0-license",
+      "target": "work/da3-python/LICENSE",
+      "url": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+      "bytes": 11358,
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    }
+  ]
+}

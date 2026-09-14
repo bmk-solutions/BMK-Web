@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import Script from "next/script";
+import WebsiteChrome from "@/components/WebsiteChrome";
 import "./globals.css";
 import Frag from "@/components/Frag";
 
@@ -72,11 +72,9 @@ export default function RootLayout({
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(orgJsonLd) }}
         />
-        <Frag name="_chrome" />
-        <Frag name="_header" />
-        {children}
-        <Frag name="_footer" />
-        <Script src="/assets/js/site.js" strategy="afterInteractive" />
+        <WebsiteChrome header={<><Frag name="_chrome" /><Frag name="_header" /></>} footer={<Frag name="_footer" />}>
+          {children}
+        </WebsiteChrome>
       </body>
     </html>
   );

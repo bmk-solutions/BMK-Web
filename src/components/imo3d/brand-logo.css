@@ -1,0 +1,8 @@
+.imo-fitted-logo{display:block;width:auto;height:auto;max-width:180px;max-height:66px;object-fit:contain;background:transparent!important;border:0!important;border-radius:0!important;padding:0!important;box-shadow:none!important}
+.imo-fitted-logo--light{filter:brightness(0) invert(1) drop-shadow(0 1px 3px #0004)}
+.imo-viewer .imo-custom-brand{display:flex;flex-direction:row;align-items:center;gap:14px;max-width:min(40vw,330px)}
+.imo-viewer .imo-view-header .imo-custom-brand .imo-fitted-logo{width:auto;height:auto;max-width:180px;max-height:64px;min-width:64px;min-height:34px;flex-shrink:1}
+.imo-viewer .imo-custom-brand>span{font-size:18px;line-height:1.4;white-space:normal}
+.imo-branding-preview-corner .imo-fitted-logo{width:auto;height:auto;max-width:170px;max-height:76px}
+.imo-branding-logo-swatch .imo-fitted-logo{max-width:95%;max-height:90%}
+@media(max-width:720px){.imo-viewer .imo-custom-brand{max-width:48%;gap:8px}.imo-viewer .imo-view-header .imo-custom-brand .imo-fitted-logo{max-width:120px;max-height:45px;min-width:42px;min-height:27px}.imo-viewer .imo-custom-brand>span{font-size:12px}}

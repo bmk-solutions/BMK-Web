@@ -1,0 +1,23 @@
+import {DatabaseSync} from 'node:sqlite';
+import {mkdir,copyFile,readFile,writeFile} from 'node:fs/promises';
+import path from 'node:path';
+import {randomUUID} from 'node:crypto';
+import sharp from 'sharp';
+import {aiPlanFingerprint,ensureAIPlanTables} from '../src/lib/imo3d/ai-plan-jobs.ts';
+// Import an explicitly prepared private draft; never changes published tour geometry.
+const manifestPath=path.resolve(process.argv[2]||'');
+const root=process.cwd(),relative=path.relative(root,manifestPath);
+if(!relative||relative.startsWith('..')||path.isAbsolute(relative))throw Error('Manifest must be inside this project.');
+const input=JSON.parse(await readFile(manifestPath,'utf8'));
+const source=path.resolve(root,input.image),sourceRelative=path.relative(root,source);
+if(sourceRelative.startsWith('..')||path.isAbsolute(sourceRelative)||(await sharp(source).metadata()).format!=='png')throw Error('Draft must be a project-local PNG.');
+const directory=path.resolve('.imo3d-data'),database=new DatabaseSync(path.join(directory,'imo3d.sqlite'));
+database.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');ensureAIPlanTables(database);
+const row=database.prepare('SELECT payload FROM tours WHERE id=?').get(input.tourId);if(!row)throw Error('Tour not found.');
+const tour=JSON.parse(row.payload),sceneIds=tour.scenes.filter(scene=>scene.floor===input.floor).map(scene=>scene.id);
+if(!sceneIds.length||new Set(input.sceneIds).size!==sceneIds.length||sceneIds.some(id=>!input.sceneIds.includes(id)))throw Error('Draft evidence does not match current floor images.');
+const id=randomUUID(),outputDir=path.join(directory,'ai-plans',id);await mkdir(outputDir,{recursive:true});const imagePath=path.join(outputDir,path.basename(source));await copyFile(source,imagePath);
+const result={source:'manual-imagegen-draft',sceneCount:sceneIds.length,limitations:input.limitations,floors:[{floor:input.floor,imagePath,sceneIds,audit:{verdict:'issues_found',issues:input.issues,limitations:['مراجعة بصرية يدوية؛ لم تُختبر النتيجة بواسطة API.',...input.limitations]}}]};
+await writeFile(path.join(outputDir,'result.json'),JSON.stringify(result,null,2));
+const now=new Date().toISOString();database.prepare("INSERT INTO ai_plan_jobs(id,tour_id,input_hash,status,progress,stage,created_at,updated_at,result) VALUES(?,?,?,'draft',100,'مسودة جاهزة للمراجعة',?,?,?)").run(id,tour.id,aiPlanFingerprint(tour.scenes),now,now,JSON.stringify(result));
+console.log(JSON.stringify({tourId:tour.id,jobId:id,imagePath}));database.close();

@@ -1,0 +1,11 @@
+# Install into the repo-local VLM target. Reuses Torch CPU from the layout runtime.
+# Runtime tested with torch==2.14.0+cpu and torchvision==0.29.0+cpu, Python 3.12.
+transformers==4.51.3
+tokenizers==0.21.4
+huggingface-hub==0.30.2
+safetensors==0.5.3
+regex==2024.11.6
+requests==2.32.3
+pyyaml==6.0.2
+tqdm==4.67.1
+pillow==12.3.0

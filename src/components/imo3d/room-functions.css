@@ -1,0 +1,7 @@
+.imo-function-tabs{display:flex;gap:7px;flex-wrap:wrap;margin:0 0 18px;padding-bottom:14px;border-bottom:1px solid #d6dfd8}
+.imo-function-tabs button{min-height:44px;padding:8px 13px;border:1px solid #d9e2dc;border-radius:10px;display:flex;align-items:center;gap:8px;color:#3d5b4e;background:#f5f8f5}
+.imo-function-tabs button[aria-pressed=true]{background:#286b55;border-color:#286b55;color:white}
+.imo-function-tabs small,.imo-function-count{font-size:11px;opacity:.72;font-weight:400}
+.imo-room-switcher .imo-function-count{margin-inline-start:7px}
+.imo-function-tabs button:focus-visible{outline:3px solid #bb9a50;outline-offset:2px}
+@media(max-width:720px){.imo-function-tabs{gap:6px;margin-bottom:12px}.imo-function-tabs button{font-size:12px;padding:7px 10px}}

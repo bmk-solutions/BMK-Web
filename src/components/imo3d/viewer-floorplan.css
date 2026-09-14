@@ -1,0 +1,10 @@
+.imo-viewer-draft{min-width:0;display:grid;gap:12px}
+.imo-viewer-draft-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;color:#284b39}
+.imo-viewer-draft-heading span{font-size:12px;color:#607469}
+.imo-viewer-draft-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.imo-viewer-draft-tools button,.imo-viewer-draft-tools a{min-height:44px;min-width:44px;display:inline-flex;align-items:center;justify-content:center;padding:8px 12px;border:1px solid #dce6df;border-radius:9px;color:#284b39;background:#fff;font:inherit;font-size:13px;text-decoration:none;cursor:pointer}
+.imo-viewer-draft-tools button:disabled{opacity:.45;cursor:default}
+.imo-viewer-draft-sheet{max-height:65dvh;overflow:auto;direction:ltr;background:white;border:1px solid #dce6df;border-radius:12px;overscroll-behavior:contain}
+.imo-viewer-draft-sheet img{display:block;max-width:none;height:auto;margin:0 auto}
+.imo-viewer-draft .imo-muted{margin:0;font-size:12px;line-height:1.7}
+@media(max-width:720px){.imo-viewer-draft{gap:8px}.imo-viewer-draft-sheet{max-height:62dvh}.imo-viewer-draft-tools{gap:5px}}

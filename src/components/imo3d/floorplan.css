@@ -1,0 +1,61 @@
+.imo-floorplan{color:#3e4651;background:#f8f9fa;border:1px solid #e1e5e9;border-radius:14px;overflow:hidden;max-width:680px;margin:0 auto 15px;direction:rtl}
+.imo-floorplan-header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 15px;background:#fff;border-bottom:1px solid #e8ebef;font-size:12px}
+.imo-floorplan-header>span{display:flex;align-items:center;gap:8px;font-weight:500}
+.imo-floorplan-header svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.imo-floorplan-header button{display:grid;place-items:center;min-width:30px;height:30px;padding:4px;border:1px solid #e3e7ec;border-radius:7px;background:white;color:#586170;cursor:pointer}
+.imo-floorplan-header button:hover:not(:disabled){color:#258264;border-color:#a2d8c8;background:#f0faf6}
+.imo-floorplan-header button:focus-visible{outline:2px solid #2baa82;outline-offset:2px}
+.imo-floorplan-header button:disabled{opacity:.4;cursor:default}
+.imo-floorplan-zoom{display:flex;align-items:center;gap:4px;direction:ltr}
+.imo-floorplan-zoom button{font:17px Arial,sans-serif}
+.imo-floorplan-zoom button:nth-child(2){font-size:10px;min-width:42px}
+.imo-floorplan-drawing{padding:14px 20px;background:radial-gradient(ellipse at center,#fff 20%,#f6f7f9 100%)}
+.imo-floorplan-drawing>svg{width:100%;height:min(52dvh,510px);display:block;overflow:hidden;touch-action:manipulation;cursor:pointer}
+.imo-floorplan-source{opacity:.62}
+.imo-floorplan-point{cursor:pointer;outline:none}
+.imo-floorplan-stop{opacity:.5;transition:opacity .15s ease}
+.imo-floorplan-point:hover .imo-floorplan-stop{opacity:1;fill:#2baa82}
+.imo-floorplan-point.is-current .imo-floorplan-stop{opacity:0}
+.imo-floorplan-room{cursor:pointer;outline:none}
+.imo-floorplan-room rect{fill:#fff;fill-opacity:.9;stroke:#e5e9ee;stroke-width:.6}
+.imo-floorplan-room text{fill:#46505d;pointer-events:none;font-family:var(--f-ar),Arial,sans-serif}
+.imo-floorplan-room:hover rect,.imo-floorplan-room:focus-visible rect{fill:#e9f7f1;stroke:#2baa82;stroke-width:1.5}
+.imo-floorplan-room.is-current text{fill:#23795f}
+.imo-floorplan-camera{pointer-events:none}
+.imo-floorplan-location{display:flex;align-items:center;gap:7px;padding:11px 14px;border-top:1px solid #e8ebef;background:#fff;font-size:11px;flex-wrap:wrap}
+.imo-floorplan-location-dot{width:7px;height:7px;border-radius:50%;background:#2baa82;box-shadow:0 0 0 3px #2baa821c;flex:none}
+.imo-floorplan-location small{color:#87919d;font-size:10px;margin-inline-start:auto}
+.imo-floorplan-caption{font-size:11px;color:#6e7886;padding:0 14px 12px;margin:0;background:#fff;line-height:1.8}
+.imo-floorplan-empty{border:1px dashed #d8e0e6;border-radius:12px;padding:24px;color:#7d8894;text-align:center;font-size:12px}
+.imo-floorplan--compact{width:228px;margin:0;box-shadow:0 8px 30px #00000018;border:1px solid #ffffff8f;border-radius:12px;background:#f8f9facf;backdrop-filter:blur(16px)}
+.imo-floorplan--compact .imo-floorplan-header{padding:8px 10px;font-size:10px;background:#fffffff2}
+.imo-floorplan--compact .imo-floorplan-header>span{gap:6px}
+.imo-floorplan--compact .imo-floorplan-header button{width:26px;min-width:26px;height:26px;border:none;background:transparent}
+.imo-floorplan--compact .imo-floorplan-drawing{padding:8px 10px;background:#f8f9faf2}
+.imo-floorplan--compact .imo-floorplan-drawing>svg{height:260px}
+.imo-floorplan--compact .imo-floorplan-stop{opacity:0}
+.imo-floorplan--compact .imo-floorplan-point:hover .imo-floorplan-stop{opacity:1}
+.imo-floorplan--compact .imo-floorplan-location{font-size:10px;padding:9px 11px;background:#fffffff2}
+.imo-floorplan--compact .imo-floorplan-location small{display:none}
+.imo-floorplan-footprint{outline:none;cursor:pointer}
+.imo-floorplan-footprint>polygon{transition:filter .16s ease}
+.imo-floorplan-footprint:hover>polygon,.imo-floorplan-footprint:focus-visible>polygon{filter:brightness(1.045)}
+.imo-floorplan-footprint:focus-visible>polygon{stroke:#218365;stroke-width:1;vector-effect:non-scaling-stroke}
+.imo-floorplan-architectural-label{fill:#37463d;stroke:#f7f6ef;stroke-opacity:.9;stroke-linejoin:round;paint-order:stroke fill;font-family:var(--f-ar),Arial,sans-serif;font-weight:600;pointer-events:none;direction:rtl}
+.imo-floorplan-wall-ink{pointer-events:none}
+.imo-floorplan:not(.imo-floorplan--compact){max-width:none;border-color:#d8dfd7;border-radius:12px;background:#f9faf7}
+.imo-floorplan:not(.imo-floorplan--compact) .imo-floorplan-drawing{padding:22px 26px;background:radial-gradient(ellipse at center,#fffef9 25%,#f0f3ec 100%)}
+.imo-floorplan:not(.imo-floorplan--compact) .imo-floorplan-header{background:#fafbf8;color:#526253;letter-spacing:.1px}
+.imo-floorplan:not(.imo-floorplan--compact) .imo-floorplan-location,.imo-floorplan:not(.imo-floorplan--compact) .imo-floorplan-caption{background:#fafbf8}
+@media(max-width:600px){.imo-floorplan:not(.imo-floorplan--compact) .imo-floorplan-drawing{padding:13px 10px}.imo-floorplan-header{gap:7px;padding:10px}.imo-floorplan-header>span{min-width:0}.imo-floorplan-header button{min-width:36px;height:36px}.imo-floorplan:not(.imo-floorplan--compact) .imo-floorplan-drawing>svg{height:min(49dvh,460px)}}
+@media(max-width:600px){.imo-floorplan--compact{width:166px}.imo-floorplan--compact .imo-floorplan-header{font-size:9px;padding:5px 7px}.imo-floorplan--compact .imo-floorplan-header svg{width:14px;height:14px}.imo-floorplan--compact .imo-floorplan-drawing{padding:5px 7px}.imo-floorplan--compact .imo-floorplan-drawing>svg{height:185px}.imo-floorplan--compact .imo-floorplan-location{font-size:9px;padding:7px 9px}.imo-floorplan-drawing{padding:10px}.imo-floorplan-location small{font-size:9px}}
+.imo-floorplan-doorway{stroke:#54715f;pointer-events:visibleStroke}
+.imo-floorplan-doorway.is-estimated{stroke:#ad8044}
+.imo-floorplan-door-legend{display:flex;align-items:center;gap:8px 15px;flex-wrap:wrap;margin:0;padding:8px 14px 12px;background:#fafbf8;font-size:10px;color:#61715e;line-height:1.6}
+.imo-floorplan-door-legend>span{display:flex;align-items:center;gap:7px}
+.imo-floorplan-door-legend i{display:inline-block;width:19px;height:7px;border:1px solid #54715f;border-block:0;position:relative}
+.imo-floorplan-door-legend i:after{content:"";position:absolute;top:3px;inset-inline:0;border-top:1px solid #54715f}
+.imo-floorplan-door-legend i.is-estimated{border-color:#ad8044}
+.imo-floorplan-door-legend i.is-estimated:after{border-top:1px dashed #ad8044}
+.imo-floorplan-door-legend small{font-size:9px;color:#788574;margin-inline-start:auto}
+.imo-viewer .imo-map-dialog .imo-floorplan-door-legend{background:#f9fcf363}

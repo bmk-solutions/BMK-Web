@@ -1,0 +1,92 @@
+.imo-mobile-dock,.imo-view-title>.imo-mobile-room-name{display:none}
+.imo-view-options-list{display:flex;flex-direction:column;gap:4px}
+.imo-view-options-list>button{display:flex;align-items:center;gap:13px;min-height:62px;width:100%;padding:9px 10px;text-align:start;border-radius:12px;min-width:0}
+.imo-view-options-list>button:hover:not(:disabled){background:#eef5f1}
+.imo-view-options-list>button>svg:first-child{color:#376b5d;flex-shrink:0}
+.imo-view-options-list>button>span:not(.imo-option-toggle){flex:1;min-width:0;font-size:14px;font-weight:500;line-height:1.6}
+.imo-view-options-list>button small{display:block;color:#788680;font-size:12px;font-weight:400;line-height:1.6}
+.imo-view-options-list>button>svg:last-child{flex-shrink:0;color:#83938c}
+.imo-option-toggle{position:relative;width:34px;height:20px;border-radius:12px;background:#d6dfd9;flex-shrink:0}
+.imo-option-toggle:before{content:"";position:absolute;top:3px;right:3px;width:14px;height:14px;border-radius:50%;background:white;box-shadow:0 1px 4px #16322b25}
+.imo-option-toggle.active{background:#3e806b}
+.imo-option-toggle.active:before{right:17px}
+.imo-viewer .imo-options-interest{display:flex;justify-content:space-between;align-items:center;gap:12px;width:100%;min-height:50px;margin-top:15px;padding:11px 15px;border-radius:12px;background:var(--imo-accent);color:var(--imo-accent-ink);font-size:14px;font-weight:500}
+.imo-view-options button:focus-visible,.imo-mobile-dock button:focus-visible{outline:3px solid #bb9a50;outline-offset:3px}
+@media(max-width:720px){
+  .imo-viewer{height:100vh;height:100dvh;max-width:100vw;overflow:hidden}
+  .imo-viewer .imo-view-header{gap:12px;min-height:74px;padding:calc(12px + env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) 8px max(16px,env(safe-area-inset-left,0px));align-items:center}
+  .imo-viewer .imo-view-header>.imo-glass,.imo-viewer .imo-view-footer,.imo-viewer .imo-view-help,.imo-viewer .imo-location{display:none}
+  .imo-viewer .imo-view-header .imo-wordmark{margin:0;max-width:46%;min-height:44px;justify-content:center;flex-shrink:0}
+  .imo-viewer .imo-view-header .imo-wordmark>span{font-size:24px;max-width:100%}
+  .imo-viewer .imo-view-header .imo-wordmark small{font-size:6px;letter-spacing:1.2px;margin-top:5px}
+  .imo-viewer .imo-view-header .imo-custom-brand{gap:8px;flex-direction:row;align-items:center;justify-content:flex-start;min-width:0}
+  .imo-viewer .imo-view-header .imo-custom-brand>span{font-size:13px;line-height:1.5;max-width:112px;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow-wrap:anywhere}
+  .imo-viewer .imo-view-header .imo-brand-logo{width:42px;height:42px;padding:4px;flex-shrink:0}
+  .imo-viewer .imo-view-title{flex:1;min-width:0;padding-right:12px}
+  .imo-viewer .imo-view-title>span{display:block;font-size:12px;line-height:1.7;max-width:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .imo-viewer .imo-view-title>.imo-view-title-meta{display:none}
+  .imo-viewer .imo-view-title>.imo-mobile-room-name{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px;line-height:1.6;color:#ffffffa8;margin-top:3px}
+  .imo-viewer .imo-mobile-dock{display:flex;position:absolute;left:50%;bottom:calc(14px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);width:min(276px,calc(100% - 32px));gap:8px;z-index:3;pointer-events:none}
+  .imo-viewer .imo-mobile-dock>button{display:flex;align-items:center;justify-content:center;gap:10px;flex:1;min-width:0;min-height:48px;padding:10px 14px;border-radius:13px;font-size:14px;white-space:nowrap;pointer-events:auto;box-shadow:0 4px 24px #0002}
+  .imo-viewer .imo-mobile-dock svg{width:20px;height:20px;flex-shrink:0}
+  .imo-viewer[data-mobile-map="hidden"] .imo-minimap{display:none}
+  .imo-viewer .imo-minimap{top:auto;bottom:calc(76px + env(safe-area-inset-bottom,0px));left:max(16px,env(safe-area-inset-left,0px));width:min(190px,calc(100vw - 32px));max-height:calc(100dvh - 180px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));border-radius:14px}
+  .imo-viewer .imo-minimap-collapse{min-height:44px;min-width:64px;margin:0 auto;padding:8px 16px;font-size:12px!important}
+  .imo-viewer .imo-notice{bottom:calc(80px + env(safe-area-inset-bottom,0px));width:max-content;max-width:calc(100% - 32px);font-size:12px;line-height:1.8;overflow-wrap:anywhere}
+  .imo-viewer .imo-view-loading{max-width:calc(100% - 32px);font-size:12px;padding:11px 15px}
+  .imo-viewer .imo-measure-hint{top:calc(86px + env(safe-area-inset-top,0px));font-size:12px;max-width:calc(100% - 32px);padding:8px 12px;gap:10px;line-height:1.7}
+  .imo-viewer .imo-measure-hint button{min-width:44px;min-height:44px}
+  .imo-viewer .imo-dialog{width:calc(100vw - 24px);max-width:520px;max-height:calc(100dvh - 24px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));overflow-x:hidden;overscroll-behavior:contain;padding:18px}
+  .imo-viewer .imo-dialog>header{gap:12px;margin-bottom:14px;min-width:0}
+  .imo-viewer .imo-dialog>header h2{font-size:18px;line-height:1.5;min-width:0;overflow-wrap:anywhere}
+  .imo-viewer .imo-dialog>header .imo-icon{min-width:44px;min-height:44px;flex-shrink:0}
+  .imo-viewer .imo-view-options{inset:auto 12px calc(8px + env(safe-area-inset-bottom,0px));margin:0 auto;width:calc(100vw - 24px);max-width:460px;border-radius:20px;padding:12px 14px 14px}
+  .imo-viewer .imo-view-options>header{margin-bottom:5px;padding-inline:5px}
+  .imo-viewer .imo-view-options-list>button{min-height:58px;padding:8px 10px}
+  .imo-viewer .imo-view-options-list>button>span:not(.imo-option-toggle){font-size:14px}
+  .imo-viewer .imo-view-options-list>button small{font-size:11px}
+  .imo-viewer .imo-options-interest{margin-top:10px;min-height:48px}
+  .imo-viewer .imo-room-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .imo-viewer .imo-room-grid button{min-width:0;min-height:44px}
+  .imo-viewer .imo-room-grid span{font-size:13px;overflow-wrap:anywhere}
+  .imo-viewer .imo-floor-tabs button{min-height:44px;min-width:44px;font-size:13px}
+  .imo-viewer .imo-form input:not([type=checkbox]),.imo-viewer .imo-form textarea{max-width:100%;font-size:16px}
+}
+@media(max-width:380px){
+  .imo-viewer .imo-view-header{gap:10px;padding-inline:14px}
+  .imo-viewer .imo-view-header .imo-custom-brand{max-width:44%;gap:6px}
+  .imo-viewer .imo-view-header .imo-custom-brand>span{font-size:12px;max-width:88px}
+  .imo-viewer .imo-view-title{padding-right:10px}
+}
+.imo-viewer .imo-controls-toggle{position:absolute;top:104px;left:35px;z-index:5;min-width:44px;min-height:44px;gap:8px;padding:10px 12px;border-radius:11px;font-size:11px;pointer-events:auto;cursor:pointer;box-shadow:0 4px 20px #0002}
+.imo-viewer .imo-controls-toggle svg{width:19px;height:19px;flex-shrink:0}
+.imo-viewer .imo-controls-toggle:focus-visible{outline:3px solid #e8d5a5;outline-offset:3px}
+.imo-viewer :is(.imo-view-header,.imo-location,.imo-view-footer,.imo-mobile-dock,.imo-view-help,.imo-minimap,.imo-vignette){transition:opacity .18s ease,visibility .18s ease}
+.imo-viewer.imo-viewer--controls-hidden :is(.imo-view-header,.imo-location,.imo-view-footer,.imo-mobile-dock,.imo-view-help,.imo-minimap,.imo-vignette){visibility:hidden;opacity:0;pointer-events:none}
+.imo-viewer.imo-viewer--controls-hidden :is(.imo-view-header,.imo-view-footer,.imo-mobile-dock,.imo-minimap) *{visibility:hidden;pointer-events:none}
+/* One glass layer lets the panorama remain visible around the actual rooms. */
+.imo-viewer .imo-minimap{background:transparent;backdrop-filter:none;filter:none}
+.imo-viewer .imo-compact-apartment-map{background:#eaf2e73d;border-color:#ffffff73;backdrop-filter:blur(4px);box-shadow:0 10px 32px #09231b24}
+.imo-viewer .imo-compact-apartment-map>header{background:#f6faf1ad;border-bottom:1px solid #ffffff52}
+.imo-viewer .imo-compact-map-review{background:#f7faf0c4;border-color:#ffffff68;color:#52674e}
+.imo-viewer .imo-compact-map-content :is(.imo-floorplan,.imo-floorplan-drawing,.imo-plan3d,.imo-plan3d-stage){background:transparent}
+.imo-viewer .imo-compact-map-content .imo-floorplan-footprint>polygon{opacity:.83}
+.imo-viewer .imo-dialog.imo-map-dialog{background:#f5f9efc2;border:1px solid #ffffffb0;box-shadow:0 24px 90px #071b1545;backdrop-filter:blur(4px)}
+.imo-viewer .imo-dialog.imo-map-dialog::backdrop{background:#15261a35;backdrop-filter:blur(1px)}
+.imo-viewer .imo-map-dialog :is(.imo-floorplan,.imo-floorplan-drawing,.imo-plan3d,.imo-plan3d-stage){background:transparent}
+.imo-viewer .imo-map-dialog :is(.imo-floorplan-header,.imo-floorplan-location,.imo-floorplan-caption,.imo-plan3d-header,.imo-plan3d-options){background:#f9fcf363}
+.imo-viewer .imo-map-dialog .imo-floorplan-footprint>polygon{opacity:.91}
+.imo-viewer .imo-map-dialog .imo-plan3d-hint{background:#f9fcf1b8}
+.imo-viewer .imo-map-dialog .imo-plan3d-stage{height:clamp(260px,calc(100dvh - 390px),470px);min-height:260px}
+@media(max-width:720px){
+  .imo-viewer .imo-controls-toggle{top:auto;left:auto;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(14px + env(safe-area-inset-bottom,0px));width:48px;height:48px;padding:12px;border-radius:13px}
+  .imo-viewer .imo-controls-toggle>span{display:none}
+  .imo-viewer .imo-mobile-dock{left:max(16px,env(safe-area-inset-left,0px));transform:none;width:min(320px,calc(100% - 92px));gap:7px}
+  .imo-viewer .imo-mobile-dock>button{gap:7px;padding-inline:9px;font-size:13px}
+  .imo-viewer .imo-dialog.imo-map-dialog{width:calc(100vw - 16px);max-width:none;padding:14px;background:#f5f9efcc;max-height:calc(100dvh - 16px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px))}
+  .imo-viewer .imo-map-dialog .imo-floorplan-header button{min-width:44px;min-height:44px}
+  .imo-viewer .imo-compact-apartment-map>header{padding:6px;gap:0}
+  .imo-viewer .imo-compact-apartment-map>header>div{gap:0}
+  .imo-viewer .imo-compact-apartment-map>header button{width:44px;min-width:44px;height:44px;flex-shrink:0;padding:0}
+}
+@media(prefers-reduced-motion:reduce){.imo-viewer :is(.imo-view-header,.imo-location,.imo-view-footer,.imo-mobile-dock,.imo-view-help,.imo-minimap,.imo-vignette){transition:none}}

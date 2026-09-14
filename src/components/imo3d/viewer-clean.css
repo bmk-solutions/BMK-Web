@@ -1,0 +1,31 @@
+.imo-viewer .imo-view-footer,.imo-viewer .imo-view-help{display:none}
+.imo-viewer .imo-mobile-dock{display:flex;position:absolute;bottom:calc(20px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);gap:8px;z-index:4;width:min(340px,calc(100% - 32px))}
+.imo-viewer .imo-mobile-dock>button{display:flex;align-items:center;justify-content:center;gap:8px;flex:1;min-height:46px;border-radius:14px;padding:10px 12px;font-size:13px}
+.imo-under-logo-map{position:absolute;top:112px;right:32px;width:180px;z-index:3;pointer-events:auto}
+.imo-draft-minimap{overflow:visible;border:0;background:transparent;border-radius:0;box-shadow:none;backdrop-filter:none;color:white}
+.imo-draft-minimap header{position:relative;display:flex;align-items:center;justify-content:center;padding:0;font-size:12px;min-height:36px;text-shadow:0 1px 5px #0008}
+.imo-draft-minimap header button{position:absolute;left:calc(50% - 66px);width:36px;height:36px;font-size:20px;border:0;background:none;cursor:pointer}
+.imo-draft-minimap>button{display:block;border:0;padding:0;width:100%;background:none;cursor:pointer}
+.imo-draft-minimap img{display:block;width:100%;height:auto}
+.imo-raster-map{display:block;width:100%;max-height:60dvh;cursor:pointer;touch-action:pan-y pinch-zoom;background:transparent;opacity:.6}
+.imo-raster-map.is-compact{height:220px;max-height:28dvh;opacity:.7}
+.imo-viewer.imo-viewer--controls-hidden .imo-under-logo-map{display:none}
+@media(max-width:720px){.imo-under-logo-map{top:calc(82px + env(safe-area-inset-top,0px));right:16px;width:128px}.imo-raster-map.is-compact{height:155px;max-height:24dvh}.imo-viewer .imo-mobile-dock{width:min(330px,calc(100% - 24px))}.imo-viewer .imo-view-header .imo-wordmark{max-width:56%}}
+@media(max-height:520px){.imo-under-logo-map{width:105px;top:75px}.imo-raster-map.is-compact{height:125px;max-height:35dvh}}
+.imo-viewer .imo-map-dialog{background:transparent!important;backdrop-filter:none!important;border:0!important;box-shadow:none!important;color:white!important}
+.imo-viewer .imo-map-dialog::backdrop{background:transparent!important;backdrop-filter:none!important}
+.imo-map-dialog>header h2,.imo-map-dialog .imo-viewer-draft-heading,.imo-map-dialog .imo-viewer-draft>.imo-muted{display:none}
+.imo-map-dialog>header{justify-content:flex-end!important;border:0!important;margin-bottom:0!important}
+.imo-map-dialog>header button{color:white!important;background:#14362c70!important;border-radius:50%}
+.imo-map-dialog .imo-viewer-draft-sheet{border:0;border-radius:0;background:transparent}
+.imo-map-dialog .imo-viewer-draft-tools{justify-content:center}
+.imo-map-dialog .imo-viewer-draft-tools button,.imo-map-dialog .imo-viewer-draft-tools a{background:#14362c75;color:white;border:0;min-height:36px;min-width:36px}
+.imo-option-icons{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.imo-option-icons button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:72px;padding:10px;border-radius:12px;color:#315f50;background:#e6eee980}
+.imo-option-icons button:hover{background:#dceae1}
+.imo-option-icons svg{width:21px;height:21px}
+.imo-option-icons span{font-size:11px}
+.imo-viewer .imo-view-options{max-width:380px}
+.imo-room-titles{display:flex;flex-direction:column;gap:8px}
+.imo-room-titles button{text-align:start;min-height:46px;padding:10px 14px;border-radius:10px;background:#e8efe980;color:#284b39;font-size:14px}
+.imo-room-titles button:hover{background:#dbe9df}

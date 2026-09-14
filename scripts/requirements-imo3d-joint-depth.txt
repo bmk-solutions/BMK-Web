@@ -1,0 +1,12 @@
+# CPU runtime only. Install into work/joint-depth-python; never globally.
+# The setup script supplies the official PyTorch CPU wheel index.
+torch==2.14.0+cpu
+numpy==2.5.2
+opencv-python-headless==4.13.0.92
+Pillow==12.3.0
+safetensors==0.5.3
+einops==0.8.1
+addict==2.4.0
+omegaconf==2.3.0
+antlr4-python3-runtime==4.9.3
+PyYAML==6.0.2

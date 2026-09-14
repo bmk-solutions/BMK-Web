@@ -1,0 +1,67 @@
+import {spawnSync} from 'node:child_process';
+import {mkdirSync,readFileSync,writeFileSync} from 'node:fs';
+import path from 'node:path';
+import ts from 'typescript';
+
+// Use the declared TypeScript compiler in-process; no secondary TS runtime needed.
+const root=path.resolve('work/imo3d-tests');
+const testFiles=['tests/imo3d-spatial.test.ts','tests/imo3d-navigation.test.ts','tests/imo3d-floorplan.test.ts','tests/imo3d-workflow-validation.test.ts','tests/imo3d-processing-jobs.test.ts','tests/imo3d-branding.test.ts','tests/imo3d-reconstruction-layout.test.ts','tests/imo3d-integrations.test.ts','tests/imo3d-scene-deletion.test.ts','tests/imo3d-project-management.test.ts','tests/imo3d-processing-cleanup.test.ts','tests/imo3d-connections.test.ts','tests/imo3d-measurement.test.ts','tests/imo3d-floorplan3d.test.ts'];
+testFiles.push('tests/imo3d-developers.test.ts');
+testFiles.push('tests/imo3d-raster-navigation.test.ts');
+testFiles.push('tests/imo3d-private-example.test.ts','tests/imo3d-private-reference.test.ts');
+const managementFiles=['developer-management','scene-removal','scene-deletion','private-asset-cleanup','project-management','processing-cleanup','connection-overrides','connection-editing','connection-storage','measurement'].map(name=>`src/lib/imo3d/${name}.ts`);
+managementFiles.push('src/lib/imo3d/branding-policy.ts');
+managementFiles.push('src/lib/imo3d/architecture.ts','src/lib/imo3d/architecture-storage.ts','src/lib/imo3d/architecture-visibility.ts');
+managementFiles.push('src/lib/imo3d/private-example.ts','tests/fixtures/imo3d-synthetic-tour.ts');
+managementFiles.push('src/lib/imo3d/ai-plan-jobs.ts','src/lib/imo3d/openai-floorplan-pipeline.ts');
+testFiles.push('tests/imo3d-ai-plan-jobs.test.ts','tests/imo3d-openai-floorplan-pipeline.test.ts');
+testFiles.push('tests/imo3d-architecture.test.ts','tests/imo3d-architecture-storage.test.ts');
+managementFiles.push('src/components/imo3d/floorplan3d-geometry.ts');
+managementFiles.push('src/components/imo3d/raster-navigation.ts');
+managementFiles.push('src/components/imo3d/floorplan-pointer.ts');
+managementFiles.push('src/components/imo3d/floorplan-selection.ts');
+testFiles.push('tests/imo3d-floorplan-selection.test.ts');
+testFiles.push('tests/imo3d-floorplan-pointer.test.ts');
+managementFiles.push('src/components/imo3d/floorplan-doorways.ts');
+managementFiles.push('src/components/imo3d/floorplan-download.ts');
+testFiles.push('tests/imo3d-floorplan-download.test.ts');
+testFiles.push('tests/imo3d-floorplan-doorways.test.ts');
+managementFiles.push('src/components/imo3d/room-labels.ts');
+managementFiles.push('src/lib/imo3d/boundary-shapes.ts','src/lib/imo3d/floor-boundaries.ts');
+testFiles.push('tests/imo3d-boundaries.test.ts');
+managementFiles.push('src/components/imo3d/logo-pixels.ts');
+testFiles.push('tests/imo3d-logo-pixels.test.ts');
+testFiles.push('tests/imo3d-tour-summary.test.ts');
+managementFiles.push('src/lib/imo3d/floor-assignment.ts');
+managementFiles.push('src/lib/imo3d/floorplan-export.ts');
+testFiles.push('tests/imo3d-floorplan-export.test.ts');
+managementFiles.push('src/lib/imo3d/room-semantics.ts');
+managementFiles.push('src/lib/imo3d/room-analysis.ts');
+managementFiles.push('src/lib/imo3d/joint-depth.ts','src/lib/imo3d/joint-geometry-evidence.ts');
+managementFiles.push('src/lib/imo3d/depth-architecture.ts');
+testFiles.push('tests/imo3d-depth-architecture.test.ts');
+managementFiles.push('src/lib/imo3d/surface-model.ts');
+managementFiles.push('src/lib/imo3d/mesh-model.ts');
+managementFiles.push('src/lib/imo3d/surface-model-cleanup.ts');
+testFiles.push('tests/imo3d-surface-model-cleanup.test.ts');
+managementFiles.push('src/components/imo3d/PhotographicFloorModel.ts');
+testFiles.push('tests/imo3d-photographic-floor-model.test.ts');
+managementFiles.push('src/lib/imo3d/display-depth.ts');
+testFiles.push('tests/imo3d-surface-model.test.ts');
+testFiles.push('tests/imo3d-joint-depth.test.ts');
+testFiles.push('tests/imo3d-joint-geometry-evidence.test.ts');
+testFiles.push('tests/imo3d-room-semantics.test.ts');
+testFiles.push('tests/imo3d-room-analysis.test.ts');
+managementFiles.push('src/lib/imo3d/panorama-measurement.ts');
+testFiles.push('tests/imo3d-panorama-measurement.test.ts');
+testFiles.push('tests/imo3d-floor-assignment.test.ts');
+managementFiles.push(...['project-usage','usage-estimate','lead-query'].map(name=>`src/lib/imo3d/${name}.ts`));
+testFiles.push('tests/imo3d-project-usage.test.ts','tests/imo3d-lead-query.test.ts');
+for(const file of ['src/lib/imo3d/model.ts','src/lib/imo3d/spatial.ts','src/lib/imo3d/navigation.ts','src/components/imo3d/floorplan-geometry.ts','src/lib/imo3d/lead-validation.ts','src/lib/imo3d/tour-merge.ts','src/lib/imo3d/processing-model.ts','src/lib/imo3d/processing-jobs.ts','src/lib/imo3d/store.ts','src/lib/imo3d/branding.ts','src/lib/imo3d/reconstruction-layout.ts','src/lib/imo3d/integrations.ts','src/lib/imo3d/auth.ts',...managementFiles,...testFiles]){
+  const target=path.join(root,file.replace(/\.ts$/,'.js'));mkdirSync(path.dirname(target),{recursive:true});
+  const compiled=ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,esModuleInterop:true,rewriteRelativeImportExtensions:true}});
+  writeFileSync(target,compiled.outputText);
+}
+// Real apartment fixtures stay private and optional; generic tests use synthetic data.
+const result=spawnSync(process.execPath,['--test',...testFiles.map(file=>path.join(root,file.replace(/\.ts$/,'.js'))),'scripts/test-imo3d-engine.mjs'],{stdio:'inherit'});
+process.exit(result.status??1);

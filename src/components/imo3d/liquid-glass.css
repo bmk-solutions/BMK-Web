@@ -1,0 +1,80 @@
+/* Opaque fallbacks first: controls remain readable without backdrop-filter. */
+.imo-shell.imo-studio {
+  --imo-line: #dae4e2;
+  --imo-ink: #183532;
+  background: radial-gradient(ellipse at 8% 5%, #dfece9 0, transparent 48%), radial-gradient(ellipse at 95% 75%, #eeeadf 0, transparent 45%), #f3f6f5;
+}
+.imo-studio .imo-sidebar { background: #f9fbfa; border-inline-end-color: #fff; }
+.imo-studio .imo-studio-top { background: #f9fbfa; border-color: #ffffffa8; }
+.imo-studio .imo-page { max-width: 1680px; margin-inline: auto; }
+.imo-studio .imo-page-heading h1 { font-weight: 600; letter-spacing: -.7px; }
+.imo-studio .imo-page-heading p { color: #546a66; }
+.imo-studio :is(.imo-metrics,.imo-editor-main,.imo-editor-side>section,.imo-workflow) {
+  background: #fafcfb; border: 1px solid #fff; border-radius: 20px;
+  box-shadow: 0 8px 32px #173c3306, inset 0 1px 0 #fff;
+}
+.imo-studio .imo-tour-card { border: 1px solid #fff; border-radius: 22px; background: #fbfdfc; box-shadow: 0 8px 30px #163b320a; overflow: hidden; transition: box-shadow .25s ease, border-color .25s ease; }
+.imo-studio .imo-tour-card:hover { transform: none; border-color: #afcbc2; box-shadow: 0 14px 36px #163b3217; }
+.imo-studio .imo-tour-card-body { padding: 22px; }
+.imo-studio :is(.imo-project-settings-row,.imo-editor-project-tools) { border-radius: 16px; background: #ffffffad; padding: 12px 16px; border: 1px solid #fff; gap: 10px; }
+.imo-studio .imo-sidebar nav button { border-radius: 13px; min-height: 48px; }
+.imo-studio .imo-sidebar nav button.active { background: #deece6; color: #154c40; box-shadow: inset 0 1px 0 #fff9; }
+.imo-studio .imo-button { border-radius: 12px; min-height: 46px; }
+.imo-studio .imo-button.primary { background: linear-gradient(145deg,#28776a,#16594f); box-shadow: 0 4px 12px #195c4820, inset 0 1px 0 #ffffff38; }
+.imo-studio :is(.imo-search,.imo-filter select) { background: #ffffffc9; border: 1px solid #d5e2dd; border-radius: 12px; min-height: 44px; }
+.imo-studio .imo-scene-card { border-radius: 14px; overflow: hidden; }
+.imo-studio .imo-tabs { gap: 8px; padding-block: 8px; }
+.imo-studio .imo-tabs button { padding: 12px 16px; border-radius: 10px; }
+.imo-studio .imo-tabs button[aria-selected=true] { background: #e9f2ee; color: #165d4c; }
+.imo-studio .imo-dropzone { border-radius: 16px; background: #f3f8f59c; }
+.imo-shell.imo-viewer :is(.imo-glass,.imo-room-switcher>div,.imo-location) {
+  background: #18332fed !important; color: #fff;
+  border: 1px solid #ffffff38;
+  box-shadow: inset 0 1px 0 #ffffff29, 0 6px 24px #081d2426;
+  border-radius: 16px;
+}
+.imo-shell.imo-viewer .imo-glass { transition: background .2s ease, border-color .2s ease, box-shadow .2s ease; min-height: 46px; }
+.imo-shell.imo-viewer .imo-glass:hover { border-color: #ffffff80; background: #33564de8 !important; }
+.imo-shell.imo-viewer .imo-glass.active { border-color: #d3eee299; box-shadow: inset 0 0 0 1px #d3eee229, 0 6px 24px #081d2426; }
+.imo-shell.imo-viewer .imo-room-switcher>div { padding: 5px; gap: 3px; }
+.imo-shell.imo-viewer .imo-room-switcher button { border-radius: 11px; min-height: 44px; }
+.imo-shell.imo-viewer .imo-room-switcher button.selected { background: #ffffffe8; color: #1c473a; box-shadow: 0 2px 6px #0001; }
+.imo-shell .imo-dialog { background: #f7faf8; border: 1px solid #ffffffd9; border-radius: 24px; box-shadow: 0 28px 100px #091c3540, inset 0 1px 0 #fff; }
+.imo-shell .imo-dialog::backdrop { background: #071e2342; backdrop-filter: blur(5px); }
+.imo-shell.imo-viewer .imo-dialog.imo-map-dialog { background: #f7faf2e6; border-radius: 24px; }
+.imo-shell .imo-dialog>header .imo-icon { border-radius: 50%; background: #e8eeeb; }
+.imo-shell .imo-room-grid button { border-radius: 15px; overflow: hidden; text-align: start; }
+.imo-shell .imo-room-grid button:focus-visible { outline-offset: -3px; }
+.imo-shell .imo-floorplan-reading-tools { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; font-size: 12px; color: #56665f; border-bottom: 1px solid #dce4dd; flex-wrap: wrap; }
+.imo-shell .imo-floorplan-reading-tools label { display: flex; align-items: center; gap: 8px; cursor: pointer; min-height: 32px; }
+.imo-shell .imo-floorplan-reading-tools input { width: 17px; height: 17px; accent-color: #23735c; }
+.imo-shell .imo-floorplan[data-captures=hidden] .imo-floorplan-stop { opacity: 0; }
+.imo-shell .imo-floorplan[data-captures=hidden] .imo-floorplan-point:is(:hover,:focus-visible) .imo-floorplan-stop { opacity: 1; }
+.imo-shell .imo-floorplan-footprint>polygon { fill: #f7f6f0; }
+.imo-shell .imo-floorplan-footprint:nth-child(even)>polygon { fill: #f0f2ec; }
+.imo-shell .imo-floorplan-wall-ink line { stroke: #303d36; }
+.imo-shell .imo-floorplan-architectural-label { fill: #2c4439; stroke: #f7f6f0; font-weight: 500; }
+.imo-shell .imo-floorplan-point circle[fill=transparent] { pointer-events: none; }
+@supports (backdrop-filter: blur(12px)) {
+  .imo-studio :is(.imo-sidebar,.imo-studio-top) { background: #ffffffb8; backdrop-filter: blur(22px) saturate(130%); }
+  .imo-shell.imo-viewer :is(.imo-glass,.imo-room-switcher>div,.imo-location) { background: linear-gradient(135deg,#49645b70,#102b29b8) !important; backdrop-filter: blur(18px) saturate(140%); }
+  .imo-shell .imo-dialog { background: #f7faf8f0; backdrop-filter: blur(24px) saturate(125%); }
+}
+@media (max-width:720px) {
+  .imo-studio .imo-page { padding-inline: 16px; }
+  .imo-studio .imo-tour-card-body { padding: 18px; }
+  .imo-studio .imo-project-settings-row { gap: 8px; padding: 10px; }
+  .imo-studio .imo-project-settings-row .imo-button { flex: 1 1 42%; font-size: 12px; padding-inline: 10px; }
+  .imo-shell.imo-viewer .imo-dialog { border-radius: 22px; }
+  .imo-shell.imo-viewer .imo-mobile-dock>button { min-height: 50px; border-radius: 17px; }
+  .imo-shell.imo-viewer .imo-controls-toggle { border-radius: 50%; }
+  .imo-shell .imo-floorplan-reading-tools { padding: 8px 10px; gap: 4px; font-size: 11px; }
+  .imo-shell .imo-floorplan-reading-tools label { min-height: 44px; }
+}
+@media (prefers-reduced-transparency:reduce) {
+  .imo-shell.imo-viewer :is(.imo-glass,.imo-room-switcher>div,.imo-location) { background: #18332f !important; backdrop-filter: none; }
+  .imo-shell .imo-dialog,.imo-shell.imo-viewer .imo-dialog.imo-map-dialog { background: #f7faf8; backdrop-filter: none; }
+}
+@media (prefers-reduced-motion:reduce) {
+  .imo-shell :is(.imo-tour-card,.imo-glass,.imo-floorplan-footprint>polygon) { transition: none; }
+}

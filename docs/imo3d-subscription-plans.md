@@ -17,3 +17,7 @@ Jobs are claimed atomically, leased, cancellable and bound to the exact scene se
 Artifacts and event traces are under ignored `work/subscription-plans/<jobId>`. Prompts, validated analysis, guide, generated PNG and review remain available for diagnosis. Generated output paths must be fresh files under Codex's image-generation directory before copying into the project. No source images, old drafts or other cloud projects are deleted.
 
 Photo analysis and visual review do not establish survey accuracy. Missing overlap, unseen boundaries or ambiguous doors remain limitations. Furniture and geometry must be reviewed before using a draft as the published plan.
+
+## Acceptance status — 15 September 2026
+
+The Al Hamra pilot exercised all 40 photos and successfully generated and stored a furnished image, but its schematic room placement was wrong. That test draft is quality-held and cannot be selected. A second run using explicit GPT-6 Astra xhigh identified the eight spaces and their connections but returned topology-only with no supported room polygons; the worker correctly stopped with `GEOMETRY_UNRESOLVED`. The original tour and previous drafts remained unchanged. Queue, authorization, rendering, name editing and deployment checks passed, but automatic recovery of a satisfactory apartment footprint has **not** passed acceptance. Do not advertise this pipeline as a reliable substitute for architectural reconstruction, or bypass the geometry gate to manufacture a successful demonstration.

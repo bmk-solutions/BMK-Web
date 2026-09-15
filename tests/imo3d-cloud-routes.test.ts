@@ -14,6 +14,8 @@ import {PanoramaBlobCache} from '../src/components/imo3d/PanoramaBlobCache';
 import {cloudSignedDownloads} from '../src/lib/imo3d/cloud/client';
 import {chatgptOAuth,chatgptResource,signedValue,authorization,digest,chatgptConnection} from '../src/lib/imo3d/cloud/chatgpt-auth';
 import {chatgptMCP,callChatGPTTool,chatgptDrafts} from '../src/lib/imo3d/cloud/chatgpt-mcp';
+import {subscriptionChildEnvironment,validateSubscriptionAnalysis,validateImageReview} from '../src/lib/imo3d/subscription-plan-worker';
+import {labeledPlanSVG} from '../src/lib/imo3d/plan-labels';
 const origin='https://imo3d.example',secret='synthetic-test-secret-is-at-least-32-characters',fetchOriginal=globalThis.fetch,envOriginal={...process.env};
 const adminCookie=()=>{const expiry=String(Date.now()+60_000);return `imo3d_session=${expiry}.${createHmac('sha256',secret).update(expiry).digest('hex')}`;};
 const req=(url:string,options:RequestInit={},admin=false)=>new Request(origin+'/api/imo3d/'+url,{...options,headers:{...(admin?{cookie:adminCookie()}:{}),...(options.method&&options.method!=='GET'?{Origin:origin,'Content-Type':'application/json'}:{}),...Object.fromEntries(new Headers(options.headers))}});
@@ -21,6 +23,79 @@ const result=(value:unknown,status=200)=>new Response(JSON.stringify(value),{sta
 type Call={url:URL;method:string;body:Record<string,unknown>|null};let storedCredential:Record<string,unknown>|null=null;let calls:Call[]=[];let mock:(call:Call)=>Response|Promise<Response>;
 beforeEach(()=>{Object.assign(process.env,{IMO3D_CLOUD:'1',SUPABASE_URL:'https://synthetic.supabase.co',SUPABASE_SERVICE_ROLE_KEY:'synthetic-key',IMO3D_ADMIN_SECRET:secret,IMO3D_PUBLIC_ORIGIN:origin,IMO3D_DATA_DIR:path.resolve('work/cloud-test-must-not-create-database')});storedCredential=null;calls=[];mock=call=>{throw Error('Unexpected cloud request '+call.url.pathname);};globalThis.fetch=async(input,init)=>{const call={url:new URL(String(input)),method:init?.method??'GET',body:typeof init?.body==='string'?JSON.parse(init.body):null};if(call.url.pathname.endsWith("/imo3d_admin_credentials")&&call.method==="GET")return result(storedCredential?[storedCredential]:[]);calls.push(call);return mock(call);};});
 afterEach(()=>{globalThis.fetch=fetchOriginal;for(const key of Object.keys(process.env))if(!(key in envOriginal))delete process.env[key];Object.assign(process.env,envOriginal);});
+
+test('subscription queue requires admin and an online worker, and binds each job to its tour photographs',async()=>{
+ const tour=syntheticTour();let online=false;
+ mock=call=>{
+  if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);
+  if(call.url.pathname.endsWith('/imo3d_plan_workers'))return result(online?[{seen_at:new Date().toISOString()}]:[]);
+  if(call.url.pathname.endsWith('/imo3d_subscription_plan_jobs'))return result([]);
+  if(call.url.pathname.endsWith('/imo3d_enqueue_subscription_plan')){assert.equal(call.body?.p_tour_id,tour.id);assert.equal(call.body?.p_hash,aiPlanFingerprint(tour.scenes));assert.equal((call.body?.p_scenes as unknown[]).length,tour.scenes.length);return result('job');}
+  throw Error('Unexpected request');
+ };
+ assert.equal((await cloudRoute(req(`tours/${tour.id}/ai-plan`,{method:'POST'}))).status,404);
+ assert.equal((await cloudRoute(req(`tours/${tour.id}/ai-plan`,{method:'POST'},true))).status,503);
+ assert.ok(!calls.some(c=>c.method==='POST'));
+ online=true;assert.equal((await cloudRoute(req(`tours/${tour.id}/ai-plan`,{method:'POST'},true))).status,200);
+ assert.equal(calls.filter(c=>c.method==='POST').length,1);
+});
+test('subscription subprocess excludes database, API and session credentials',()=>{
+ const env=subscriptionChildEnvironment({NODE_ENV:'test',PATH:'bin',USERPROFILE:'profile',SUPABASE_SERVICE_ROLE_KEY:'private',OPENAI_API_KEY:'private',IMO3D_ADMIN_SECRET:'private',CODEX_ACCESS_TOKEN:'private'});
+ assert.equal(env.PATH,'bin');assert.equal(env.USERPROFILE,'profile');assert.ok(!JSON.stringify(env).includes('private'));
+});
+test('administrator viewer keeps the registered floor while a new subscription draft is processing',async()=>{
+ const tour=syntheticTour();mock=call=>{if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);assert.equal(call.url.pathname,'/rest/v1/imo3d_approved_plan_refs');return result([{tour_id:tour.id,floor:0,job_id:'old-selected',input_hash:aiPlanFingerprint(tour.scenes),scene_ids:tour.scenes.map(s=>s.id),storage_key:'private/selected.png'}]);};
+ const response=await cloudRoute(req(`tours/${tour.id}/ai-plan?viewer=1&floor=0`,{},true));assert.equal(response.status,200);assert.equal((await response.json()).job.id,'old-selected');
+});
+test('choosing a furnished draft validates source images before uploading and registers a new immutable snapshot',async()=>{
+ const tour=syntheticTour(),id='00000000-0000-4000-8000-000000000001',url=origin+'/api/imo3d-chatgpt/drafts?tourId='+tour.id+'&id='+id+'&approve=1';
+ const source={id,project_id:tour.projectId,tour_id:tour.id,floor:0,input_hash:'stale',result:{qualityHold:'',furnished:{reviewStatus:'needs-review'}}};
+ const png=await sharp({create:{width:256,height:256,channels:3,background:'white'}}).png().toBuffer();
+ mock=call=>{
+  if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);
+  if(call.url.pathname.endsWith('/imo3d_chatgpt_drafts'))return result([source]);
+  if(call.url.pathname.endsWith('/imo3d_approved_plan_refs'))return result([{floor:0,job_id:'old'}]);
+  if(call.url.pathname.includes('/object/authenticated/'))return new Response(new Uint8Array(png));
+  if(call.url.pathname.includes('/storage/')&&call.method==='POST'){assert.match(call.url.pathname,/reviewed-plans/);return result({});}
+  assert.equal(call.url.pathname,'/rest/v1/rpc/imo3d_use_furnished_draft');assert.equal(call.body?.p_previous_job,'old');assert.equal(call.body?.p_revision,tour.revision);assert.equal(call.body?.p_draft,id);return result(true);
+ };
+ const request=()=>new Request(url,{method:'POST',headers:{cookie:adminCookie(),Origin:origin}});
+ await assert.rejects(chatgptDrafts(request()),/تغيرت الصور/);assert.ok(!calls.some(c=>c.method==='POST'));
+ source.input_hash=aiPlanFingerprint(tour.scenes);assert.equal((await chatgptDrafts(request())).status,200);assert.ok(!calls.some(c=>c.method==='DELETE'||c.method==='PATCH'));
+ source.result.qualityHold='Geometry rejected';const writes=calls.filter(c=>c.method==='POST').length;await assert.rejects(chatgptDrafts(request()),/مستبعدة/);assert.equal(calls.filter(c=>c.method==='POST').length,writes);
+});
+test('photo and furnished-label contracts reject omitted sources and wrong room anchors',()=>{
+ const scenes=[{id:'s1',floor:0},{id:'s2',floor:0}],audit={verdict:'inconclusive',reviewedSceneIds:['s1','s2'],issues:[],limitations:['Estimate']};
+ const floor={floor:0,geometryBasis:'image-supported',geometryExplanation:'Synthetic matching wall directions in s1 and s2.',evidence:scenes.map(s=>({sceneId:s.id,roomCategory:'living',visibleEvidence:['Sofa'],openings:[],distinctiveFeatures:[],uncertainties:[]})),layout:{rooms:[{id:'r',label:'صالة',evidenceSceneIds:['s1','s2'],polygon:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}],uncertainty:'Estimate'}],openings:[],uncertainties:['Estimate']},audit};
+ assert.equal(validateSubscriptionAnalysis({floors:[floor]},scenes).floors.length,1);
+ assert.throws(()=>validateSubscriptionAnalysis({floors:[{...floor,evidence:floor.evidence.slice(0,1)}]},scenes),/COVERAGE/);
+ assert.throws(()=>validateSubscriptionAnalysis({floors:[{...floor,geometryBasis:'topology-only'}]},scenes),/GEOMETRY_UNRESOLVED/);
+ const image={imagePath:'generated.png',labels:[{roomId:'r',name:'صالة',x:.5,y:.5}],baseImageHasNoText:true,reviewNotes:'Reviewed photo furniture',audit};
+ assert.equal(validateImageReview(image,['r'],['s1','s2']).labels.length,1);
+ assert.throws(()=>validateImageReview(image,['different'],['s1','s2']),/COVERAGE/);
+ assert.throws(()=>validateImageReview({...image,baseImageHasNoText:false},['r'],['s1','s2']));
+ assert.match(labeledPlanSVG(Buffer.from('x'),500,500,[{roomId:'r',name:'<script>&',x:.5,y:.5}]),/&lt;script&gt;&amp;/);
+});
+test('room name edits save a new draft, preserve the base image and prevent editing stale or legacy raster labels',async()=>{
+ const tour=syntheticTour(),id='00000000-0000-4000-8000-000000000001',url=origin+'/api/imo3d-chatgpt/drafts?tourId='+tour.id+'&id='+id;
+ const source={id,project_id:tour.projectId,tour_id:tour.id,floor:0,input_hash:aiPlanFingerprint(tour.scenes),result:{layout:{rooms:[{id:'r',label:'Old',evidenceSceneIds:[tour.scenes[0].id],polygon:null,uncertainty:'Uncertain'}],openings:[],uncertainties:['Uncertain']},furnished:{baseImageHasNoText:true,imageDraftId:id,labels:[{roomId:'r',name:'Old',x:.5,y:.5}]}}};
+ const before=JSON.stringify(source);let saved:Record<string,unknown>|null=null;
+ mock=call=>{if(call.method==='POST'){assert.equal(call.url.pathname,'/rest/v1/imo3d_chatgpt_drafts');saved=call.body;return result([call.body]);}return result(call.url.pathname.endsWith('/imo3d_tours')?[{payload:tour}]:[source]);};
+ const request=()=>new Request(url,{method:'PATCH',headers:{cookie:adminCookie(),Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({names:[{roomId:'r',name:'غرفة النوم الماستر'}]})});
+ const response=await chatgptDrafts(request());assert.equal(response.status,201);assert.equal(JSON.stringify(source),before);assert.notEqual(saved!.id,id);assert.equal((saved!.result as typeof source.result).furnished.imageDraftId,id);assert.equal((saved!.result as typeof source.result).layout.rooms[0].label,'غرفة النوم الماستر');
+ assert.ok(!calls.some(c=>c.method==='PATCH'||c.url.pathname.includes('/storage/')));
+ source.input_hash='stale';await assert.rejects(chatgptDrafts(request()),/تغيرت الصور/);
+ source.input_hash=aiPlanFingerprint(tour.scenes);source.result.furnished.baseImageHasNoText=false;await assert.rejects(chatgptDrafts(request()),/صورة قديمة/);
+});
+test('private PNG export composites edited Arabic names while the base remains byte-identical',async()=>{
+ const id='00000000-0000-4000-8000-000000000001',tour=syntheticTour(),png=await sharp({create:{width:400,height:400,channels:3,background:'white'}}).png().toBuffer();
+ const row={id,project_id:tour.projectId,tour_id:tour.id,result:{furnished:{imageDraftId:id,baseImageHasNoText:true,labels:[{roomId:'r',name:'الصالة',x:.5,y:.5}]}}};
+ mock=call=>call.url.pathname.includes('/storage/')?new Response(new Uint8Array(png)):result([row]);
+ const url=origin+'/api/imo3d-chatgpt/drafts?tourId='+tour.id+'&id='+id;
+ const exported=await chatgptDrafts(new Request(url,{headers:{cookie:adminCookie()}})),bytes=Buffer.from(await exported.arrayBuffer());
+ assert.equal(exported.headers.get('content-type'),'image/png');assert.notDeepEqual(bytes,png);assert.equal((await sharp(bytes).metadata()).width,400);
+ const base=await chatgptDrafts(new Request(url+'&base=1',{headers:{cookie:adminCookie()}}));assert.deepEqual(Buffer.from(await base.arrayBuffer()),png);
+});
 
 test('ChatGPT discovery exposes scoped analysis and furnished-guide tools',async()=>{
  const request=(method:string,params={})=>new Request(origin+'/api/imo3d-chatgpt/mcp',{method:'POST',body:JSON.stringify({jsonrpc:'2.0',id:1,method,params})});

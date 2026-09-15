@@ -19,7 +19,7 @@ export function ViewerFloorPlan({tourId,floor,children,hasInteractivePlan=false,
   async function update(){
    let poll=false;
    try{
-    const response=await fetch(url,{signal:controller.signal,cache:"no-store"});
+    const response=await fetch(url+'?viewer=1&floor='+floor,{signal:controller.signal,cache:"no-store"});
     if(response.status===401||response.status===404){setStatus(null);setError("");return;}
     if(!response.ok)throw Error("تعذر تحميل المخطط. حاول مرة أخرى.");
     const value:Status=await response.json();
@@ -28,7 +28,7 @@ export function ViewerFloorPlan({tourId,floor,children,hasInteractivePlan=false,
    finally{if(!controller.signal.aborted){setLoading(false);if(poll)timer=setTimeout(()=>void update(),4000);}}
   }
   void update();return()=>{controller.abort();clearTimeout(timer);};
- },[url,retry]);
+ },[url,retry,floor]);
  const job=status?.job;
  const draft=job?.status==="draft"&&!status?.stale?job.result?.floors.find(item=>item.floor===floor):undefined;
  if(loading)return compact?null:<p role="status" className="imo-plan-preparing">جارٍ تحميل المخطط…</p>;

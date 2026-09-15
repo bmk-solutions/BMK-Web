@@ -159,12 +159,8 @@ function Editor({initial,onChange,onBack,onError,onNotice,onBlockedChange,onSett
         if(active.current)setProgress({done:index+1,total:list.length});
       }
       if(!active.current)return;setFailures(failed);
-      if(uploaded&&tourRef.current.scenes.length<=100){
-        try{
-          const ai=await api<{configured:boolean}>(`tours/${tourRef.current.id}/ai-plan`);
-          if(ai.configured)await api(`tours/${tourRef.current.id}/ai-plan`,{method:"POST"});
-        }catch{onError("حُفظت الصور، لكن لم يبدأ توليد مخطط OpenAI. أعد المحاولة من تبويب المخطط.");}
-      }
+      // Photo analysis starts explicitly after the administrator finishes uploading.
+      // Do not consume subscription usage after every partial upload batch.
       if(uploaded&&tourRef.current.scenes.length>=2&&tourRef.current.scenes.length<=300)await startProcessing();
       else if(uploaded)onNotice(tourRef.current.scenes.length<2?"تم حفظ اللقطة. أضف لقطة متداخلة أخرى لبدء الربط تلقائيًا.":"تم حفظ الصور. المعالجة البصرية متاحة للجولات حتى 300 لقطة؛ يمكن استيراد الكاميرات والعمق لهذه الجولة.");
       if(failed.length)onError(`تعذر رفع ${number(failed.length)} ملفات. اللقطات الناجحة محفوظة؛ يمكنك إعادة محاولة الملفات الموضحة أدناه.`);

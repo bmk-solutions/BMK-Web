@@ -1,4 +1,5 @@
 import {z} from "zod";
+import {changeSubscriptionPlan,subscriptionPlanStatus} from './subscription-plans';
 import type {Tour,Lead} from "../model";
 import type {CloudAccess} from "./auth";
 import type {CloudJob} from "./types";
@@ -36,15 +37,16 @@ export async function cloudAIPlan(request:Request,tour:Tour,action:string|undefi
  }
  if(request.method!=="GET"){
   if(!access.sessionAdmin)return fail("دخول الإدارة مطلوب.",401);
-  if(request.method==="POST")return fail("خدمة توليد المخطط بالذكاء الاصطناعي لم تُفعّل بعد. الصور والمخططات الحالية محفوظة ويمكن معاينتها.",503);
+  if(request.method==="POST")return changeSubscriptionPlan(request,tour);
   if(request.method!=="DELETE")return fail("العملية غير متاحة.",405);
-  await cloudQuery("ai_plan_jobs",`tour_id=eq.${eq(tour.id)}&status=in.(queued,running)`,"PATCH",{status:"cancelled",stage:"أُلغيت المعالجة",updated_at:new Date().toISOString()});
+  return changeSubscriptionPlan(request,tour);
  }
- if(access.sessionAdmin){const row=await latestAIPlan(tour.id),parsed=planResult.safeParse(row?.result);return json({configured:false,job:row?{id:row.id,tourId:row.tour_id,status:row.status,progress:row.progress,stage:row.stage,error:row.error,result:parsed.success?parsed.data:null,createdAt:row.created_at}:null,stale:!!row&&row.input_hash!==hash});}
+ if(access.sessionAdmin&&new URL(request.url).searchParams.get('viewer')!=='1'){const subscription=await subscriptionPlanStatus(tour);if(subscription.job)return json(subscription);const row=await latestAIPlan(tour.id),parsed=planResult.safeParse(row?.result);return json({...subscription,job:row?{id:row.id,tourId:row.tour_id,status:row.status,progress:row.progress,stage:row.stage,error:row.error,result:parsed.success?parsed.data:null,createdAt:row.created_at}:null,stale:!!row&&row.input_hash!==hash});}
  // Published clients see only the explicitly registered floor images, never private job payloads.
  const refs=(await getPlanRefs(tour.id)).filter(ref=>ref.input_hash===hash);
  if(!refs.length)return json({configured:false,job:null,stale:false});
- const jobId=refs[0].job_id,items=refs.filter(ref=>ref.job_id===jobId).map(ref=>{const parsed=navigation.safeParse(ref.navigation);return{floor:ref.floor,sceneIds:ref.scene_ids,...(parsed.success?{navigation:parsed.data}:{}),audit:{verdict:"draft",issues:[],limitations:[]}};});
+ const requestedFloor=new URL(request.url).searchParams.get('floor');
+ const jobId=(requestedFloor!==null?refs.find(ref=>ref.floor===Number(requestedFloor)):undefined)?.job_id??refs[0].job_id,items=refs.filter(ref=>ref.job_id===jobId).map(ref=>{const parsed=navigation.safeParse(ref.navigation);return{floor:ref.floor,sceneIds:ref.scene_ids,...(parsed.success?{navigation:parsed.data}:{}),audit:{verdict:"draft",issues:[],limitations:[]}};});
  return json({configured:false,job:{id:jobId,tourId:tour.id,status:"draft",progress:1,stage:"مخطط الجولة",error:null,createdAt:tour.updatedAt,result:{floors:items,limitations:[],sceneCount:tour.scenes.length}},stale:false});
 }
 export async function cloudLeadsPage(options:{projectId?:string;cursor?:string;limit?:number}){

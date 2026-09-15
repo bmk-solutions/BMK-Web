@@ -1,14 +1,15 @@
-import {randomUUID} from 'node:crypto';
+import {randomUUID,createHash} from 'node:crypto';
 import {z} from 'zod';
 import sharp from 'sharp';
-import {cloudDownloadObject,cloudQuery,cloudUploadObject} from './client';
-import {getAsset,getTour,listTours,withinRateLimit} from './repository';
+import {cloudDownloadObject,cloudQuery,cloudUploadObject,cloudRpc} from './client';
+import {getAsset,getTour,listTours,withinRateLimit,getPlanRefs} from './repository';
 import {chatgptConnection,chatgptOrigin,chatgptScope,signedValue,verifiedValue,type ChatGPTConnection} from './chatgpt-auth';
 import {CloudHTTPError,eq,json,readJSON,readBytes} from './http';
 import {aiPlanFingerprint} from '../ai-plan-jobs';
 import {panoramaEvidenceSheet,sceneEvidenceSchema,floorplanAuditSchema,floorplanLayoutSchema,validateFloorplanLayout,renderFloorplanLayoutSVG} from '../openai-floorplan-pipeline';
 import {cloudIsAdmin,cloudSameOrigin} from './auth';
 import {furnishedPlanInstructions,furnishedPlanStyle} from '../furnished-plan';
+import {planLabelsSchema,labeledPlanSVG,type PlanLabel} from '../plan-labels';
 const identifier=z.string().min(1).max(100);
 const inputs={
  list_tours:z.object({}).strict(),
@@ -46,6 +47,7 @@ export async function callChatGPTTool(connection:ChatGPTConnection,name:keyof ty
   const input=inputs.inspect_floorplan_draft.parse(args),tour=await scopedTour(connection,input.tourId);
   const [row]=await cloudQuery<DraftRow[]>('chatgpt_drafts',`id=eq.${eq(input.draftId)}&tour_id=eq.${eq(tour.id)}&project_id=eq.${eq(connection.project_id)}&limit=1`);
   if(!row)throw new CloudHTTPError('Draft not found',404);
+  if(row.result.qualityHold)throw new CloudHTTPError('This draft failed the geometry review. Analyze the source photos again; do not style this layout.',409);
   if(row.input_hash!==aiPlanFingerprint(tour.scenes))throw new CloudHTTPError('Images changed. Analyze the current images first.',409);
   const guide=await sharp(Buffer.from(renderFloorplanLayoutSVG(floorplanLayoutSchema.parse(row.result.layout)))).png().toBuffer();
   return {content:[{type:'text',text:JSON.stringify({draftId:row.id,tourId:tour.id,title:tour.title,floor:row.floor,evidence:row.result.evidence,layout:row.result.layout,audit:row.result.audit,instructions:furnishedPlanInstructions,styleVersion:furnishedPlanStyle})},{type:'image',mimeType:'image/png',data:guide.toString('base64')}]};
@@ -79,14 +81,45 @@ export async function chatgptMCP(request:Request){
  try{return reply(await callChatGPTTool(connection,name as keyof typeof inputs,input.params?.arguments??{}));}
  catch(error){if(error instanceof z.ZodError||error instanceof CloudHTTPError)return reply({isError:true,content:[{type:'text',text:error instanceof z.ZodError?error.issues[0].message:error.message}]});throw error;}
 }
-type FurnishedImage={styleVersion:string;parentDraftId:string;reviewNotes:string;reviewStatus:'needs-review'};
+type FurnishedImage={styleVersion:string;parentDraftId:string;reviewNotes:string;reviewStatus:'needs-review';imageDraftId?:string;labels?:PlanLabel[];width?:number;height?:number;baseImageHasNoText?:boolean};
 type DraftRow={id:string;project_id:string;tour_id:string;floor:number;input_hash:string;created_at:string;result:{layout:unknown;audit:unknown;evidence?:unknown;furnished?:FurnishedImage;[key:string]:unknown}};
+async function furnishedPNG(row:DraftRow,base=false){
+ const furnished=row.result.furnished!,imageId=z.string().uuid().parse(furnished.imageDraftId??row.id);
+ const png=Buffer.from(await cloudDownloadObject(`chatgpt-drafts/${row.project_id}/${row.tour_id}/${imageId}.png`));
+ if(base||!furnished.baseImageHasNoText||!furnished.labels)return png;
+ const meta=await sharp(png,{limitInputPixels:20_000_000}).metadata();
+ return sharp(Buffer.from(labeledPlanSVG(png,meta.width!,meta.height!,planLabelsSchema.parse(furnished.labels)))).png().toBuffer();
+}
 export async function chatgptDrafts(request:Request){
  if(!await cloudIsAdmin(request))throw new CloudHTTPError('دخول الإدارة مطلوب.',401);
  const url=new URL(request.url),tourId=identifier.parse(url.searchParams.get('tourId')),id=url.searchParams.get('id');
- if(!['GET','POST'].includes(request.method))throw new CloudHTTPError('طريقة غير مسموحة.',405);
- if(request.method==='POST'&&!cloudSameOrigin(request))throw new CloudHTTPError('مصدر الطلب غير مسموح.',403);
+ if(!['GET','POST','PATCH'].includes(request.method))throw new CloudHTTPError('طريقة غير مسموحة.',405);
+ if(request.method!=='GET'&&!cloudSameOrigin(request))throw new CloudHTTPError('مصدر الطلب غير مسموح.',403);
  const rows=await cloudQuery<DraftRow[]>('chatgpt_drafts',`tour_id=eq.${eq(tourId)}${id?'&id=eq.'+eq(z.string().uuid().parse(id)):''}&order=created_at.desc&limit=20`);
+ if(request.method==='POST'&&url.searchParams.get('approve')==='1'){
+  const source=rows[0],tour=await getTour(tourId);
+  if(!id||!source?.result.furnished||!tour||tour.projectId!==source.project_id)throw new CloudHTTPError('المسودة غير موجودة.',404);
+  if(source.result.qualityHold)throw new CloudHTTPError('هذه التجربة مستبعدة بسبب اختلاف التوزيع الهندسي؛ لا يمكن اعتمادها.',409);
+  if(source.input_hash!==aiPlanFingerprint(tour.scenes))throw new CloudHTTPError('تغيرت الصور؛ حلل الصور الحالية أولًا.',409);
+  const previous=(await getPlanRefs(tourId)).find(ref=>ref.floor===source.floor),png=await furnishedPNG(source),job=randomUUID(),key=`reviewed-plans/${tour.projectId}/${tour.id}/${job}.png`;
+  await cloudUploadObject(key,png,'image/png');
+  await cloudRpc('use_furnished_draft',{p_draft:source.id,p_revision:tour.revision,p_job:job,p_key:key,p_sha:createHash('sha256').update(png).digest('hex'),p_previous_job:previous?.job_id??null});
+  return json({status:'selected',notice:'تم اختيار هذه النسخة للعرض في الجولة.'});
+ }
+ if(request.method==='PATCH'){
+  const source=rows[0],tour=await getTour(tourId),furnished=source?.result.furnished;
+  if(!id||!source||!tour||tour.projectId!==source.project_id)throw new CloudHTTPError('المسودة غير موجودة.',404);
+  if(source.result.qualityHold)throw new CloudHTTPError('هذه التجربة مستبعدة بسبب اختلاف التوزيع الهندسي.',409);
+  if(source.input_hash!==aiPlanFingerprint(tour.scenes))throw new CloudHTTPError('تغيرت الصور؛ حلل الصور الحالية أولًا.',409);
+  if(!furnished?.baseImageHasNoText||!furnished.labels)throw new CloudHTTPError('هذه صورة قديمة بأسماء مدمجة؛ أعد إنشاء المخطط لتفعيل تعديل الأسماء.');
+  const input=z.object({names:z.array(z.object({roomId:z.string(),name:z.string().trim().min(1).max(80)}).strict()).max(100)}).strict().parse(await readJSON(request,24000));
+  const labels=planLabelsSchema.parse(furnished.labels),names=new Map(input.names.map(item=>[item.roomId,item.name]));
+  if(names.size!==labels.length||input.names.length!==labels.length||labels.some(item=>!names.has(item.roomId)))throw new CloudHTTPError('أسماء الغرف لا تطابق هذه المسودة.');
+  const nextId=randomUUID(),layout=floorplanLayoutSchema.parse(source.result.layout);
+  const result={...source.result,layout:{...layout,rooms:layout.rooms.map(room=>({...room,label:names.get(room.id)??room.label}))},furnished:{...furnished,parentDraftId:source.id,imageDraftId:furnished.imageDraftId??source.id,labels:labels.map(item=>({...item,name:names.get(item.roomId)!}))}};
+  await cloudQuery('chatgpt_drafts','','POST',{id:nextId,project_id:source.project_id,tour_id:tourId,floor:source.floor,input_hash:source.input_hash,result});
+  return json({id:nextId,status:'draft'},201);
+ }
  if(request.method==='POST'){
   if(!id||!rows[0])throw new CloudHTTPError('اختر مسودة التحليل الأصلية.',404);
   const source=rows[0],tour=await getTour(tourId);
@@ -108,7 +141,10 @@ export async function chatgptDrafts(request:Request){
   const row=rows[0];if(!row)throw new CloudHTTPError('المسودة غير موجودة.',404);
   const headers={'Cache-Control':'private, no-store','Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; sandbox",'X-Content-Type-Options':'nosniff'};
   if(url.searchParams.get('brief')==='1')return json({tourId,draftId:id,layout:row.result.layout,evidence:row.result.evidence,audit:row.result.audit,styleVersion:furnishedPlanStyle,instructions:furnishedPlanInstructions});
-  if(row.result.furnished&&url.searchParams.get('guide')!=='1')return new Response(new Uint8Array(await cloudDownloadObject(`chatgpt-drafts/${row.project_id}/${tourId}/${row.id}.png`)),{headers:{...headers,'Content-Type':'image/png'}});
+  if(row.result.furnished&&url.searchParams.get('guide')!=='1'){
+   const png=await furnishedPNG(row,url.searchParams.get('base')==='1');
+   return new Response(new Uint8Array(png),{headers:{...headers,'Content-Type':'image/png'}});
+  }
   return new Response(renderFloorplanLayoutSVG(floorplanLayoutSchema.parse(row.result.layout)),{headers:{...headers,'Content-Type':'image/svg+xml'}});
  }
  const tour=await getTour(tourId);return json(rows.map(row=>({...row,stale:!tour||row.input_hash!==aiPlanFingerprint(tour.scenes)})));

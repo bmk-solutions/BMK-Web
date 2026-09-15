@@ -8,4 +8,4 @@ async function handle(request:Request,{params}:{params:Promise<{action:string}>}
  if(!cloudEnabled())return fail('ربط ChatGPT متاح على المنصة المنشورة.',503);
  try{const {action}=await params;return action==='mcp'?await chatgptMCP(request):action==='drafts'?await chatgptDrafts(request):await chatgptOAuth(request,action);}catch(error){return cloudFailure(error);}
 }
-export {handle as GET,handle as POST,handle as DELETE};
+export {handle as GET,handle as POST,handle as PATCH,handle as DELETE};

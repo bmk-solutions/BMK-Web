@@ -2,6 +2,7 @@
 import {useState} from 'react';
 import {Dialog} from './Dialog';
 import {api} from './client';
+import {ChatGPTSettings} from './ChatGPTSettings';
 export function AdminSettings({onClose,onSaved}:{onClose:()=>void;onSaved:()=>void}){
   const [busy,setBusy]=useState(false),[error,setError]=useState('');
   return <Dialog title="الإعدادات" onClose={()=>{if(!busy)onClose();}}><form className="imo-form" onSubmit={async event=>{
@@ -16,5 +17,5 @@ export function AdminSettings({onClose,onSaved}:{onClose:()=>void;onSaved:()=>vo
     <label>كلمة المرور الجديدة<input name="newPassword" type="password" autoComplete="new-password" required minLength={12} maxLength={128} disabled={busy}/></label>
     <label>تأكيد كلمة المرور الجديدة<input name="confirmPassword" type="password" autoComplete="new-password" required minLength={12} maxLength={128} disabled={busy}/></label>
     {error&&<p className="imo-error" role="alert">{error}</p>}<button className="imo-button primary" disabled={busy}>{busy?'جارٍ الحفظ…':'حفظ كلمة المرور'}</button>
-  </form></Dialog>;
+  </form><ChatGPTSettings/></Dialog>;
 }

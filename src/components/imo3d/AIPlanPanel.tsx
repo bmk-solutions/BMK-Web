@@ -3,6 +3,7 @@
 /* eslint-disable @next/next/no-img-element */
 import {useEffect,useState} from "react";
 import type {AIPlanJob} from "@/lib/imo3d/ai-plan-jobs";
+import {ChatGPTDrafts} from './ChatGPTDrafts';
 type Status={configured:boolean;job:AIPlanJob|null;stale:boolean};
 export function AIPlanPanel({tourId,sceneCount,disabled}:{tourId:string;sceneCount:number;disabled:boolean}){
  const [status,setStatus]=useState<Status|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
@@ -11,8 +12,9 @@ export function AIPlanPanel({tourId,sceneCount,disabled}:{tourId:string;sceneCou
  const run=async(method:'POST'|'DELETE')=>{setBusy(true);setError('');try{const response=await fetch(url,{method});const data=await response.json();if(!response.ok)throw Error(data.error);setStatus(data);}catch(error){setError(error instanceof Error?error.message:'تعذر بدء التحليل.');}finally{setBusy(false);}};
  const job=status?.job,active=job?.status==='queued'||job?.status==='running';
  return <section className="imo-form" style={{padding:20,border:'1px solid #dce6e0',borderRadius:16,marginBottom:20}}>
-  <div><h3>مخطط 2D من الصور · GPT Image 2.5</h3><p>تحليل كل لقطة، دمج الغرف حسب الدور، ثم مراجعة بصرية للمسودة. النتائج تقديرية وتحتاج مراجعة؛ لا تتحول إلى قياسات أو مخطط منشور تلقائيًا.</p></div>
-  {status&&!status.configured&&<p role="status">الربط جاهز للإعداد، لكنه غير مفعّل: يلزم مفتاح OpenAI API على الخادم.</p>}
+  <div><h3>مخطط 2D من تحليل الصور</h3><p>تحليل كل لقطة، دمج الغرف حسب الدور، ثم مراجعة بصرية للمسودة. النتائج تقديرية وتحتاج مراجعة؛ لا تتحول إلى قياسات أو مخطط منشور تلقائيًا.</p></div>
+  {status&&!status.configured&&<p role="status">استخدم ربط ChatGPT من الإعدادات لتحليل الصور من حسابك وحفظ مسودة هنا. التوليد عبر API غير مفعّل.</p>}
+  <ChatGPTDrafts tourId={tourId}/>
   {status?.configured&&<p>سيُرسل التحليل نسخًا مشتقة من جميع الصور إلى OpenAI، وتُحتسب تكلفته على حساب API. الصور الأصلية محفوظة.</p>}
   <div className="imo-dialog-actions"><button type="button" className="imo-button primary" disabled={disabled||busy||active||!status?.configured||!sceneCount} onClick={()=>void run('POST')}>{active?'جارٍ إنشاء المسودة…':`توليد مسودة من ${sceneCount} لقطة`}</button>{active&&<button type="button" className="imo-button secondary" disabled={busy} onClick={()=>void run('DELETE')}>إيقاف المعالجة</button>}</div>
   {active&&<div role="status"><p>{job.stage}</p><progress value={job.progress} max={100}/></div>}

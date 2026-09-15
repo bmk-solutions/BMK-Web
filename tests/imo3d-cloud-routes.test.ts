@@ -12,6 +12,8 @@ import {syntheticTour} from './fixtures/imo3d-synthetic-tour';
 import {hashAdminPassword,verifyAdminPassword} from '../src/lib/imo3d/admin-password';
 import {PanoramaBlobCache} from '../src/components/imo3d/PanoramaBlobCache';
 import {cloudSignedDownloads} from '../src/lib/imo3d/cloud/client';
+import {chatgptOAuth,chatgptResource,signedValue,authorization,digest,chatgptConnection} from '../src/lib/imo3d/cloud/chatgpt-auth';
+import {chatgptMCP,callChatGPTTool} from '../src/lib/imo3d/cloud/chatgpt-mcp';
 const origin='https://imo3d.example',secret='synthetic-test-secret-is-at-least-32-characters',fetchOriginal=globalThis.fetch,envOriginal={...process.env};
 const adminCookie=()=>{const expiry=String(Date.now()+60_000);return `imo3d_session=${expiry}.${createHmac('sha256',secret).update(expiry).digest('hex')}`;};
 const req=(url:string,options:RequestInit={},admin=false)=>new Request(origin+'/api/imo3d/'+url,{...options,headers:{...(admin?{cookie:adminCookie()}:{}),...(options.method&&options.method!=='GET'?{Origin:origin,'Content-Type':'application/json'}:{}),...Object.fromEntries(new Headers(options.headers))}});
@@ -19,6 +21,60 @@ const result=(value:unknown,status=200)=>new Response(JSON.stringify(value),{sta
 type Call={url:URL;method:string;body:Record<string,unknown>|null};let storedCredential:Record<string,unknown>|null=null;let calls:Call[]=[];let mock:(call:Call)=>Response|Promise<Response>;
 beforeEach(()=>{Object.assign(process.env,{IMO3D_CLOUD:'1',SUPABASE_URL:'https://synthetic.supabase.co',SUPABASE_SERVICE_ROLE_KEY:'synthetic-key',IMO3D_ADMIN_SECRET:secret,IMO3D_PUBLIC_ORIGIN:origin,IMO3D_DATA_DIR:path.resolve('work/cloud-test-must-not-create-database')});storedCredential=null;calls=[];mock=call=>{throw Error('Unexpected cloud request '+call.url.pathname);};globalThis.fetch=async(input,init)=>{const call={url:new URL(String(input)),method:init?.method??'GET',body:typeof init?.body==='string'?JSON.parse(init.body):null};if(call.url.pathname.endsWith("/imo3d_admin_credentials")&&call.method==="GET")return result(storedCredential?[storedCredential]:[]);calls.push(call);return mock(call);};});
 afterEach(()=>{globalThis.fetch=fetchOriginal;for(const key of Object.keys(process.env))if(!(key in envOriginal))delete process.env[key];Object.assign(process.env,envOriginal);});
+
+test('ChatGPT discovery exposes four bounded tools, while images require a scoped token',async()=>{
+ const request=(method:string,params={})=>new Request(origin+'/api/imo3d-chatgpt/mcp',{method:'POST',body:JSON.stringify({jsonrpc:'2.0',id:1,method,params})});
+ const tools=(await(await chatgptMCP(request('tools/list'))).json()).result.tools;
+ assert.deepEqual(tools.map((tool:{name:string})=>tool.name),['list_tours','inspect_tour','inspect_scene','save_floorplan_draft']);
+ assert.equal(tools[3].annotations.destructiveHint,false);assert.equal(tools[3].annotations.readOnlyHint,false);
+ const denied=await chatgptMCP(request('tools/call',{name:'inspect_scene',arguments:{tourId:'private',sceneId:'private'}}));
+ assert.equal(denied.status,401);assert.match(denied.headers.get('www-authenticate')!,/oauth-protected-resource/);assert.equal(calls.length,0);
+});
+
+test('ChatGPT authorization binds project consent to the exact ChatGPT callback, resource and PKCE',async()=>{
+ process.env.IMO3D_SESSION_SECRET=secret;
+ const redirect='https://chatgpt.com/connector/oauth/test-callback';
+ const clientId=signedValue({kind:'client',redirect_uris:[redirect],expires:Date.now()+60000});
+ const args={client_id:clientId,redirect_uri:redirect,response_type:'code',code_challenge:'a'.repeat(43),code_challenge_method:'S256',state:'test-state',scope:'imo3d:analyze',resource:chatgptResource()};
+ assert.equal(authorization(args).redirect_uri,redirect);
+ assert.throws(()=>authorization({...args,redirect_uri:'https://outside.example/callback'}));
+ assert.throws(()=>authorization({...args,resource:'https://outside.example/mcp'}));
+ assert.throws(()=>authorization({...args,code_challenge_method:'plain'}));
+ assert.throws(()=>authorization({...args,redirect_uri:'https://chatgpt.com/connector/oauth/different'}));
+});
+
+test('ChatGPT code redemption checks PKCE atomically and prevents replay',async()=>{
+ process.env.IMO3D_SESSION_SECRET=secret;
+ const redirect='https://chatgpt.com/connector/oauth/test-callback',clientId=signedValue({kind:'client',redirect_uris:[redirect],expires:Date.now()+60000}),verifier='v'.repeat(43),code='c'.repeat(43);
+ let consumed=false;
+ mock=call=>{if(call.url.pathname.endsWith('/imo3d_chatgpt_codes')){assert.equal(call.method,'DELETE');assert.equal(call.url.searchParams.get('code_hash'),'eq.'+digest(code));const valid=call.url.searchParams.get('challenge')==='eq.'+createHash('sha256').update(verifier).digest('base64url');if(!valid||consumed)return result([]);consumed=true;return result([{project_id:'only-project'}]);}assert.equal(call.url.pathname,'/rest/v1/imo3d_chatgpt_connections');assert.equal(call.body!.project_id,'only-project');assert.equal(JSON.stringify(call.body).includes('imoc_'),false);return result([call.body]);};
+ const request=(v:string)=>new Request(origin+'/api/imo3d-chatgpt/token',{method:'POST',body:new URLSearchParams({client_id:clientId,grant_type:'authorization_code',redirect_uri:redirect,resource:chatgptResource(),code,code_verifier:v})});
+ assert.equal((await chatgptOAuth(request('x'.repeat(43)),'token')).status,400);assert.equal(consumed,false);
+ const issued=await chatgptOAuth(request(verifier),'token');assert.equal(issued.status,200);assert.match((await issued.json()).access_token,/^imoc_/);
+ assert.equal((await chatgptOAuth(request(verifier),'token')).status,400);
+});
+
+test('ChatGPT token checks expiration and revocation; tools refuse another project',async()=>{
+ mock=call=>{assert.equal(call.url.searchParams.get('revoked_at'),'is.null');assert.ok(call.url.searchParams.get('expires_at')!.startsWith('gt.'));return result([]);};
+ assert.equal(await chatgptConnection(new Request(origin,{headers:{authorization:'Bearer imoc_'+'a'.repeat(43)}})),null);
+ mock=()=>result([{payload:syntheticTour()}]);
+ await assert.rejects(callChatGPTTool({id:'connection',project_id:'other-project',client_id:'client',expires_at:'',refresh_expires_at:''},'inspect_tour',{tourId:'synthetic-tour'}),/outside/);
+});
+
+test('ChatGPT cannot save a draft without all current images and their inspection receipts',async()=>{
+ process.env.IMO3D_SESSION_SECRET=secret;
+ const tour=syntheticTour(),connection={id:'connection',project_id:tour.projectId,client_id:'client',expires_at:'',refresh_expires_at:''},hash=aiPlanFingerprint(tour.scenes);
+ const evidence=tour.scenes.map(scene=>({sceneId:scene.id,roomCategory:'unknown',visibleEvidence:['Synthetic'],openings:[],distinctiveFeatures:[],uncertainties:['Unknown geometry'],receipt:signedValue({kind:'scene',connection:connection.id,tour:tour.id,scene:scene.id,hash,expires:Date.now()+60000})}));
+ const layout={rooms:[{id:'unknown',label:'Unresolved',evidenceSceneIds:tour.scenes.map(s=>s.id),polygon:null,uncertainty:'Cannot determine layout'}],openings:[],uncertainties:['Not surveyed']};
+ const input={tourId:tour.id,inputHash:hash,floor:0,evidence,layout,audit:{verdict:'inconclusive',reviewedSceneIds:tour.scenes.map(s=>s.id),issues:[],limitations:['Uncertain']}};
+ mock=call=>{if(call.method==='GET')return result([{payload:tour}]);assert.equal(call.url.pathname,'/rest/v1/imo3d_chatgpt_drafts');assert.equal(call.body!.input_hash,hash);assert.equal(JSON.stringify(call.body).includes('"receipt":'),false);return result([call.body]);};
+ await assert.rejects(callChatGPTTool(connection,'save_floorplan_draft',{...input,evidence:evidence.slice(1)}),/every scene/);
+ await assert.rejects(callChatGPTTool(connection,'save_floorplan_draft',{...input,inputHash:'0'.repeat(64)}),/changed/);
+ await assert.rejects(callChatGPTTool(connection,'save_floorplan_draft',{...input,evidence:evidence.map((item,index)=>index?item:{...item,receipt:signedValue({kind:'scene',connection:'another',tour:tour.id,scene:item.sceneId,hash,expires:Date.now()+60000})})}),/receipt/);
+ assert.equal(calls.some(call=>call.method!=='GET'),false);
+ const saved=await callChatGPTTool(connection,'save_floorplan_draft',input);assert.match(saved.content[0].text!,/draft/);
+ assert.equal(calls.filter(call=>call.method!=='GET').length,1);
+});
 
 test('viewer media signs only current display images in one batch and preserves canonical scene references',async()=>{
  const tour={...syntheticTour(),published:true};tour.scenes[0].image='/api/imo3d/assets/display';

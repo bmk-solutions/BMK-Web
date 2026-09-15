@@ -13,7 +13,7 @@ import {hashAdminPassword,verifyAdminPassword} from '../src/lib/imo3d/admin-pass
 import {PanoramaBlobCache} from '../src/components/imo3d/PanoramaBlobCache';
 import {cloudSignedDownloads} from '../src/lib/imo3d/cloud/client';
 import {chatgptOAuth,chatgptResource,signedValue,authorization,digest,chatgptConnection} from '../src/lib/imo3d/cloud/chatgpt-auth';
-import {chatgptMCP,callChatGPTTool} from '../src/lib/imo3d/cloud/chatgpt-mcp';
+import {chatgptMCP,callChatGPTTool,chatgptDrafts} from '../src/lib/imo3d/cloud/chatgpt-mcp';
 const origin='https://imo3d.example',secret='synthetic-test-secret-is-at-least-32-characters',fetchOriginal=globalThis.fetch,envOriginal={...process.env};
 const adminCookie=()=>{const expiry=String(Date.now()+60_000);return `imo3d_session=${expiry}.${createHmac('sha256',secret).update(expiry).digest('hex')}`;};
 const req=(url:string,options:RequestInit={},admin=false)=>new Request(origin+'/api/imo3d/'+url,{...options,headers:{...(admin?{cookie:adminCookie()}:{}),...(options.method&&options.method!=='GET'?{Origin:origin,'Content-Type':'application/json'}:{}),...Object.fromEntries(new Headers(options.headers))}});
@@ -22,13 +22,45 @@ type Call={url:URL;method:string;body:Record<string,unknown>|null};let storedCre
 beforeEach(()=>{Object.assign(process.env,{IMO3D_CLOUD:'1',SUPABASE_URL:'https://synthetic.supabase.co',SUPABASE_SERVICE_ROLE_KEY:'synthetic-key',IMO3D_ADMIN_SECRET:secret,IMO3D_PUBLIC_ORIGIN:origin,IMO3D_DATA_DIR:path.resolve('work/cloud-test-must-not-create-database')});storedCredential=null;calls=[];mock=call=>{throw Error('Unexpected cloud request '+call.url.pathname);};globalThis.fetch=async(input,init)=>{const call={url:new URL(String(input)),method:init?.method??'GET',body:typeof init?.body==='string'?JSON.parse(init.body):null};if(call.url.pathname.endsWith("/imo3d_admin_credentials")&&call.method==="GET")return result(storedCredential?[storedCredential]:[]);calls.push(call);return mock(call);};});
 afterEach(()=>{globalThis.fetch=fetchOriginal;for(const key of Object.keys(process.env))if(!(key in envOriginal))delete process.env[key];Object.assign(process.env,envOriginal);});
 
-test('ChatGPT discovery exposes four bounded tools, while images require a scoped token',async()=>{
+test('ChatGPT discovery exposes scoped analysis and furnished-guide tools',async()=>{
  const request=(method:string,params={})=>new Request(origin+'/api/imo3d-chatgpt/mcp',{method:'POST',body:JSON.stringify({jsonrpc:'2.0',id:1,method,params})});
  const tools=(await(await chatgptMCP(request('tools/list'))).json()).result.tools;
- assert.deepEqual(tools.map((tool:{name:string})=>tool.name),['list_tours','inspect_tour','inspect_scene','save_floorplan_draft']);
- assert.equal(tools[3].annotations.destructiveHint,false);assert.equal(tools[3].annotations.readOnlyHint,false);
+ assert.deepEqual(tools.map((tool:{name:string})=>tool.name),['list_tours','inspect_tour','inspect_scene','inspect_floorplan_draft','save_floorplan_draft']);
+ assert.equal(tools[3].annotations.readOnlyHint,true);assert.equal(tools[4].annotations.destructiveHint,false);assert.equal(tools[4].annotations.readOnlyHint,false);
  const denied=await chatgptMCP(request('tools/call',{name:'inspect_scene',arguments:{tourId:'private',sceneId:'private'}}));
  assert.equal(denied.status,401);assert.match(denied.headers.get('www-authenticate')!,/oauth-protected-resource/);assert.equal(calls.length,0);
+});
+
+test('furnished guide refuses a different project before reading its draft',async()=>{
+ mock=()=>result([{payload:syntheticTour()}]);
+ await assert.rejects(callChatGPTTool({id:'connection',project_id:'other-project',client_id:'client',expires_at:'',refresh_expires_at:''},'inspect_floorplan_draft',{tourId:'synthetic-tour',draftId:'00000000-0000-4000-8000-000000000001'}),/outside/);
+ assert.equal(calls.length,1);
+});
+
+test('furnished upload needs admin, same origin, and current source images before any write',async()=>{
+ const tour=syntheticTour(),id='00000000-0000-4000-8000-000000000001',url=origin+'/api/imo3d-chatgpt/drafts?tourId='+tour.id+'&id='+id;
+ await assert.rejects(chatgptDrafts(new Request(url)),/دخول الإدارة/);
+ await assert.rejects(chatgptDrafts(new Request(url,{method:'POST',headers:{cookie:adminCookie(),Origin:'https://outside.example'}})),/مصدر/);
+ mock=call=>result(call.url.pathname.endsWith('/imo3d_tours')?[{payload:tour}]:[{id,project_id:tour.projectId,input_hash:'old'}]);
+ await assert.rejects(chatgptDrafts(new Request(url,{method:'POST',headers:{cookie:adminCookie(),Origin:origin}})),/تغيرت الصور/);
+ assert.equal(calls.some(call=>call.method!=='GET'),false);
+});
+
+test('furnished image is inserted as a separate private draft and original remains unchanged',async()=>{
+ const tour=syntheticTour(),id='00000000-0000-4000-8000-000000000001',url=origin+'/api/imo3d-chatgpt/drafts?tourId='+tour.id+'&id='+id;
+ const source={id,project_id:tour.projectId,tour_id:tour.id,floor:0,input_hash:aiPlanFingerprint(tour.scenes),result:{source:'chatgpt-mcp',layout:{rooms:[]},audit:{verdict:'inconclusive'}}},before=JSON.stringify(source);
+ const png=await sharp({create:{width:256,height:256,channels:3,background:'white'}}).png().toBuffer();
+ mock=call=>{
+  if(call.method==='GET')return result(call.url.pathname.endsWith('/imo3d_tours')?[{payload:tour}]:[source]);
+  assert.equal(call.method,'POST');
+  if(call.url.pathname.startsWith('/storage/')){assert.match(call.url.pathname,new RegExp('/chatgpt-drafts/'+tour.projectId+'/'+tour.id+'/'));return result({});}
+  assert.equal(call.url.pathname,'/rest/v1/imo3d_chatgpt_drafts');assert.notEqual(call.body!.id,id);assert.equal(call.body!.tour_id,tour.id);assert.equal((call.body!.result as {furnished:{parentDraftId:string}}).furnished.parentDraftId,id);return result([call.body]);
+ };
+ const body=new FormData();body.set('image',new File([new Uint8Array(png)],'draft.png',{type:'image/png'}));body.set('reviewNotes','Synthetic reviewed furniture inventory');
+ const response=await chatgptDrafts(new Request(url,{method:'POST',headers:{cookie:adminCookie(),Origin:origin},body}));
+ assert.equal(response.status,201);assert.equal(JSON.stringify(source),before);assert.equal(calls.filter(call=>call.method==='POST').length,2);
+ mock=call=>call.url.pathname.startsWith('/storage/')?new Response(new Uint8Array(png)):result([{...source,result:{...source.result,furnished:{reviewStatus:'needs-review'}}}]);
+ const image=await chatgptDrafts(new Request(url,{headers:{cookie:adminCookie()}}));assert.equal(image.headers.get('content-type'),'image/png');assert.match(image.headers.get('cache-control')!,/private, no-store/);assert.deepEqual(Buffer.from(await image.arrayBuffer()),png);
 });
 
 test('ChatGPT authorization binds project consent to the exact ChatGPT callback, resource and PKCE',async()=>{

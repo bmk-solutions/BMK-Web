@@ -1,8 +1,10 @@
 "use client";
 import {useEffect,useMemo,useRef,useState,type CSSProperties} from "react";
 import type {Point,Scene,Tour} from "@/lib/imo3d/model";
+import {estimatedMeasurementPoint} from "@/lib/imo3d/estimated-measurement";
+import {supportedDisplayDepth} from "@/lib/imo3d/display-depth";
 import {distance,monthlyPayment,radians,surfacePoint} from "@/lib/imo3d/spatial";
-import {heldHeading,isMovementCode,navigationTransition,pickNavigationDirection,pointerDestination} from "@/lib/imo3d/navigation";
+import {heldHeading,isMovementCode,navigationPrefetch,navigationTransition,pickNavigationDirection,pointerDestination} from "@/lib/imo3d/navigation";
 import type {PanoramaEngine} from "./PanoramaEngine";
 import {api,number} from "./client";
 import {Dialog} from "./Dialog";
@@ -13,6 +15,9 @@ import {InteractiveFloorPlan} from "./InteractiveFloorPlan";
 import {ViewerFloorPlan} from "./ViewerFloorPlan";
 import {Icon} from "./Icon";
 import {projectPanoramaFloor,projectPanoramaMeasurement,type PanoramaMeasurementRay,type PanoramaMeasurementCalibration} from "@/lib/imo3d/panorama-measurement";
+import {formatMeasurement,type MeasurementUnit} from "@/lib/imo3d/measurement-units";
+import {MeasurementUnitPicker} from "./MeasurementUnitPicker";
+import {CompletedMeasurement,useMeasurementNotebook} from './MeasurementNotebook';
 import {PanoramaMeasurementControls} from "./PanoramaMeasurementControls";
 import "./viewer-mobile.css";
 import "./room-functions.css";
@@ -31,6 +36,13 @@ export default function TourViewer({id,embedded=false,initialSceneId}:{id:string
   return <Viewer tour={tour} embedded={embedded} initialSceneId={tour.scenes.some(scene=>scene.id===initialSceneId)?initialSceneId:undefined}/>;
 }
 function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean;initialSceneId?:string}) {
+  const [measurementUnit,setMeasurementUnit]=useState<MeasurementUnit>("m");
+  const [measurementsVisible,setMeasurementsVisible]=useState(true);
+  const [selectedMeasurement,setSelectedMeasurement]=useState<string|null>(null);
+  const notebook=useMeasurementNotebook(tour.id,tour.revision,tour.scenes.map(scene=>scene.id));
+  const savedMeasurements=useRef(notebook.measurements);
+  const [savedLines,setSavedLines]=useState<{id:string;meters:number;a:{x:number;y:number;visible:boolean};b:{x:number;y:number;visible:boolean}}[]>([]);
+  useEffect(()=>{savedMeasurements.current=notebook.measurements;engine.current?.invalidate();},[notebook.measurements]);
   const media=useRef(tour.media);
   useEffect(()=>{
     if(!tour.media)return;
@@ -74,10 +86,10 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
   const currentPlan=tour.plans.find(p=>p.floor===current.floor);
   const showMinimap=!measure&&hasReviewedArchitecture(currentPlan)&&(mobile?mobileMapVisible:mapVisible);
   useEffect(()=>{
-    mapViewActive.current=showMinimap||panel==="map";
+    mapViewActive.current=(!measure&&(mobile?mobileMapVisible:mapVisible))||panel==="map";
     lastViewSync.current=0;
     engine.current?.invalidate();
-  },[showMinimap,panel]);
+  },[showMinimap,panel,measure,mobile,mobileMapVisible,mapVisible]);
   function openPanel(next:typeof panel) {
     const previous=panelRef.current;
     if(next&&!previous)panelOpener.current=document.activeElement instanceof HTMLElement?document.activeElement:null;
@@ -89,8 +101,19 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
       else canvas.current?.focus({preventScroll:true});
     });
   }
+  const warmedTarget=useRef("");
+  function warmTarget(id:string){
+    const target=scenesById.current.get(id),viewer=engine.current;
+    if(!target||!viewer||target.id===currentRef.current.id||navigating.current)return;
+    const key=currentRef.current.id+":"+id;
+    if(warmedTarget.current===key)return;
+    warmedTarget.current=key;
+    viewer.prefetch([target,...navigationPrefetch(tour.scenes,currentRef.current,viewer.yaw)]);
+  }
   function toggleMeasurement(){
     if(navigating.current||engine.current?.busy){setNotice("انتظر اكتمال الانتقال ثم ابدأ القياس.");return;}
+    if((!currentRef.current.depth||tour.spatialScale!=="metric")&&!supportedDisplayDepth(currentRef.current.displayDepth)){openPanel(null);setNotice("لا تتوفر بيانات عمق كافية للقياس في هذه اللقطة. اختر لقطة أخرى.");return;}
+    setNotice("");
     setFloor(currentRef.current.floor);
     setPoints([]);setFloorRays([]);photoCalibration.current=measurementCalibrations.current.get(currentRef.current.id)??null;setMeasurementSeed(photoCalibration.current);openPanel(null);setMeasure(value=>!value);
   }
@@ -113,7 +136,7 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
     if(!navigating.current&&target.id===currentRef.current.id)return;
     pendingNavigation.current={target,walk};
     if(navigating.current){viewer.cancelPendingLoad();return;}
-    navigating.current=true;setError("");setMeasure(false);measureRef.current=false;setPoints([]);setFloorRays([]);photoCalibration.current=null;setNotice("");
+    navigating.current=true;setSelectedMeasurement(null);setError("");setMeasure(false);measureRef.current=false;setPoints([]);setFloorRays([]);photoCalibration.current=null;setNotice("");
     try{
       while(pendingNavigation.current&&mounted.current){
         const request=pendingNavigation.current;pendingNavigation.current=null;
@@ -121,7 +144,7 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
         const scene=request.target,transition=navigationTransition(source,scene,viewer.yaw,tour.spatialSource,request.walk?"step":"direct");
           const moved=await viewer.move(scene,transition.animation,transition.arrivalYaw,transition.bearings);if(!moved)continue;
           currentRef.current=scene;setCurrent(scene);setFloor(scene.floor);setPosition(scene.position);
-          viewer.prefetch(scene.links.map(id=>scenesById.current.get(id)!).filter(Boolean));
+          viewer.prefetch(navigationPrefetch(tour.scenes,scene,viewer.yaw));
       }
     }catch(e){if(mounted.current)setError(e instanceof Error?e.message:"تعذر الانتقال");}
     finally{navigating.current=false;pendingNavigation.current=null;}
@@ -135,31 +158,42 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
       instance.onError=setError;instance.onLoading=loading=>{if(!cancelled)setBusy(loading);};
       instance.onView=(nextYaw,_pitch,nextPosition)=>{
         if(cancelled)return;
-        const measuring=pointsRef.current.length>0;
+        const measuring=pointsRef.current.length>0||savedMeasurements.current.length>0;
         // Keep panorama frames outside React when no overlay consumes the pose.
         if(!mapViewActive.current&&!measuring)return;
         const now=performance.now();
         if(now-lastViewSync.current<(measuring?30:66))return;
         lastViewSync.current=now;
         if(mapViewActive.current){setYaw(nextYaw);setPosition(nextPosition);}
-        if(measuring)setMarkers(pointsRef.current.map(p=>instance!.project(p)));
+        if(measuring){
+          setMarkers(pointsRef.current.map(p=>instance!.project(p)));
+          setSavedLines(savedMeasurements.current.flatMap(item=>item.sceneId===currentRef.current.id&&item.endpoints?[{id:item.id,meters:item.meters,a:instance!.project(item.endpoints[0]),b:instance!.project(item.endpoints[1])}]:[]));
+        }
       };
       resize=new ResizeObserver(([entry])=>instance?.resize(entry.contentRect.width,entry.contentRect.height));resize.observe(el);
       instance.resize(el.clientWidth,el.clientHeight);await instance.move(currentRef.current,false);
-      if(!cancelled){if(tour.initialView&&!initialSceneId){instance.yaw=radians(tour.initialView.yaw);instance.pitch=radians(tour.initialView.pitch);instance.invalidate();}initialized.current=true;setReady(true);setBusy(false);instance.prefetch(currentRef.current.links.map(id=>scenesById.current.get(id)!).filter(Boolean));}
+      if(!cancelled){if(tour.initialView&&!initialSceneId){instance.yaw=radians(tour.initialView.yaw);instance.pitch=radians(tour.initialView.pitch);instance.invalidate();}initialized.current=true;setReady(true);setBusy(false);instance.prefetch(navigationPrefetch(tour.scenes,currentRef.current,instance.yaw));}
     }).catch(e=>{if(!cancelled){setError(e instanceof Error?e.message:"الجهاز لا يدعم عرض 360");setBusy(false);}});
     let down:{x:number;y:number;time:number;dragged:boolean}|null=null;
     const pointers=new Map<number,{x:number;y:number}>(),heldKeys=new Set<string>();let lastPinch=0;
     let lastPointer:{x:number;y:number}|null=null;
+    let lastPrefetch=0,lastPrefetchKey="";
     const destinationAt=(x:number,y:number)=>{
       if(!instance)return null;const rect=el.getBoundingClientRect();
       const ray=instance.rayAt((x-rect.left)/rect.width*2-1,1-(y-rect.top)/rect.height*2);
-      return pointerDestination(tour.scenes,currentRef.current.id,ray.yaw,ray.pitch);
+      return pointerDestination(tour.scenes,currentRef.current.id,ray.yaw,ray.pitch,tour.spatialScale==="metric"&&tour.spatialSource==="calibrated");
     };
     const updateCursor=()=>{
       if(!instance)return;
       if(down?.dragged||pointers.size||panelRef.current||measureRef.current||navigating.current||!initialized.current){instance.clearNavigationCursor();el.dataset.cursor=down?.dragged?"drag":measureRef.current?"measure":"look";el.dataset.destinationId="";return;}
       const target=lastPointer?destinationAt(lastPointer.x,lastPointer.y):null;
+      const now=performance.now();
+      if(now-lastPrefetch>300){
+        const candidates=target?[target,...navigationPrefetch(tour.scenes,currentRef.current,instance.yaw,target.id)]:navigationPrefetch(tour.scenes,currentRef.current,instance.yaw);
+        const key=currentRef.current.id+":"+candidates.slice(0,2).map(scene=>scene.id).join(",");
+        if(key!==lastPrefetchKey){instance.prefetch(candidates);lastPrefetchKey=key;}
+        lastPrefetch=now;
+      }
       el.dataset.destinationId=target?.id??"";
       const rect=el.getBoundingClientRect();
       const projected=lastPointer&&instance.setNavigationCursor((lastPointer.x-rect.left)/rect.width*2-1,1-(lastPointer.y-rect.top)/rect.height*2,target);
@@ -179,10 +213,11 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
       if(!click||panelRef.current)return;
       const rect=el.getBoundingClientRect(),ray=instance.rayAt((e.clientX-rect.left)/rect.width*2-1,1-(e.clientY-rect.top)/rect.height*2);
       if(measureRef.current){
+        setMeasurementsVisible(true);
         if(navigating.current||instance.busy)return;
         const scene=currentRef.current;
-        if(scene.depth&&tour.spatialScale==="metric"){
-          const point=surfacePoint(scene,ray.yaw,ray.pitch);if(!point){setNotice("لا تتوفر قيمة عمق موثوقة عند هذه النقطة.");return;}setPoints(prev=>prev.length===2?[point]:[...prev,point]);
+        if((scene.depth&&tour.spatialScale==="metric")||supportedDisplayDepth(scene.displayDepth)){
+          const point=scene.depth&&tour.spatialScale==="metric"?surfacePoint(scene,ray.yaw,ray.pitch):estimatedMeasurementPoint(scene,ray.yaw,ray.pitch);if(!point){setNotice("بيانات العمق ناقصة هنا. حرّك النقطة قليلًا على سطح الباب أو الجدار نفسه.");return;}setNotice("");setPoints(prev=>prev.length===2?[point]:[...prev,point]);
         }else{
           const calibration=photoCalibration.current?.sceneId===scene.id?photoCalibration.current:null;
           const local=calibration?projectPanoramaMeasurement(ray,calibration):projectPanoramaFloor(ray);
@@ -192,8 +227,8 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
         }
         return;
       }
-      const target=pointerDestination(tour.scenes,currentRef.current.id,ray.yaw,ray.pitch);
-      if(target)void navigationRef.current(target);
+      const target=pointerDestination(tour.scenes,currentRef.current.id,ray.yaw,ray.pitch,tour.spatialScale==="metric"&&tour.spatialSource==="calibrated");
+      if(target)void navigationRef.current(target,false);
     };
     const pointerCancel=(e:PointerEvent)=>{pointers.delete(e.pointerId);down=null;updateCursor();};
     const pointerLeave=()=>{if(!pointers.size){lastPointer=null;updateCursor();}};
@@ -225,13 +260,29 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
       <div className="imo-view-title"><span>{tour.title}</span></div>
       <button className="imo-glass imo-icon" title={fullscreen?"الخروج من ملء الشاشة":"ملء الشاشة"} aria-label={fullscreen?"الخروج من ملء الشاشة":"ملء الشاشة"} onClick={toggleFullscreen}><Icon name="expand"/></button>
     </header>
-    {!measure&&(mobile?mobileMapVisible:mapVisible)&&<aside className="imo-under-logo-map"><ViewerFloorPlan key={`${tour.id}/${current.floor}`} tourId={tour.id} floor={current.floor} compact current={current.id} sceneIds={tour.scenes.filter(s=>s.floor===current.floor).map(s=>s.id)} onSelect={id=>{const target=scenesById.current.get(id);if(target)void navigate(target,false);}} onExpand={()=>{setFloor(current.floor);openPanel("map");}}/></aside>}
+    {!measure&&panel!=="map"&&(mobile?mobileMapVisible:mapVisible)&&<aside className="imo-under-logo-map"><ViewerFloorPlan onIntent={warmTarget} scenes={tour.scenes} yaw={yaw} key={`${tour.id}/${current.floor}`} tourId={tour.id} floor={current.floor} compact current={current.id} sceneIds={tour.scenes.filter(s=>s.floor===current.floor).map(s=>s.id)} onSelect={id=>{const target=scenesById.current.get(id);if(target)void navigate(target,false);}} onExpand={()=>{setFloor(current.floor);openPanel("map");}}/></aside>}
     {busy&&<div className={`imo-view-loading ${ready?"delayed":""}`} role="status"><span className="imo-spinner"/> جارٍ تحميل المشهد</div>}
     {error&&<div className="imo-view-error" role="alert"><p>{error}</p><button onClick={()=>window.location.reload()} className="imo-button primary">إعادة المحاولة</button></div>}
     {notice&&<div className="imo-notice" role="status">{notice}</div>}
-    {measure&&(current.depth&&tour.spatialScale==="metric"?<div className="imo-measure-hint">{points.length<2?`اختر ${points.length?"النقطة الثانية":"النقطة الأولى"} على السطح`:`المسافة: ${distance(points[0],points[1]).toFixed(2)} م — من بيانات العمق`}<button onClick={()=>setPoints([])}>مسح</button><button onClick={()=>{setMeasure(false);setPoints([]);}}>إنهاء</button></div>:<PanoramaMeasurementControls key={current.id} sceneId={current.id} initialCalibration={measurementSeed} points={floorRays} markers={markers} onCalibrationChange={value=>{photoCalibration.current=value;if(value)measurementCalibrations.current.set(current.id,value);else measurementCalibrations.current.delete(current.id);}} onClear={()=>{setFloorRays([]);setPoints([]);}} onClose={()=>{setMeasure(false);setFloorRays([]);setPoints([]);photoCalibration.current=null;}}/>)}
-    {measure&&markers.map((p,i)=>i<points.length&&p.visible&&<div key={i} className="imo-measure-point" style={{left:p.x,top:p.y}}>{i+1}</div>)}
-    {showMinimap&&currentPlan&&<aside className="imo-minimap" aria-label="المخطط المصغّر"><CompactApartmentMap mode={mapMode} onModeChange={setMapMode} plan={currentPlan} scenes={tour.scenes} current={current.id} yaw={yaw} position={position} spatialScale={tour.spatialScale} onExpand={()=>{setFloor(current.floor);openPanel("map");}} onClose={()=>setMinimapVisible(false)} onSelect={id=>{const scene=scenesById.current.get(id);if(scene)void navigate(scene,false);}}/></aside>}
+    {measure&&((current.depth&&tour.spatialScale==="metric")||supportedDisplayDepth(current.displayDepth)?<div className="imo-measure-tools" role="toolbar" aria-label="أدوات القياس">
+      <button type="button" title="قياس جديد" aria-label="قياس جديد" onClick={()=>{setMeasurementsVisible(true);setPoints([]);setSelectedMeasurement(null);}}><Icon name="plus"/></button>
+      <button type="button" title="حذف القياس المحدد" aria-label="حذف القياس المحدد" disabled={!selectedMeasurement} onClick={()=>{if(selectedMeasurement){notebook.remove(selectedMeasurement);setSelectedMeasurement(null);setPoints([]);}}}><Icon name="trash"/></button>
+      <button type="button" title={measurementsVisible?"إخفاء القياسات":"إظهار القياسات"} aria-label={measurementsVisible?"إخفاء القياسات":"إظهار القياسات"} aria-pressed={!measurementsVisible} onClick={()=>{setMeasurementsVisible(value=>!value);setSelectedMeasurement(null);setPoints([]);}}><Icon name={measurementsVisible?"eye":"eye-off"}/></button>
+      <MeasurementUnitPicker value={measurementUnit} onChange={setMeasurementUnit}/>
+      {!(current.depth&&tour.spatialScale==="metric")&&<details className="imo-measure-assumption"><summary title="تفاصيل التقدير">≈ تقديري</summary><p>غير مُعاير. ارتفاع عدسة افتراضي 1.60 م؛ ليس ارتفاعًا مثبتًا لكاميرا Insta360. الأبعاد والدقة غير مضمونة.</p></details>}
+      <button type="button" title="إنهاء القياس" aria-label="إنهاء القياس" onClick={()=>{setMeasure(false);setPoints([]);setSelectedMeasurement(null);}}><Icon name="close"/></button>
+      <span className="imo-measure-instruction" role="status">{!measurementsVisible?"القياسات مخفية · اضغط العين لإظهارها":selectedMeasurement?"القياس محدد · اضغط سلة الحذف لإزالته":points.length===0?"حدّد نقطتين على الصورة":points.length===1?"حدّد النقطة الثانية":"اضغط على قيمة القياس لتحديده"}</span>
+    </div>:<PanoramaMeasurementControls onSave={notebook.save} key={current.id} sceneId={current.id} initialCalibration={measurementSeed} points={floorRays} markers={markers} onCalibrationChange={value=>{photoCalibration.current=value;if(value)measurementCalibrations.current.set(current.id,value);else measurementCalibrations.current.delete(current.id);}} onClear={()=>{setFloorRays([]);setPoints([]);}} onClose={()=>{setMeasure(false);setFloorRays([]);setPoints([]);photoCalibration.current=null;}}/>)}
+    {measure&&((current.depth&&tour.spatialScale==="metric")||supportedDisplayDepth(current.displayDepth))&&points.length===2&&<CompletedMeasurement id={JSON.stringify([current.id,points])} sceneId={current.id} label={(current.room||current.name)+(!(current.depth&&tour.spatialScale==="metric")?" · تقديري (عدسة مفترضة 1.60 م)":"")} estimated={!(current.depth&&tour.spatialScale==="metric")} endpoints={points as [Point,Point]} meters={distance(points[0],points[1])} onSave={notebook.save}/>}
+    {measurementsVisible&&!controlsHidden&&!busy&&notebook.measurements.length>0&&<>
+      <svg className="imo-photo-ruler-line" aria-hidden="true">{savedLines.filter(line=>line.a.visible&&line.b.visible&&notebook.measurements.some(item=>item.id===line.id&&item.sceneId===current.id)).map(line=><g key={line.id}><line x1={line.a.x} y1={line.a.y} x2={line.b.x} y2={line.b.y} stroke="#182522" strokeOpacity=".7" strokeWidth="5"/><line x1={line.a.x} y1={line.a.y} x2={line.b.x} y2={line.b.y} stroke={selectedMeasurement===line.id?"#ffcf52":"#ffffff"} strokeWidth="2"/>{[line.a,line.b].map((point,index)=><circle key={index} cx={point.x} cy={point.y} r="4" fill={selectedMeasurement===line.id?"#ffcf52":"white"} stroke="#24312b" strokeWidth="1.5"/>)}</g>)}</svg>
+      {savedLines.filter(line=>line.a.visible&&line.b.visible&&notebook.measurements.some(item=>item.id===line.id&&item.sceneId===current.id)).map(line=>{
+       const item=notebook.measurements.find(item=>item.id===line.id)!;
+       return <button key={line.id} type="button" className="imo-measure-label" aria-label={`تحديد قياس ${formatMeasurement(line.meters,measurementUnit)}${item.estimated?" تقديري":""}`} aria-pressed={selectedMeasurement===line.id} style={{left:(line.a.x+line.b.x)/2,top:(line.a.y+line.b.y)/2}} onClick={()=>{setSelectedMeasurement(line.id);setMeasure(true);setPoints([]);}}>{item.estimated?"≈ ":""}{formatMeasurement(line.meters,measurementUnit)}{item.estimated&&<small>تقديري</small>}</button>;
+      })}
+    </>}
+    {measure&&measurementsVisible&&markers.map((p,i)=>i<points.length&&p.visible&&<div key={i} className="imo-measure-point" style={{left:p.x,top:p.y}}>{i+1}</div>)}
+    {showMinimap&&panel!=="map"&&currentPlan&&<aside className="imo-minimap" aria-label="المخطط المصغّر"><CompactApartmentMap mode={mapMode} onModeChange={setMapMode} plan={currentPlan} scenes={tour.scenes} current={current.id} yaw={yaw} position={position} spatialScale={tour.spatialScale} onExpand={()=>{setFloor(current.floor);openPanel("map");}} onClose={()=>setMinimapVisible(false)} onSelect={id=>{const scene=scenesById.current.get(id);if(scene)void navigate(scene,false);}}/></aside>}
     <footer className="imo-view-footer">
       <div className="imo-view-toolbar"><button aria-label="مخطط الشقة" aria-pressed={showMinimap} className={`imo-glass ${showMinimap?"active":""}`} onClick={()=>{if(!showMinimap&&hasReviewedArchitecture(currentPlan))setMinimapVisible(true);else{setFloor(current.floor);openPanel("map");}}}><Icon name="map"/><span>المخطط</span></button>
         <button aria-label="تفاصيل الوحدة" className="imo-glass" onClick={()=>openPanel("info")}><Icon name="info"/><span>الوحدة</span></button>
@@ -242,6 +293,8 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
     </footer>
     <nav className="imo-mobile-dock" aria-label="أدوات الجولة">
       <button className="imo-glass" aria-label="اختيار غرفة" aria-haspopup="dialog" aria-expanded={panel==="rooms"} onClick={()=>openPanel("rooms")}><Icon name="grid"/><span>الغرف</span></button>
+      <button className="imo-glass" aria-label="عرض مخطط الشقة" aria-haspopup="dialog" aria-expanded={panel==="map"} onClick={()=>{setFloor(current.floor);openPanel("map");}}><Icon name="map"/><span>المخطط</span></button>
+      <button className={`imo-glass ${measure?"active":""}`} aria-label="قياس على الصورة" aria-pressed={measure} onClick={toggleMeasurement}><Icon name="measure"/><span>قياس</span></button>
       <button className="imo-glass" aria-label="خيارات الجولة" aria-haspopup="dialog" aria-expanded={panel==="options"} onClick={()=>openPanel("options")}><Icon name="settings"/><span>الخيارات</span></button>
     </nav>
     <div className="imo-view-help">اسحب لاستكشاف المكان <span>·</span> اضغط للانتقال <span>·</span> WASD</div>
@@ -251,12 +304,13 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
         <button title="تكبير المخطط" aria-label="تكبير المخطط" onClick={()=>{setFloor(current.floor);openPanel("map");}}><Icon name="map"/><span>المخطط</span></button>
         <button title="إظهار أو إخفاء المخطط" aria-label={(mobile?mobileMapVisible:mapVisible)?"إخفاء المخطط المصغّر":"إظهار المخطط المصغّر"} aria-pressed={mobile?mobileMapVisible:mapVisible} onClick={()=>{setMinimapVisible(!(mobile?mobileMapVisible:mapVisible));openPanel(null);}}><Icon name="eye"/><span>إظهار / إخفاء</span></button>
         <button title="تفاصيل الوحدة" aria-label="تفاصيل الوحدة" onClick={()=>openPanel("info")}><Icon name="info"/><span>الوحدة</span></button>
+        <button title={measurementsVisible?"إخفاء القياسات":"إظهار القياسات"} aria-label={measurementsVisible?"إخفاء القياسات":"إظهار القياسات"} aria-pressed={!measurementsVisible} onClick={()=>{setMeasurementsVisible(value=>!value);setSelectedMeasurement(null);setPoints([]);openPanel(null);}}><Icon name={measurementsVisible?"eye":"eye-off"}/><span>{measurementsVisible?"إخفاء القياسات":"إظهار القياسات"}</span></button>
         <button title="القياس" aria-label="القياس على الصورة" onClick={toggleMeasurement}><Icon name="measure"/><span>القياس</span></button>
         <button title="ملء الشاشة" aria-label="ملء الشاشة" onClick={()=>{openPanel(null);toggleFullscreen();}}><Icon name="expand"/><span>ملء الشاشة</span></button>
       </div>
     </Dialog>}
-    {panel==="rooms"&&<Dialog title="الغرف" className="imo-rooms-dialog" onClose={()=>openPanel(null)}><div className="imo-room-titles">{choices.map(choice=><button key={choice.id} onClick={()=>chooseRoom(choice.scene)}>{choice.name}</button>)}</div></Dialog>}
-    {panel==="map"&&<Dialog title="مخطط الشقة" wide className="imo-map-dialog" onClose={()=>openPanel(null)}>{tour.plans.length>1&&<div className="imo-floor-tabs">{tour.plans.map(p=><button key={p.floor} className={p.floor===floor?"selected":""} onClick={()=>setFloor(p.floor)}>{p.label}</button>)}</div>}<ViewerFloorPlan key={`${tour.id}/${floor}`} tourId={tour.id} floor={floor} current={current.id} sceneIds={tour.scenes.filter(s=>s.floor===floor).map(s=>s.id)} onSelect={id=>{const target=scenesById.current.get(id);if(target){void navigate(target,false);openPanel(null);}}} hasInteractivePlan={hasReviewedArchitecture(plan)}>{plan?<InteractiveFloorPlan tourTitle={tour.title} brandingName={branding?.name} mode={mapMode} onModeChange={setMapMode} spatialScale={tour.spatialScale} onMeasure={toggleMeasurement} plan={plan} scenes={tour.scenes} current={current.id} yaw={yaw} position={current.floor===floor?position??undefined:undefined} onSelect={id=>{const next=scenesById.current.get(id);if(next){void navigate(next,false);openPanel(null);}}}/>:<p role="status">لا يوجد مخطط جاهز لهذا الدور بعد.</p>}{hasReviewedArchitecture(plan)&&<p className="imo-muted">اختر موقعًا من المخطط للانتقال إليه.</p>}</ViewerFloorPlan></Dialog>}
+    {panel==="rooms"&&<Dialog title="الغرف" className="imo-rooms-dialog" onClose={()=>openPanel(null)}><div className="imo-room-titles">{choices.map(choice=><button key={choice.id} onPointerEnter={()=>warmTarget(choice.scene.id)} onFocus={()=>warmTarget(choice.scene.id)} onClick={()=>chooseRoom(choice.scene)}>{choice.name}</button>)}</div></Dialog>}
+    {panel==="map"&&<Dialog title="مخطط الشقة" wide className="imo-map-dialog" onClose={()=>openPanel(null)}>{tour.plans.length>1&&<div className="imo-floor-tabs">{tour.plans.map(p=><button key={p.floor} className={p.floor===floor?"selected":""} onClick={()=>setFloor(p.floor)}>{p.label}</button>)}</div>}<ViewerFloorPlan onIntent={warmTarget} scenes={tour.scenes} yaw={yaw} key={`${tour.id}/${floor}`} tourId={tour.id} floor={floor} current={current.id} sceneIds={tour.scenes.filter(s=>s.floor===floor).map(s=>s.id)} onSelect={id=>{const target=scenesById.current.get(id);if(target){void navigate(target,false);openPanel(null);}}} hasInteractivePlan={hasReviewedArchitecture(plan)}>{plan?<InteractiveFloorPlan tourTitle={tour.title} brandingName={branding?.name} mode={mapMode} onModeChange={setMapMode} spatialScale={tour.spatialScale} onMeasure={toggleMeasurement} plan={plan} scenes={tour.scenes} current={current.id} yaw={yaw} position={current.floor===floor?position??undefined:undefined} onSelect={id=>{const next=scenesById.current.get(id);if(next){void navigate(next,false);openPanel(null);}}}/>:<p role="status">لا يوجد مخطط جاهز لهذا الدور بعد.</p>}{hasReviewedArchitecture(plan)&&<p className="imo-muted">اختر موقعًا من المخطط للانتقال إليه.</p>}</ViewerFloorPlan></Dialog>}
     {(panel==="info"||panel==="lead")&&<Dialog title={panel==="lead"?"سجّل اهتمامك":"تفاصيل الوحدة"} onClose={()=>openPanel(null)}><UnitCard tour={tour} lead={panel==="lead"} onLead={()=>openPanel("lead")}/></Dialog>}
   </div>;
 }

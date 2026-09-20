@@ -29,3 +29,35 @@
 .imo-room-titles{display:flex;flex-direction:column;gap:8px}
 .imo-room-titles button{text-align:start;min-height:46px;padding:10px 14px;border-radius:10px;background:#e8efe980;color:#284b39;font-size:14px}
 .imo-room-titles button:hover{background:#dbe9df}
+
+/* Primary tools are one tap away on both touch and desktop. */
+.imo-viewer .imo-mobile-dock{width:auto;max-width:calc(100% - 24px);gap:4px;padding:5px;background:#142921ba;border:1px solid #ffffff24;border-radius:20px;backdrop-filter:blur(18px);box-shadow:0 8px 28px #0002}
+.imo-viewer .imo-mobile-dock>button{flex:0 0 auto;min-width:64px;min-height:58px;flex-direction:column;gap:5px;padding:8px 10px;border:0;box-shadow:none;background:transparent;border-radius:14px;font-size:11px}
+.imo-viewer .imo-mobile-dock>button:hover,.imo-viewer .imo-mobile-dock>button:focus-visible,.imo-viewer .imo-mobile-dock>button.active{background:#ffffff20}
+.imo-viewer .imo-mobile-dock>button:focus-visible{outline:2px solid white;outline-offset:-3px}
+@media(max-width:380px){.imo-viewer .imo-mobile-dock>button{min-width:58px;padding-inline:8px}}
+
+.imo-measure-units{display:inline-flex;gap:8px;align-items:center;margin-block:8px;font-size:12px}.imo-measure-units select{min-height:44px;border-radius:8px;padding:6px 10px;background:#f5faf5;color:#173d31;border:1px solid #90a99d}
+
+/* Keep the apartment readable over both bright walls and dark interiors. */
+.imo-raster-map,.imo-raster-map.is-compact{opacity:1;filter:drop-shadow(0 2px 5px #0005)}
+.imo-raster-map image{opacity:.96}
+.imo-raster-map.is-compact image{opacity:.94}
+.imo-under-logo-map{width:210px}
+.imo-raster-map.is-compact{height:250px;max-height:32dvh}
+@media(max-width:720px){.imo-under-logo-map{width:148px}.imo-raster-map.is-compact{height:182px;max-height:27dvh}}
+@media(max-height:520px){.imo-under-logo-map{width:110px}.imo-raster-map.is-compact{height:125px;max-height:35dvh}}
+
+.imo-raster-map[data-collapsed="true"]{display:none!important}
+.imo-plan-rotation button:disabled{opacity:.3;cursor:default}
+
+.imo-measure-hint{display:flex;flex-wrap:wrap;justify-content:center;gap:10px;width:min(560px,calc(100vw - 32px));box-sizing:border-box}.imo-measure-hint>strong,.imo-measure-hint>span{flex-basis:100%;text-align:center}.imo-measure-hint>span{font-size:12px;font-weight:400;color:#ffe0a5}.imo-measure-hint button{min-height:36px}
+
+/* In-scene ruler: persistent lines, selection on the value, compact tools. */
+.imo-measure-tools{position:absolute;z-index:30;left:50%;bottom:calc(110px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);display:flex;align-items:center;gap:4px;padding:6px;background:#15221fdc;border:1px solid #ffffff26;border-radius:14px;color:white;backdrop-filter:blur(16px);box-shadow:0 6px 24px #0002;max-width:calc(100vw - 24px);direction:ltr}
+.imo-measure-tools>button{display:grid;place-items:center;width:40px;height:40px;flex-shrink:0;border:0;background:transparent;color:inherit;border-radius:9px;cursor:pointer}.imo-measure-tools>button:hover{background:#ffffff19}.imo-measure-tools>button:disabled{opacity:.3;cursor:default}.imo-measure-tools>button:first-child{color:#ffcf52}
+.imo-measure-tools .imo-measure-units{font-size:0;display:block}.imo-measure-tools select{font-size:12px;width:88px;background:#ffffff0d;color:white;border:1px solid #ffffff25;border-radius:8px;height:36px;padding:4px}.imo-measure-tools select option{color:#173d31;background:white}
+.imo-measure-assumption{font-size:11px;direction:rtl;white-space:nowrap}.imo-measure-assumption summary{cursor:pointer;color:#ffdd83;padding:8px;list-style:none}.imo-measure-assumption p{position:absolute;bottom:64px;left:0;right:0;padding:12px;border-radius:10px;background:#15221ff2;line-height:1.6;white-space:normal;margin:0}
+.imo-measure-instruction{position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);white-space:nowrap;background:#14211fbc;padding:5px 10px;border-radius:7px;font-size:11px;direction:rtl;pointer-events:none}
+.imo-measure-label{position:absolute;z-index:20;transform:translate(-50%,-50%);display:flex;align-items:center;gap:6px;min-height:36px;padding:5px 10px;border-radius:8px;background:#14231eed;color:white;border:1px solid #ffffff70;box-shadow:0 2px 8px #0003;cursor:pointer;direction:ltr;white-space:nowrap;font-size:13px}.imo-measure-label small{font-size:9px;color:#ffdd83}.imo-measure-label[aria-pressed=true]{border-color:#ffcf52;color:#ffcf52}.imo-measure-label:focus-visible,.imo-measure-tools button:focus-visible{outline:2px solid #ffcf52;outline-offset:3px}
+@media(max-width:720px){.imo-measure-tools{bottom:calc(96px + env(safe-area-inset-bottom,0px));gap:0}.imo-measure-tools>button{width:38px;height:44px}.imo-measure-tools select{width:82px}.imo-measure-label{min-height:44px}}

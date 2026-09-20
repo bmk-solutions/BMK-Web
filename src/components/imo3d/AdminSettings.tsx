@@ -1,4 +1,5 @@
 "use client";
+import {PasswordInput} from './PasswordInput';
 import {useState} from 'react';
 import {Dialog} from './Dialog';
 import {api} from './client';
@@ -13,9 +14,9 @@ export function AdminSettings({onClose,onSaved}:{onClose:()=>void;onSaved:()=>vo
     try{await api('settings/password',{method:'POST',body:JSON.stringify({currentPassword,newPassword,confirmPassword})});form.reset();onSaved();}
     catch(reason){setError(reason instanceof Error?reason.message:'تعذر تغيير كلمة المرور.');}finally{setBusy(false);}
   }}><h3>تغيير كلمة مرور الإدارة</h3><p>استخدم 12 حرفًا على الأقل. بعد الحفظ ستُسجّل الأجهزة الأخرى خروجها، وستبقى جلستك الحالية مفتوحة.</p>
-    <label>كلمة المرور الحالية<input name="currentPassword" type="password" autoComplete="current-password" required maxLength={256} disabled={busy}/></label>
-    <label>كلمة المرور الجديدة<input name="newPassword" type="password" autoComplete="new-password" required minLength={12} maxLength={128} disabled={busy}/></label>
-    <label>تأكيد كلمة المرور الجديدة<input name="confirmPassword" type="password" autoComplete="new-password" required minLength={12} maxLength={128} disabled={busy}/></label>
+    <label>كلمة المرور الحالية<PasswordInput name="currentPassword" autoComplete="current-password" required maxLength={256} disabled={busy}/></label>
+    <label>كلمة المرور الجديدة<PasswordInput name="newPassword" autoComplete="new-password" required minLength={12} maxLength={128} disabled={busy}/></label>
+    <label>تأكيد كلمة المرور الجديدة<PasswordInput name="confirmPassword" autoComplete="new-password" required minLength={12} maxLength={128} disabled={busy}/></label>
     {error&&<p className="imo-error" role="alert">{error}</p>}<button className="imo-button primary" disabled={busy}>{busy?'جارٍ الحفظ…':'حفظ كلمة المرور'}</button>
   </form><ChatGPTSettings/></Dialog>;
 }

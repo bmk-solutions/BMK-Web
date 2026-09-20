@@ -1,5 +1,5 @@
 import type {Scene,Tour} from "./model";
-import {angleDifference,radians} from "./spatial";
+import {angleDifference,radians,sampleDepth,surfacePoint} from "./spatial";
 
 const movementCodes=new Set(["KeyW","KeyA","KeyS","KeyD","ArrowUp","ArrowLeft","ArrowDown","ArrowRight"]);
 export const isMovementCode=(code:string)=>movementCodes.has(code);
@@ -12,6 +12,14 @@ export function heldHeading(keys:ReadonlySet<string>,yaw:number):number|null {
 }
 
 export type NavigationBearings={fromYaw:number;toYaw:number};
+
+/** Warm the direction being explored, not the arbitrary order of stored links. */
+export function navigationPrefetch(scenes:Scene[],current:Scene,yaw:number,intentId?:string):Scene[] {
+  return scenes.flatMap(scene=>{
+    const link=navigationLink(current,scene);
+    return link?[{scene,angle:Math.abs(angleDifference(link.fromYaw,yaw)),distance:link.distance??Infinity}]:[];
+  }).sort((a,b)=>Number(b.scene.id===intentId)-Number(a.scene.id===intentId)||a.angle-b.angle||a.distance-b.distance||a.scene.id.localeCompare(b.scene.id)).map(item=>item.scene);
+}
 type NavigationLink=NavigationBearings&{kind:"manual"|"visual"|"spatial";distance:number|null};
 
 /** A diagram position is optional: a reciprocal visual pair has its own bearing. */
@@ -66,8 +74,58 @@ export function pickNavigationDirection(scenes:Scene[],currentId:string,yaw:numb
 }
 
 /** Prefer reciprocal links, then nearby directional captures; never modify graph edges. */
-export function pointerDestination(scenes:Scene[],currentId:string,yaw:number,pitch:number):Scene|null {
+export function pointerDestination(scenes:Scene[],currentId:string,yaw:number,pitch:number,metricGeometry=false):Scene|null {
   if(!Number.isFinite(pitch)||pitch>Math.PI/3)return null;
+  const current=scenes.find(scene=>scene.id===currentId);
+  if(metricGeometry&&current?.depth&&current.position){
+    const hit=surfacePoint(current,yaw,pitch);
+    if(hit){
+      const origin=current.position;
+      let best:Scene|null=null,bestDistance=Math.hypot(hit.x-origin.x,hit.z-origin.z);
+      for(const scene of scenes){
+        if(scene.id===current.id||scene.floor!==current.floor||!scene.position||current.blockedLinks?.includes(scene.id)||scene.blockedLinks?.includes(current.id))continue;
+        const dx=scene.position.x-origin.x,dy=scene.position.y-origin.y,dz=scene.position.z-origin.z;
+        const horizontal=Math.hypot(dx,dz),distance=Math.hypot(dx,dy,dz),heading=Math.atan2(dx,-dz);
+        if(distance<.01||!Number.isFinite(distance)||Math.abs(angleDifference(heading,yaw))>radians(40))continue;
+        // A distant destination needs a clear corridor, not just a graph path
+        // that could turn around a wall. Image-only display depth is never used.
+        const margin=Math.min(.12,Math.atan2(.16,distance));
+        if(![-margin,0,margin].every(offset=>sampleDepth(current.depth!,heading-radians(current.yaw)+offset,Math.atan2(dy,horizontal))>distance+.12))continue;
+        const score=Math.hypot(hit.x-scene.position.x,hit.z-scene.position.z);
+        if(score<bestDistance){best=scene;bestDistance=score;}
+      }
+      return best;
+    }
+  }
+  // Pointer selection is a direct destination, unlike keyboard walking steps.
+  // Search the connected tour, not only the nearest immediate neighbour. This
+  // does not assert that the straight line is a physical walkable corridor.
+  if(current&&Number.isFinite(yaw)){
+    const candidates=scenes.flatMap(scene=>{
+      if(scene.floor!==current.floor||scene.id===current.id||current.blockedLinks?.includes(scene.id)||scene.blockedLinks?.includes(current.id))return [];
+      const link=navigationLink(current,scene);
+      const dx=current.position&&scene.position?scene.position.x-current.position.x:0;
+      const dz=current.position&&scene.position?scene.position.z-current.position.z:0;
+      const distance=Math.hypot(dx,dz);
+      if(!link&&(!Number.isFinite(distance)||distance<.01))return [];
+      const heading=link?.fromYaw??Math.atan2(dx,-dz);
+      const angle=Math.abs(angleDifference(heading,yaw));
+      return angle<=radians(40)?[{scene,angle,distance:link?.distance??distance}]:[];
+    });
+    // Screen height distinguishes destinations along the same corridor. Looking
+    // near the horizon selects farther captures; looking down selects closer ones.
+    // This relative navigation heuristic is NOT metric geometry or measurement.
+    const bestAngle=Math.min(...candidates.map(item=>item.angle));
+    const aimed=candidates.filter(item=>item.angle<=bestAngle+radians(8));
+    const distances=candidates.map(item=>item.distance).filter(value=>value>0&&Number.isFinite(value)).sort((a,b)=>a-b);
+    const step=distances[0];
+    if(step&&aimed.length>1){
+      const targetDistance=step/Math.tan(Math.max(radians(2),Math.min(radians(85),-pitch)));
+      const score=(item:typeof aimed[number])=>Math.abs(Math.log(Math.max(.001,item.distance)/targetDistance))+item.angle*.5;
+      aimed.sort((a,b)=>score(a)-score(b)||a.scene.id.localeCompare(b.scene.id));
+    }else aimed.sort((a,b)=>a.angle-b.angle||a.distance-b.distance||a.scene.id.localeCompare(b.scene.id));
+    if(aimed[0])return aimed[0].scene;
+  }
   return pickNavigationDirection(scenes,currentId,yaw,radians(40));
 }
 
@@ -87,9 +145,8 @@ export function manualArrivalYaw(from:Scene,to:Scene,viewYaw:number):number|unde
 export function navigationTransition(from:Scene,to:Scene,viewYaw:number,spatialSource?:Tour["spatialSource"],intent:"step"|"direct"="step"):{
   animation:true|"handover"|"visual"|false;arrivalYaw?:number;bearings?:NavigationBearings;
 } {
-  if(intent==="direct")return {animation:"handover",arrivalYaw:viewYaw};
   const link=navigationLink(from,to);
-  if(!link)return {animation:"handover"};
+  if(!link)return intent==="direct"?{animation:"handover",arrivalYaw:viewYaw}:{animation:"handover"};
   if(link.kind==="spatial"&&spatialSource!=="images")return {animation:true};
   return {animation:"visual",arrivalYaw:link.toYaw+Math.PI+angleDifference(viewYaw,link.fromYaw),
     bearings:{fromYaw:link.fromYaw,toYaw:link.toYaw}};

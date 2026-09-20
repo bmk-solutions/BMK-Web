@@ -1,11 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {cursorDirection,heldHeading,isMovementCode,manualArrivalYaw,navigationLink,navigationTransition,pickNavigationDirection,pointerDestination} from "../src/lib/imo3d/navigation";
+import {cursorDirection,heldHeading,isMovementCode,manualArrivalYaw,navigationLink,navigationPrefetch,navigationTransition,pickNavigationDirection,pointerDestination} from "../src/lib/imo3d/navigation";
 import type {Scene} from "../src/lib/imo3d/model";
 import {angleDifference,pickDirection,radians} from "../src/lib/imo3d/spatial";
 
 const scene=(id:string,x:number,z:number,links:string[]=[]):Scene=>({id,name:id,sourceName:id,room:id,floor:0,yaw:0,position:{x,y:1.6,z},image:"/example.webp",preview:"/example.webp",thumbnail:"/example.webp",width:2048,height:1024,links} as Scene);
+test("prefetch follows look and pointer intent while excluding blocked and one-way links",()=>{
+  const a=scene("a",0,0,["back","front","right","blocked","oneway"]);
+  const front=scene("front",0,-2,["a"]),back=scene("back",0,2,["a"]),right=scene("right",2,0,["a"]);
+  const blocked={...scene("blocked",0,-1,["a"]),blockedLinks:["a"]},oneway=scene("oneway",0,-.5);
+  const all=[a,back,right,blocked,oneway,front];
+  assert.deepEqual(navigationPrefetch(all,a,0).map(s=>s.id),["front","right","back"]);
+  assert.equal(navigationPrefetch(all,a,Math.PI)[0].id,"back");
+  assert.equal(navigationPrefetch(all,a,0,"right")[0].id,"right");
+});
 test("physical WASD, arrows and diagonals follow the current view",()=>{
   assert.equal(isMovementCode("KeyW"),true);assert.equal(isMovementCode("ض"),false);
   assert.equal(heldHeading(new Set(["KeyW"]),Math.PI/2),Math.PI/2);
@@ -14,12 +23,12 @@ test("physical WASD, arrows and diagonals follow the current view",()=>{
   assert.equal(heldHeading(new Set(["KeyW","KeyS"]),0),null);
   assert.equal(heldHeading(new Set(),0),null);
 });
-test("pointer destination prioritizes links and rejects backward or upward ceiling clicks",()=>{
+test("pointer destination uses position without mandatory links and rejects backward or ceiling clicks",()=>{
   const a=scene("a",0,0,["b"]),b=scene("b",0,-1,["a"]),wall=scene("behind-wall",0,-.5);
   assert.equal(pointerDestination([a,b,wall],"a",0,-.5)?.id,"b");
   assert.equal(pointerDestination([a,b,wall],"a",Math.PI,0),null);
   assert.equal(pointerDestination([a,b,wall],"a",0,1.2),null);
-  assert.equal(pointerDestination([a,{...b,links:[]},wall],"a",0,-.5)?.id,"behind-wall");
+  assert.equal(pointerDestination([a,{...b,links:[]},wall],"a",0,-.5)?.id,"b");
 });
 test("cursor direction wraps at north without a reversed arrow",()=>{
   assert.equal(cursorDirection(0,0),"forward");assert.equal(cursorDirection(0,-1),"left");assert.equal(cursorDirection(0,1),"right");
@@ -101,10 +110,11 @@ test("visual metadata never navigates blocked, one-way, cross-floor or absent gr
 test("explicit floorplan and room selection goes directly to its target without directional walking",()=>{
   const a:Scene={...scene("a",0,0,["b"]),visualLinks:[{targetId:"b",yaw:90}]};
   const b:Scene={...scene("b",2,0,["a"]),visualLinks:[{targetId:"a",yaw:180}]};
-  for(const target of [b,scene("distant",100,30,[]),{...b,floor:1}]){
+  for(const target of [scene("distant",100,30,[]),{...b,floor:1}]){
     assert.deepEqual(navigationTransition(a,target,1.2,"images","direct"),{animation:"handover",arrivalYaw:1.2});
   }
   assert.equal(navigationTransition(a,b,1.2,"images","step").animation,"visual");
+  assert.deepEqual(navigationTransition(a,b,1.2,"images","direct"),navigationTransition(a,b,1.2,"images","step"));
 });
 
 
@@ -123,4 +133,32 @@ test("directional fallback respects blocks, missing coordinates, bearing overrid
 test("reciprocal geometric corridor wins over a closer unlinked fallback",()=>{
   const a=scene('a',0,0,['linked']),linked=scene('linked',.1,-2,['a']),fallback=scene('fallback',0,-.2);
   assert.equal(pickNavigationDirection([a,linked,fallback],'a',0)?.id,'linked');
+});
+
+test("metric pointer selects distant visible destination in one operation without stepping",()=>{
+ const a={...scene('a',0,0,['near']),depth:{width:8,height:4,values:Array(32).fill(10)}};
+ const near=scene('near',0,-2,['a']),far=scene('far',0,-8),behind=scene('behind',0,-12);
+ assert.equal(pointerDestination([a,near,far,behind],'a',0,0,true)?.id,'far');
+ assert.equal(pointerDestination([a,near,far,behind],'a',0,0)?.id,'behind');
+ assert.equal(pointerDestination([{...a,depth:{...a.depth,values:Array(32).fill(3)}},near,far],'a',0,0,true)?.id,'near');
+ assert.equal(pointerDestination([a,near,{...far,blockedLinks:['a']}],'a',0,0,true)?.id,'near');
+ assert.equal(pointerDestination([a,near,{...far,floor:1}],'a',0,0,true)?.id,'near');
+});
+
+test("pointer selects a distant connected destination without walking through intermediate captures",()=>{
+ const a=scene('a',0,0,['near']),near=scene('near',.5,-2,['a','far']),far=scene('far',0,-10,['near']);
+ const all=[a,near,far];
+ assert.equal(pointerDestination(all,'a',0,-.2)?.id,'far');
+ assert.equal(pickNavigationDirection(all,'a',0)?.id,'near');
+ assert.equal(pointerDestination(all,'a',Math.atan2(.5,2),-.8)?.id,'near');
+ assert.notEqual(pointerDestination([...all,{...scene('isolated',0,-20),floor:1}],'a',0,-.2)?.id,'isolated');
+ assert.equal(pointerDestination([a,near,{...far,blockedLinks:['a']}],'a',0,-.2)?.id,'near');
+});
+
+test("pointer screen height distinguishes near and far captures in the same direction without requiring intermediate links",()=>{
+ const a=scene('a',0,0,['near']),near=scene('near',0,-1,['a']),far=scene('far',0,-8);
+ assert.equal(pointerDestination([a,near,far],'a',0,-.12)?.id,'far');
+ assert.equal(pointerDestination([a,near,far],'a',0,-.8)?.id,'near');
+ assert.equal(pointerDestination([a,near,{...far,floor:1}],'a',0,-.12)?.id,'near');
+ assert.equal(pointerDestination([a,near,{...far,blockedLinks:['a']}],'a',0,-.12)?.id,'near');
 });

@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { calibratePanoramaHeight, calibratePanoramaReference, calibratePanoramaWall, calibratePanoramaWallHeight, calibratePanoramaCeiling, measurePanoramaPlane, parseMeasurementMeters, type PanoramaMeasurementCalibration, type PanoramaMeasurementRay, type PanoramaWallCalibration } from "@/lib/imo3d/panorama-measurement";
 import { Icon } from "./Icon";
+import {CompletedMeasurement,type SavedMeasurement} from './MeasurementNotebook';
 import "./panorama-measurement.css";
 
 type Props = {
@@ -10,13 +11,13 @@ type Props = {
   points: readonly PanoramaMeasurementRay[];
   markers?: readonly { x: number; y: number; visible: boolean }[];
   onClear: () => void;
+  onSave?: (measurement:SavedMeasurement)=>void;
   onClose: () => void;
   onCalibrationChange?: (calibration: PanoramaMeasurementCalibration | null) => void;
 };
 
 /** Mount with key={scene.id}; this scale belongs only to the current capture. */
-export function PanoramaMeasurementControls({ sceneId, initialCalibration, points, markers, onClear, onClose, onCalibrationChange }: Props) {
-  const [showSetup,setShowSetup]=useState(Boolean(initialCalibration?.sceneId===sceneId));
+export function PanoramaMeasurementControls({ sceneId, initialCalibration, points, markers, onClear, onClose, onCalibrationChange,onSave }: Props) {
   const [method, setMethod] = useState<"floor_reference" | "camera_height" | "wall_reference">("camera_height");
   const [calibration, setCalibration] = useState<PanoramaMeasurementCalibration | null>(initialCalibration?.sceneId===sceneId?initialCalibration:null);
   const [setup,setSetup]=useState<"wall"|"ceiling"|null>(null);
@@ -31,8 +32,8 @@ export function PanoramaMeasurementControls({ sceneId, initialCalibration, point
   const ceilingMode=validCalibration?.source==="ceiling_height";
   const surface = setup==="ceiling"?"التقاء الجدار بالسقف":setup==="wall"?"التقاء الجدار بالأرض":ceilingMode?"السقف نفسه":validCalibration && wallMode ? "الجدار أو الباب في مستواه" : wallMode ? "التقاء الجدار بالأرض" : "الأرض";
   const selection = setup==="ceiling"?(points.length?"تم تحديد تقاطع السقف؛ اضغط اعتماد السقف":"اختر نقطة التقاء الجدار بالسقف"):points.length === 0 ? `اختر النقطة الأولى على ${surface}` : points.length === 1 ? `اختر النقطة الثانية على ${surface}` : "تم تحديد النقطتين";
-  if(!showSetup)return <section className="imo-photo-ruler" aria-label="القياس على الصورة"><header><span><Icon name="measure" size={18}/>القياس بالمتر</span><button type="button" onClick={onClose} aria-label="إنهاء القياس"><Icon name="close" size={17}/></button></header><p role="status">القياس التلقائي غير متاح لهذه اللقطة؛ لا توجد بيانات عمق مُعايرة بالمتر.</p><p>الصور الحالية لا تحدد طول الباب أو ارتفاع السقف بوحدة المتر دون مرجع.</p><button type="button" className="imo-button secondary" onClick={()=>{onClear();setShowSetup(true);}}>قياس بمرجع معلوم</button></section>;
   return <>
+    {onSave&&<CompletedMeasurement id={JSON.stringify([sceneId,points,validCalibration])} sceneId={sceneId} label={ceilingMode?'السقف':wallMode?'الجدار أو الباب':'الأرضية'} meters={length} onSave={onSave}/>}
     {points.length === 2 && markers?.length === 2 && markers.every(point => point.visible) && <svg className="imo-photo-ruler-line" aria-hidden="true">
       <line x1={markers[0].x} y1={markers[0].y} x2={markers[1].x} y2={markers[1].y} stroke="#102a23" strokeOpacity=".65" strokeWidth="6"/>
       <line x1={markers[0].x} y1={markers[0].y} x2={markers[1].x} y2={markers[1].y} stroke={validCalibration ? "#65edbd" : "#f4ca82"} strokeWidth="2.5"/>
@@ -70,6 +71,7 @@ export function PanoramaMeasurementControls({ sceneId, initialCalibration, point
           if(!next){setError("تعذر تحديد السطح من هذه النقاط. اختر التقاطعات الحقيقية بوضوح، بعيدًا عن الأفق والأثاث.");return;}
           applyCalibration(next);setSetup(null);clear();
         }}>{setup==="wall"?"اعتماد الجدار":"اعتماد السقف"}</button><button type="button" onClick={clear} disabled={!points.length}>مسح النقاط</button></div>}
+        {validCalibration.source==="ceiling_height"&&!setup&&<div className="imo-photo-ruler-result" role="status"><div><small>ارتفاع الأرض إلى السقف المحدد</small><strong><bdi>{(validCalibration.heightMeters+validCalibration.ceilingOffsetMeters).toLocaleString("ar",{minimumFractionDigits:2,maximumFractionDigits:2})}</bdi><span>م تقريبًا</span></strong></div></div>}
         <div className="imo-photo-ruler-result" aria-live="polite"><div><small>{length === null ? selection : "المسافة بين النقطتين"}</small><strong>{length === null ? "—" : <><bdi>{length.toLocaleString("ar", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</bdi><span>م تقريبًا</span></>}</strong></div><button type="button" onClick={clear} disabled={!points.length}>قياس جديد</button></div>
         <div className="imo-photo-ruler-source"><span>ارتفاع العدسة المستخدم: <bdi>{validCalibration.heightMeters.toLocaleString("ar",{maximumFractionDigits:2})}</bdi> م · محفوظ لهذه اللقطة أثناء الجولة</span><button type="button" onClick={() => { applyCalibration(null);setLastWall(null);setSetup(null);setMethod("camera_height");setValue(String(validCalibration.heightMeters));clear(); }}>تعديل ارتفاع العدسة</button></div>
       </>}

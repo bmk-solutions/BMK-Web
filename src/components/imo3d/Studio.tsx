@@ -1,4 +1,5 @@
 "use client";
+import {PasswordInput} from './PasswordInput';
 /* eslint-disable @next/next/no-img-element */
 import {useEffect,useRef,useState} from "react";
 import {AdminSettings} from './AdminSettings';
@@ -44,7 +45,7 @@ export default function Studio(){
   const openTour=(tour:Tour)=>void run(async()=>setSelected(await api<Tour>(`tours/${tour.id}`)));
   const requestTourRemoval=(tour:Tour)=>void run(async()=>setTourRemoval(await api<Tour>(`tours/${tour.id}`)));
   const changeView=(next:"projects"|"leads")=>{if(editorBlocked){setError("احفظ تعديلات الجولة وانتظر اكتمال الرفع قبل مغادرة المحرر.");return;}setView(next);if(next==="projects"){setDeveloperId(null);setProjectId("");}setSelected(null);void refresh().catch(e=>setError(e.message));};
-  if(auth)return <main className="imo-shell imo-login"><div className="imo-login-card"><Brand/><h1>دخول الاستوديو</h1><p>إدارة مشاريعك وجولاتك من مكان واحد.</p><form className="imo-form" onSubmit={e=>{e.preventDefault();const password=String(new FormData(e.currentTarget).get("password"));void run(async()=>{await api("session",{method:"POST",body:JSON.stringify({password})});await refresh();});}}><label>رمز الإدارة<input type="password" name="password" autoComplete="current-password" required/></label>{error&&<p className="imo-error" role="alert">{error}</p>}<button className="imo-button primary" disabled={working}>دخول</button></form></div></main>;
+  if(auth)return <main className="imo-shell imo-login"><div className="imo-login-card"><Brand/><h1>دخول الاستوديو</h1><p>إدارة مشاريعك وجولاتك من مكان واحد.</p><form className="imo-form" onSubmit={e=>{e.preventDefault();const password=String(new FormData(e.currentTarget).get("password"));void run(async()=>{await api("session",{method:"POST",body:JSON.stringify({password})});await refresh();});}}><label>رمز الإدارة<PasswordInput name="password" autoComplete="current-password" required/></label>{error&&<p className="imo-error" role="alert">{error}</p>}<button className="imo-button primary" disabled={working}>دخول</button></form></div></main>;
   if(!data)return <main className="imo-shell imo-load">{error?<><p role="alert">{error}</p><button className="imo-button primary" onClick={()=>window.location.reload()}>إعادة المحاولة</button></>:<><span className="imo-spinner"/><p>جارٍ فتح الاستوديو…</p></>}</main>;
   const scopedProjects=data.projects.filter(project=>developerId===null||(project.developerId??"")===developerId);
   const visibleTours=data.tours.filter(t=>scopedProjects.some(project=>project.id===t.projectId)).filter(t=>(!projectId||t.projectId===projectId)&&`${t.title} ${data.projects.find(p=>p.id===t.projectId)?.name}`.includes(query));

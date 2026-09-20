@@ -8,3 +8,7 @@
 .imo-viewer-draft-sheet img{display:block;max-width:none;height:auto;margin:0 auto}
 .imo-viewer-draft .imo-muted{margin:0;font-size:12px;line-height:1.7}
 @media(max-width:720px){.imo-viewer-draft{gap:8px}.imo-viewer-draft-sheet{max-height:62dvh}.imo-viewer-draft-tools{gap:5px}}
+
+.imo-plan-rotation{display:flex;justify-content:center;gap:6px;direction:ltr}
+.imo-plan-rotation button{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;border:0;border-radius:50%;background:transparent;color:inherit;font-size:22px;cursor:pointer}
+.imo-plan-rotation button:hover,.imo-plan-rotation button:focus-visible{background:#ffffff26;outline:2px solid currentColor;outline-offset:-3px}

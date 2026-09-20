@@ -41,6 +41,7 @@ function harness({reduced=false,coarse=false,plans=[],maxTextureSize=8192,device
       name==="./PanoramaMotion"?load("src/components/imo3d/PanoramaMotion.ts"):
       name==="../../lib/imo3d/display-depth.ts"?load("src/lib/imo3d/display-depth.ts"):
       name==="./PanoramaQuality"?load("src/components/imo3d/PanoramaQuality.ts"):
+      name==="./PanoramaBlobCache"?load("src/components/imo3d/PanoramaBlobCache.ts"):
       name==="./connection-overrides"?load("src/lib/imo3d/connection-overrides.ts"):
       name==="@/lib/imo3d/spatial"?load("src/lib/imo3d/spatial.ts"):require(name);
     vm.runInNewContext(code,{...sandbox,module:result,exports:result.exports,require:localRequire},{filename:file});

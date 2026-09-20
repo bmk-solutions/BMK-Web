@@ -16,6 +16,7 @@ export function applyMetadata(tour:Tour,input:z.infer<typeof tourMetadataSchema>
  for(const rename of input.roomRenames??[])scenes=renameSemanticRoom(scenes,rename.groupId,rename.name);
  const published=input.published??tour.published;if(published&&!scenes.length)throw new CloudHTTPError("أضف لقطات قبل إتاحة الجولة.");
  const next:Tour={...tour,title:input.title??tour.title,unit:input.unit??tour.unit,published,...applySceneFloorAssignments(tour,scenes)};
+ if(input.measurementHeightMeters!==undefined)next.measurementScale=input.measurementHeightMeters===null?undefined:{heightMeters:input.measurementHeightMeters,source:"operator_measured",sceneIds:tour.scenes.map(scene=>scene.id)};
  if(input.roomRenames?.length){const names=new Map(input.roomRenames.map(rename=>[rename.groupId,rename.name.trim()]));next.plans=next.plans.map(plan=>{
   const groups=new Set(next.scenes.filter(scene=>scene.floor===plan.floor&&scene.roomSemantic).map(scene=>scene.roomSemantic!.groupId));
   const rename=(rooms:NonNullable<Plan["authoredRooms"]>)=>rooms.map(room=>names.has(room.id)&&groups.has(room.id)?{...room,name:names.get(room.id)!}:room);

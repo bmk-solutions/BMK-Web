@@ -1,0 +1,4 @@
+.imo-measure-scale label{display:block;font-size:12px;line-height:1.8;margin:12px 0;color:#365449}
+.imo-measure-scale input:not([type=checkbox]){display:block;width:100%;border:1px solid #c9d9d0;border-radius:7px;padding:9px 11px;background:#f8fbf9;color:#173e32;margin-top:6px;outline-offset:3px}
+.imo-measure-scale input[type=checkbox]{accent-color:#216044;margin-inline-end:6px;width:16px;height:16px;vertical-align:middle}
+.imo-measure-scale button{margin-top:8px}

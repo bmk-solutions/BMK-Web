@@ -29,6 +29,24 @@ function fixture(values: Tour[]) {
   return database;
 }
 
+test('recorded measurement height is revision safe, scoped to current images and preserves other tours and geometry',()=>{
+ const original=tour([scene('a'),scene('b')]),other=tour([scene('c')],'other');
+ const database=fixture([original,other]);
+ try{
+  for(const height of [0,-1,11,'1.8',NaN,Infinity])assert.equal(tourMetadataSchema.safeParse({revision:4,measurementHeightMeters:height}).success,false);
+  const input=tourMetadataSchema.parse({revision:4,measurementHeightMeters:1.87,measurementScale:{sceneIds:['foreign']}});
+  const saved=saveTourMetadata(database,original.id,input);
+  assert.deepEqual(saved.measurementScale,{heightMeters:1.87,source:'operator_measured',sceneIds:['a','b']});
+  assert.deepEqual(saved.scenes,original.scenes);assert.deepEqual(saved.plans,original.plans);assert.equal(saved.spatialScale,original.spatialScale);
+  assert.equal(database.prepare('SELECT payload FROM tours WHERE id=?').get(other.id)?.payload,JSON.stringify(other));
+  assert.throws(()=>saveTourMetadata(database,original.id,{revision:4,measurementHeightMeters:2}),/تغيّرت/);
+  const renamed=saveTourMetadata(database,original.id,{revision:5,title:'Renamed'});
+  assert.deepEqual(renamed.measurementScale,saved.measurementScale);
+  const cleared=saveTourMetadata(database,original.id,{revision:6,measurementHeightMeters:null});
+  assert.equal(cleared.measurementScale,undefined);assert.deepEqual(cleared.scenes,original.scenes);
+ }finally{database.close();}
+});
+
 test("group naming is revision-safe, scoped to one tour and keeps user ownership during a running analysis",()=>{
   const input=[{...scene("a"),room:"لقطات تحتاج تسمية",links:["b"]},{...scene("b"),room:"لقطات تحتاج تسمية",links:["a"]},scene("c")];
   const evidence={observations:[{id:"oa",sceneId:"a",kind:"bedroom" as const,confidence:.95,evidence:["bed visible"]},{id:"ob",sceneId:"b",kind:"bedroom" as const,confidence:.95,evidence:["bed visible"]}],relations:[{id:"same",fromId:"a",toId:"b",kind:"same_room" as const,confidence:.95,verified:true}]};

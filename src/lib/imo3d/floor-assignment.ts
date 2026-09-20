@@ -17,6 +17,7 @@ export const uploadFloorSchema = z.preprocess(value => {
 export const tourMetadataSchema = z.object({
   revision: z.number().int().nonnegative(), title: z.string().trim().min(2).max(120).optional(),
   published: z.boolean().optional(), unit: unitSchema.optional(),
+  measurementHeightMeters:z.number().finite().min(.15).max(10).nullable().optional(),
   scenes: z.array(sceneSchema.pick({ id: true, name: true, room: true, floor: true })).max(500).optional(),
   roomRenames:z.array(z.object({groupId:z.string().min(1).max(160),name:z.string().trim().min(1).max(100)})).max(500).refine(values=>new Set(values.map(value=>value.groupId)).size===values.length,"الغرفة مكررة في طلب التسمية.").optional(),
 });
@@ -113,6 +114,7 @@ export function saveTourMetadata(database: DatabaseSync, tourId: string, input: 
     if (published && !nextScenes.length) throw new FloorAssignmentError(400, "أضف لقطات قبل إتاحة الجولة.");
     const next = {
       ...current, title: input.title ?? current.title, unit: input.unit ?? current.unit, published,
+      ...(input.measurementHeightMeters===undefined?{}:{measurementScale:input.measurementHeightMeters===null?undefined:{heightMeters:input.measurementHeightMeters,source:"operator_measured" as const,sceneIds:current.scenes.map(scene=>scene.id)}}),
       ...applySceneFloorAssignments(current, nextScenes), revision: current.revision + 1, updatedAt: new Date().toISOString(),
     };
     if(input.roomRenames?.length){

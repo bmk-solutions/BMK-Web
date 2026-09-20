@@ -6,6 +6,7 @@ import path from 'node:path';
 import {cloudRoute} from '../src/lib/imo3d/cloud/handlers';
 import {cloudIsAdmin,cloudSameOrigin} from '../src/lib/imo3d/cloud/auth';
 import {applyMetadata} from '../src/lib/imo3d/cloud/geometry';
+import {tourMetadataSchema} from '../src/lib/imo3d/floor-assignment';
 import {publicProcessingJob} from '../src/lib/imo3d/cloud/jobs';
 import {aiPlanFingerprint} from '../src/lib/imo3d/ai-plan-jobs';
 import {syntheticTour} from './fixtures/imo3d-synthetic-tour';
@@ -17,6 +18,16 @@ import {chatgptMCP,callChatGPTTool,chatgptDrafts} from '../src/lib/imo3d/cloud/c
 import {subscriptionChildEnvironment,validateSubscriptionAnalysis,validateImageReview} from '../src/lib/imo3d/subscription-plan-worker';
 import {labeledPlanSVG} from '../src/lib/imo3d/plan-labels';
 const origin='https://imo3d.example',secret='synthetic-test-secret-is-at-least-32-characters',fetchOriginal=globalThis.fetch,envOriginal={...process.env};
+test('cloud measurement scale is capture-scoped, revision safe and does not promote inferred geometry',()=>{
+ const tour=syntheticTour(),before=JSON.stringify(tour);
+ const next=applyMetadata(tour,tourMetadataSchema.parse({revision:tour.revision,measurementHeightMeters:1.87,measurementScale:{sceneIds:['foreign']}}));
+ assert.deepEqual(next.measurementScale,{heightMeters:1.87,source:'operator_measured',sceneIds:tour.scenes.map(scene=>scene.id)});
+ assert.deepEqual(next.scenes,tour.scenes);assert.deepEqual(next.plans,tour.plans);assert.equal(next.spatialScale,tour.spatialScale);
+ assert.equal(JSON.stringify(tour),before);
+ assert.throws(()=>applyMetadata(tour,{revision:tour.revision+1,measurementHeightMeters:2}),/تغيّرت/);
+ assert.deepEqual(applyMetadata(next,{revision:next.revision,title:'Renamed'}).measurementScale,next.measurementScale);
+ assert.equal(applyMetadata(next,{revision:next.revision,measurementHeightMeters:null}).measurementScale,undefined);
+});
 const adminCookie=()=>{const expiry=String(Date.now()+60_000);return `imo3d_session=${expiry}.${createHmac('sha256',secret).update(expiry).digest('hex')}`;};
 const req=(url:string,options:RequestInit={},admin=false)=>new Request(origin+'/api/imo3d/'+url,{...options,headers:{...(admin?{cookie:adminCookie()}:{}),...(options.method&&options.method!=='GET'?{Origin:origin,'Content-Type':'application/json'}:{}),...Object.fromEntries(new Headers(options.headers))}});
 const result=(value:unknown,status=200)=>new Response(JSON.stringify(value),{status,headers:{'Content-Type':'application/json'}});

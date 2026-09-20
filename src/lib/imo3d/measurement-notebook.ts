@@ -33,5 +33,6 @@ export function createMeasurementStore(key:string,sceneIds:ReadonlySet<string>,s
   refresh(){items=read();initialized=true;emit();},
   save(item:SavedMeasurement){const current=getSnapshot();if(current.some(value=>value.id===item.id))return;const valid=readMeasurements(JSON.stringify([item]),sceneIds);if(valid.length)update([...current,...valid].slice(-MAX_SAVED_MEASUREMENTS));},
   remove(id:string){update(getSnapshot().filter(item=>item.id!==id));},
+  clear(){update([]);},
  };
 }

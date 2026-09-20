@@ -2,6 +2,23 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createMeasurementStore,readMeasurements} from '../src/lib/imo3d/measurement-notebook';
 const item={id:'one',sceneId:'a',label:'Door',meters:2.1};
+test('clear removes the whole tour notebook persistently but preserves other tours and revisions',()=>{
+ const data=new Map<string,string>();
+ const storage=()=>({getItem:(key:string)=>data.get(key)??null,setItem:(key:string,value:string)=>{data.set(key,value);}});
+ const store=createMeasurementStore('tour-a:1',new Set(['a','b']),storage);
+ store.save(item);store.save({...item,id:'two',sceneId:'b'});
+ const other=createMeasurementStore('tour-b:1',new Set(['a']),storage);
+ const revision=createMeasurementStore('tour-a:2',new Set(['a']),storage);
+ other.save(item);revision.save(item);
+ let notifications=0;store.subscribe(()=>notifications++);
+ store.clear();
+ assert.equal(notifications,1);
+ assert.deepEqual(store.getSnapshot(),[]);
+ assert.deepEqual(createMeasurementStore('tour-a:1',new Set(['a','b']),storage).getSnapshot(),[]);
+ assert.deepEqual(other.getSnapshot(),[item]);assert.deepEqual(revision.getSnapshot(),[item]);
+ assert.deepEqual(JSON.parse(data.get('tour-b:1')!),[item]);
+ store.save(item);assert.deepEqual(store.getSnapshot(),[item]);
+});
 test('saved measurements survive reopen, remain isolated, and removal persists',()=>{
  const data=new Map<string,string>();
  const storage=()=>({getItem:(key:string)=>data.get(key)??null,setItem:(key:string,value:string)=>{data.set(key,value);}});

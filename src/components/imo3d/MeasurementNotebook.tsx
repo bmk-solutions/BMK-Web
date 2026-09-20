@@ -22,7 +22,7 @@ export function useMeasurementNotebook(tourId:string,revision:number,sceneIds:st
   return()=>{unsubscribe();window.removeEventListener('storage',update);};
  },[store,key]);
  const measurements=useSyncExternalStore(subscribe,store.getSnapshot,()=>empty);
- return {measurements,save:store.save,remove:store.remove};
+ return {measurements,save:store.save,remove:store.remove,clear:store.clear};
 }
 /** Notify after a completed, calibrated pair; changing viewing angle adds nothing. */
 export function CompletedMeasurement({id,sceneId,label,meters,onSave,endpoints,estimated}:{estimated?:boolean;id:string;sceneId:string;label:string;meters:number|null;endpoints?:[Point,Point];onSave:(item:SavedMeasurement)=>void}){

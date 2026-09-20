@@ -189,6 +189,12 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
     };
     const updateCursor=()=>{
       if(!instance)return;
+      if(measureRef.current&&!down?.dragged&&!pointers.size&&!panelRef.current&&!navigating.current&&initialized.current){
+        const rect=el.getBoundingClientRect();
+        const shown=lastPointer&&instance.setNavigationCursor((lastPointer.x-rect.left)/rect.width*2-1,1-(lastPointer.y-rect.top)/rect.height*2,null,true);
+        if(!lastPointer)instance.clearNavigationCursor();
+        el.dataset.cursor=shown?"surface-measure":"measure";el.dataset.destinationId="";return;
+      }
       if(down?.dragged||pointers.size||panelRef.current||measureRef.current||navigating.current||!initialized.current){instance.clearNavigationCursor();el.dataset.cursor=down?.dragged?"drag":measureRef.current?"measure":"look";el.dataset.destinationId="";return;}
       const target=lastPointer?destinationAt(lastPointer.x,lastPointer.y):null;
       const now=performance.now();

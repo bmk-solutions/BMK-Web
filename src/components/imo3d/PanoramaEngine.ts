@@ -56,18 +56,21 @@ export class PanoramaEngine {
   private blendQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.blendMaterial);
   private cursorWorld = new THREE.Scene();
   private cursorMaterial = new THREE.ShaderMaterial({
+    uniforms:{measuring:{value:0}},
     transparent: true, depthTest: false, depthWrite: false, side: THREE.DoubleSide,
     vertexShader: "varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}",
-    fragmentShader: `varying vec2 vUv;
+    fragmentShader: `varying vec2 vUv;uniform float measuring;
       void main(){
-        float radius=length(vUv-.5)*2.;
+        vec2 p=vUv-.5;
+        float radius=length(p)*2.;
         float edge=max(fwidth(radius),.012);
-        float line=1.-smoothstep(.045,.045+edge,abs(radius-.72));
-        float shadow=1.-smoothstep(.09,.09+edge,abs(radius-.72));
-        float fill=(1.-smoothstep(.66,.7,radius))*.055;
-        float alpha=max(line*.84,max(shadow*.24,fill));
+        float disc=1.-smoothstep(.69,.72+edge,radius);
+        float ring=1.-smoothstep(.035,.035+edge,abs(radius-.72));
+        float crosshair=max((1.-smoothstep(.012,.02,abs(p.x)))*(1.-smoothstep(.2,.23,abs(p.y))),
+                            (1.-smoothstep(.012,.02,abs(p.y)))*(1.-smoothstep(.2,.23,abs(p.x))));
+        float alpha=mix(disc*.64,max(ring*.95,crosshair*.95),measuring);
         if(alpha<.005)discard;
-        gl_FragColor=vec4(vec3(mix(.06,1.,line)),alpha);
+        gl_FragColor=vec4(mix(vec3(.27,.96,.12),vec3(1.),measuring),alpha);
         #include <colorspace_fragment>
       }`,
   });
@@ -453,28 +456,27 @@ export class PanoramaEngine {
     return {yaw:Math.atan2(ray.x,-ray.z),pitch:Math.asin(ray.y)};
   }
 
-  /** A transient cursor on the pointed floor; never a stored hotspot or metric observation. */
-  setNavigationCursor(x: number, y: number, destination: Scene | null): boolean {
-    if(this.destroyed||this.busy||!this.current||!destination||destination.floor!==this.current.floor||destination.id===this.current.id||!this.current.links.includes(destination.id)||!Number.isFinite(x)||!Number.isFinite(y)||Math.abs(x)>1||Math.abs(y)>1){this.clearNavigationCursor();return false;}
-    const inputKey=`${this.current.id}/${destination.id}/${x}/${y}/${this.yaw}/${this.pitch}/${this.fov}/${this.camera.aspect}`;
+  /** Transient surface cursor; estimated display surfaces never become metric evidence. */
+  setNavigationCursor(x: number, y: number, destination: Scene | null,measuring=false): boolean {
+    if(this.destroyed||this.busy||!this.current||(!measuring&&(!destination||destination.floor!==this.current.floor||destination.id===this.current.id||this.current.blockedLinks?.includes(destination.id)||destination.blockedLinks?.includes(this.current.id)))||!Number.isFinite(x)||!Number.isFinite(y)||Math.abs(x)>1||Math.abs(y)>1){this.clearNavigationCursor();return false;}
+    const inputKey=`${this.current.id}/${destination?.id??"measure"}/${measuring}/${x}/${y}/${this.yaw}/${this.pitch}/${this.fov}/${this.camera.aspect}`;
     if(this.cursorMesh.visible&&this.cursorInputKey===inputKey)return true;
     this.camera.updateMatrixWorld();
     this.cursorRay.setFromCamera(new THREE.Vector2(x,y),this.camera);
     const ray=this.cursorRay.ray;
-    if(ray.direction.y>-.06){this.clearNavigationCursor();return false;}
     let point:THREE.Vector3|null=null;
     const normal=this.cursorUp.clone(),entry=this.cache.get(this.current.id);
-    if(this.current.depth&&entry){
+    if(entry&&(this.current.depth||entry.displayMesh)){
       const hit=this.cursorDepthHit(entry,this.current,ray);
       if(!hit){this.clearNavigationCursor();return false;}
       normal.copy(hit.normal);point=hit.point;
-      // Do not advertise a walkable destination on a wall, ceiling or steep surface.
-      if(normal.y<.65||point.y>this.camera.position.y-.45){this.clearNavigationCursor();return false;}
+      // The marker identifies the pointed surface; destination selection remains separate.
     }else{
+      if(measuring||ray.direction.y>-.06){this.clearNavigationCursor();return false;}
       // The same nominal eye height as the render proxy, not recovered floor geometry.
       const floor=(this.current.position?.y??this.camera.position.y)-1.6;
       const travel=(floor-ray.origin.y)/ray.direction.y;
-      if(travel<=.15||travel>9){this.clearNavigationCursor();return false;}
+      if(travel<=.15||travel>30){this.clearNavigationCursor();return false;}
       point=ray.at(travel,new THREE.Vector3());
       const walls=this.options.plans?.find(plan=>plan.floor===this.current!.floor&&plan.walls.length&&!plan.authoredRooms?.length&&!plan.generatedRooms?.length&&!plan.generatedFrom)?.walls;
       if(walls){
@@ -483,10 +485,11 @@ export class PanoramaEngine {
       }
     }
     const distance=point.distanceTo(this.camera.position);
-    if(distance>9){this.clearNavigationCursor();return false;}
+    if(distance>30){this.clearNavigationCursor();return false;}
     // Bounded physical size retains perspective while remaining legible on a dense display.
     const size=Math.max(.18,Math.min(.52,distance*.075));
-    const key=`${destination.id}:${point.x.toFixed(4)},${point.y.toFixed(4)},${point.z.toFixed(4)}:${size.toFixed(4)}`;
+    this.cursorMaterial.uniforms.measuring.value=measuring?1:0;
+    const key=`${destination?.id??"measure"}/${measuring}:${point.x.toFixed(4)},${point.y.toFixed(4)},${point.z.toFixed(4)}:${size.toFixed(4)}`;
     if(key!==this.cursorKey||!this.cursorMesh.visible){
       this.cursorKey=key;this.cursorMesh.position.copy(point).addScaledVector(normal,.008);
       this.cursorMesh.quaternion.setFromUnitVectors(this.cursorNormal,normal);
@@ -498,19 +501,20 @@ export class PanoramaEngine {
 
   /** Exact mesh hits near the angular cell, avoiding a full depth-mesh scan on mousemove. */
   private cursorDepthHit(entry:Entry,scene:Scene,ray:THREE.Ray) {
-    const grid=entry.mesh.geometry.userData.panoramaGrid as {width:number;height:number;faces:Uint8Array};
+    const mesh=scene.depth?entry.mesh:entry.displayMesh;if(!mesh)return null;
+    const grid=mesh.geometry.userData.panoramaGrid as {width:number;height:number;faces:Uint8Array};
     const yaw=Math.atan2(ray.direction.x,-ray.direction.z)-radians(scene.yaw),pitch=Math.asin(ray.direction.y);
     const u=((.5+yaw/(2*Math.PI))%1+1)%1,v=Math.max(0,Math.min(1-1e-8,.5-pitch/Math.PI));
     const x=Math.floor(u*grid.width),y=Math.floor(v*grid.height);
-    const localRay=new THREE.Ray(ray.origin.clone().sub(entry.mesh.position),ray.direction);
-    const positions=entry.mesh.geometry.getAttribute("position");
+    const localRay=new THREE.Ray(ray.origin.clone().sub(mesh.position),ray.direction);
+    const positions=mesh.geometry.getAttribute("position");
     let nearest:{point:THREE.Vector3;normal:THREE.Vector3;distance:number}|null=null;
     const check=(i:number,j:number,k:number)=>{
       const p=new THREE.Vector3().fromBufferAttribute(positions,i),q=new THREE.Vector3().fromBufferAttribute(positions,j),r=new THREE.Vector3().fromBufferAttribute(positions,k);
       const hit=localRay.intersectTriangle(p,q,r,false,new THREE.Vector3());if(!hit)return;
       const distance=hit.distanceTo(localRay.origin);if(nearest&&nearest.distance<=distance)return;
-      const normal=q.sub(p).cross(r.sub(p)).normalize();if(normal.y<0)normal.negate();
-      nearest={point:hit.add(entry.mesh.position),normal,distance};
+      const normal=q.sub(p).cross(r.sub(p)).normalize();if(normal.dot(ray.direction)>0)normal.negate();
+      nearest={point:hit.add(mesh.position),normal,distance};
     };
     // Latitude cell edges are tessellated chords, so test adjacent cells at their seams.
     for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){

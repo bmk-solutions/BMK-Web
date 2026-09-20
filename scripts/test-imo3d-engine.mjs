@@ -412,7 +412,8 @@ test("navigation cursor follows a pointed floor, is destination aware, and hides
     assert.equal(h.engine.setNavigationCursor(-.2,-.7,b),true);
     assert.notEqual(h.engine.cursorMesh.position.x,first.x);
     assert.equal(h.engine.setNavigationCursor(.2,.2,b),false);assert.equal(h.engine.cursorMesh.visible,false);
-    assert.equal(h.engine.setNavigationCursor(.2,-.7,scene("unlinked")),false);
+    assert.equal(h.engine.setNavigationCursor(.2,-.7,scene("unlinked")),true);
+    assert.equal(h.engine.setNavigationCursor(.2,-.7,{...b,blockedLinks:[a.id]}),false);
     assert.equal(h.engine.setNavigationCursor(.2,-.7,{...b,floor:1}),false);
     assert.equal(h.engine.setNavigationCursor(NaN,-.7,b),false);
     assert.equal(h.engine.setNavigationCursor(.2,-.7,b),true);
@@ -642,10 +643,15 @@ test("display meshes share texture upgrades, remain hidden on cancellation and r
   }finally{h.engine.dispose();}
 });
 
-test("real depth keeps precedence and estimated display geometry never changes cursor or measurement",async()=>{
+test("surface cursor uses display depth without promoting it to metric measurement",async()=>{
   const h=harness();try{
     const a={...scene("estimated"),links:["next"],displayDepth:displayDepth({values:Array(512).fill(2),coverage:1})};await initial(h,a);
-    assert.equal(h.engine.setNavigationCursor(0,-.5,{...scene("next"),links:[a.id]}),true);assert.ok(Math.abs(h.engine.cursorMesh.position.y-.008)<1e-8);assert.equal(h.spatial.surfacePoint(a,0,-.5),null);
+    assert.equal(h.engine.setNavigationCursor(0,-.5,{...scene("next"),links:[a.id]}),true);assert.ok(h.engine.cursorMesh.position.distanceTo(h.engine.camera.position)>1.7);assert.equal(h.spatial.surfacePoint(a,0,-.5),null);
+    assert.equal(h.engine.setNavigationCursor(0,.2,null,true),true);
+    assert.equal(h.engine.cursorMaterial.uniforms.measuring.value,1);
+    const normal=new THREE.Vector3(0,0,1).applyQuaternion(h.engine.cursorMesh.quaternion);
+    assert.ok(normal.dot(h.engine.cursorMesh.position.clone().sub(h.engine.camera.position))<0);
+    assert.equal(a.depth,undefined);
     const measured={...scene("measured",2),links:["measured-next"],displayDepth:displayDepth(),depth:{width:8,height:4,values:Array(32).fill(4)}};
     const load=h.engine.move(measured,false);await h.success(measured.preview);assert.equal(await load,true);assert.equal(h.engine.cache.get(measured.id).displayMesh,undefined);
     const next={...measured,id:"measured-next",preview:"/measured-next.lite",image:"/measured-next.full",position:{x:3,y:1.6,z:0},links:[measured.id]};

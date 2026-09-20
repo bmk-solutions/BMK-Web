@@ -2,7 +2,7 @@
 import {useEffect,useMemo,useRef,useState,type CSSProperties} from "react";
 import type {Point,Scene,Tour} from "@/lib/imo3d/model";
 import {layoutMeasurementLabels} from "@/lib/imo3d/measurement-projection";
-import {estimatedMeasurementPoint,recordedMeasurementHeight} from "@/lib/imo3d/estimated-measurement";
+import {estimatedMeasurementPoint,recordedMeasurementHeight,DEFAULT_CAPTURE_HEIGHT_METERS} from "@/lib/imo3d/estimated-measurement";
 import {supportedDisplayDepth} from "@/lib/imo3d/display-depth";
 import {distance,monthlyPayment,radians,surfacePoint} from "@/lib/imo3d/spatial";
 import {heldHeading,isMovementCode,navigationPrefetch,navigationTransition,pickNavigationDirection,pointerDestination} from "@/lib/imo3d/navigation";
@@ -40,7 +40,7 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
   const [measurementUnit,setMeasurementUnit]=useState<MeasurementUnit>("m");
   const [measurementsVisible,setMeasurementsVisible]=useState(true);
   const [selectedMeasurement,setSelectedMeasurement]=useState<string|null>(null);
-  const notebook=useMeasurementNotebook(tour.id,tour.revision,tour.scenes.map(scene=>scene.id));
+  const notebook=useMeasurementNotebook(tour.id,tour.revision,tour.scenes.map(scene=>scene.id),Object.fromEntries(tour.scenes.map(scene=>[scene.id,{heightMeters:recordedMeasurementHeight(tour,scene.id)??DEFAULT_CAPTURE_HEIGHT_METERS,legacyHeightMeters:recordedMeasurementHeight(tour,scene.id)??1.6,origin:scene.position??{x:0,y:0,z:0}}])));
   const saveMeasurement=useRef(notebook.save);
   useEffect(()=>{saveMeasurement.current=notebook.save;},[notebook.save]);
   const [measurementViewport,setMeasurementViewport]=useState({width:0,height:0});
@@ -234,7 +234,7 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
             const meters=distance(next[0],next[1]),measurementId=JSON.stringify([scene.id,next]);
             if(meters>0&&Number.isFinite(meters)){
               const estimated=!(scene.depth&&tour.spatialScale==="metric");
-              saveMeasurement.current({id:measurementId,sceneId:scene.id,label:scene.room||scene.name,meters,endpoints:next as [Point,Point],estimated});
+              saveMeasurement.current({id:measurementId,sceneId:scene.id,label:scene.room||scene.name,meters,endpoints:next as [Point,Point],estimated,...(estimated?{lensHeightMeters:recordedMeasurementHeight(tour,scene.id)??DEFAULT_CAPTURE_HEIGHT_METERS}:{})});
               setSelectedMeasurement(measurementId);
             }
           }
@@ -290,7 +290,7 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
       <button type="button" className="imo-measure-clear-all" title="حذف كل القياسات" aria-label="حذف كل القياسات" disabled={!notebook.measurements.length&&!points.length} onClick={()=>{if(!window.confirm("حذف جميع قياسات هذه الجولة؟ لا يمكن التراجع عن الحذف."))return;notebook.clear();setSelectedMeasurement(null);pointsRef.current=[];setPoints([]);setFloorRays([]);}}><Icon name="trash"/><small>الكل</small></button>
       <button type="button" title={measurementsVisible?"إخفاء القياسات":"إظهار القياسات"} aria-label={measurementsVisible?"إخفاء القياسات":"إظهار القياسات"} aria-pressed={!measurementsVisible} onClick={()=>{setMeasurementsVisible(value=>!value);setSelectedMeasurement(null);setPoints([]);}}><Icon name={measurementsVisible?"eye":"eye-off"}/></button>
       <MeasurementUnitPicker value={measurementUnit} onChange={setMeasurementUnit}/>
-      {!(current.depth&&tour.spatialScale==="metric")&&<details className="imo-measure-assumption"><summary title="تفاصيل التقدير">≈ تقديري</summary><p>{recordedMeasurementHeight(tour,current.id)!==null?`المقياس يستخدم ارتفاع العدسة المسجّل ${recordedMeasurementHeight(tour,current.id)!.toFixed(2)} م. العمق مستنتج من الصور؛ الأبعاد تقريبية وليست مسحًا هندسيًا معتمدًا.`:"غير مُعاير. ارتفاع عدسة افتراضي 1.60 م؛ ليس ارتفاعًا مثبتًا لكاميرا Insta360. الأبعاد والدقة غير مضمونة."}</p></details>}
+      {!(current.depth&&tour.spatialScale==="metric")&&<details className="imo-measure-assumption"><summary title="تفاصيل التقدير">≈ تقديري</summary><p>{recordedMeasurementHeight(tour,current.id)!==null?`المقياس يستخدم ارتفاع العدسة المسجّل ${recordedMeasurementHeight(tour,current.id)!.toFixed(2)} م. العمق مستنتج من الصور؛ الأبعاد تقريبية وليست مسحًا هندسيًا معتمدًا.`:`المقياس يستخدم إعداد التصوير المشترك ${DEFAULT_CAPTURE_HEIGHT_METERS.toFixed(2)} م. يلزم تعديل إعداد المشروع إذا اختلف ارتفاع التصوير. العمق مستنتج من الصور والأبعاد تقديرية.`}</p></details>}
       <button type="button" title="إنهاء القياس" aria-label="إنهاء القياس" onClick={()=>{setMeasure(false);setPoints([]);setSelectedMeasurement(null);}}><Icon name="close"/></button>
       {measurementsVisible&&points.length===2&&<button type="button" className="imo-measure-live-result" aria-label="تحديد القياس الأخير" onClick={()=>setSelectedMeasurement(JSON.stringify([current.id,points]))}>{!(current.depth&&tour.spatialScale==="metric")?"≈ ":""}{formatMeasurement(distance(points[0],points[1]),measurementUnit)}</button>}
       <span className="imo-measure-instruction" role="status">{!measurementsVisible?"القياسات مخفية · اضغط العين لإظهارها":selectedMeasurement?"القياس محدد · اضغط سلة الحذف لإزالته":points.length===0?"حدّد نقطتين على الصورة":points.length===1?"حدّد النقطة الثانية":"اضغط على قيمة القياس لتحديده"}</span>

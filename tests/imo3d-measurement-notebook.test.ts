@@ -1,7 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createMeasurementStore,readMeasurements} from '../src/lib/imo3d/measurement-notebook';
+import {createMeasurementStore,readMeasurements,rescaleSavedEstimate} from '../src/lib/imo3d/measurement-notebook';
 const item={id:'one',sceneId:'a',label:'Door',meters:2.1};
+test('shared capture default rescales existing estimates once, preserves rays, ids and metric measurements',()=>{
+ const legacy={...item,estimated:true,meters:3.2,endpoints:[{x:2,y:2,z:3},{x:2,y:5.2,z:3}] as [{x:number;y:number;z:number},{x:number;y:number;z:number}]};
+ const context={origin:{x:2,y:1,z:3},heightMeters:1.27};
+ const next=rescaleSavedEstimate(legacy,context);
+ assert.equal(next.id,legacy.id);assert.equal(next.sceneId,'a');assert.equal(next.meters,2.54);assert.equal(next.lensHeightMeters,1.27);
+ assert.ok(Math.abs(next.endpoints![1].y-next.endpoints![0].y-2.54)<1e-10);
+ assert.deepEqual(rescaleSavedEstimate(next,context),next);
+ assert.deepEqual(rescaleSavedEstimate(legacy,{...context,legacyHeightMeters:1.27}),legacy);
+ assert.deepEqual(rescaleSavedEstimate({...legacy,estimated:false},context),{...legacy,estimated:false});
+ assert.equal(rescaleSavedEstimate(legacy,undefined),legacy);
+ const storage=new Map([['project:4',JSON.stringify([legacy])]]);
+ const store=createMeasurementStore('project:4',new Set(['a']),()=>({getItem:key=>storage.get(key)??null,setItem:(key,value)=>{storage.set(key,value);}}),measurement=>rescaleSavedEstimate(measurement,context));
+ assert.equal(store.getSnapshot()[0].meters,2.54);store.refresh();assert.equal(store.getSnapshot()[0].meters,2.54);
+ store.remove(legacy.id);assert.deepEqual(store.getSnapshot(),[]);
+});
 test('clear removes the whole tour notebook persistently but preserves other tours and revisions',()=>{
  const data=new Map<string,string>();
  const storage=()=>({getItem:(key:string)=>data.get(key)??null,setItem:(key:string,value:string)=>{data.set(key,value);}});
@@ -55,7 +70,7 @@ test('unit switching converts original meters without changing stored dimensions
  assert.equal(item.meters,2.1);
 });
 
-import {estimatedMeasurementPoint,ASSUMED_CAMERA_HEIGHT_METERS,measurementDepthSample,continuousMeasurementDepth,recordedMeasurementHeight} from '../src/lib/imo3d/estimated-measurement';
+import {estimatedMeasurementPoint,DEFAULT_CAPTURE_HEIGHT_METERS,measurementDepthSample,continuousMeasurementDepth,recordedMeasurementHeight} from '../src/lib/imo3d/estimated-measurement';
 import type {Scene} from '../src/lib/imo3d/model';
 test('recorded height scales distances in every direction without altering geometry or covering new photos',()=>{
  const scene={id:'a',yaw:0,position:{x:4,y:2,z:8},displayDepth:{source:'da3-base-pose-conditioned-multiview',purpose:'display_only',units:'camera_height',width:8,height:4,confidence:.9,coverage:1,values:Array(32).fill(2)}} as Scene;
@@ -73,9 +88,17 @@ test('recorded height scales distances in every direction without altering geome
  }
  assert.equal(JSON.stringify(scene),before);
 });
+test('every existing or new project uses the shared 1.27 m rig unless its capture height is overridden',()=>{
+ assert.equal(DEFAULT_CAPTURE_HEIGHT_METERS,1.27);
+ for(const id of ['hamra','existing-project','new-project']){
+  const scene={id,yaw:0,position:null,displayDepth:{source:'da3-base-pose-conditioned-multiview',purpose:'display_only',units:'camera_height',width:8,height:4,confidence:.9,coverage:1,values:Array(32).fill(2)}} as Scene;
+  assert.equal(estimatedMeasurementPoint(scene,0,0)!.z,-2.54);
+  assert.equal(estimatedMeasurementPoint(scene,0,0,2)!.z,-4);
+ }
+});
 test('estimated depth measures vertical and horizontal rays without becoming metric data',()=>{
  const scene={yaw:0,position:{x:0,y:0,z:0},displayDepth:{source:'da3-base-pose-conditioned-multiview',purpose:'display_only',units:'camera_height',width:8,height:4,confidence:.9,coverage:1,values:Array(32).fill(2)}} as Scene;
- assert.deepEqual(estimatedMeasurementPoint(scene,0,0),{x:0,y:0,z:-2*ASSUMED_CAMERA_HEIGHT_METERS});
+ assert.deepEqual(estimatedMeasurementPoint(scene,0,0),{x:0,y:0,z:-2*DEFAULT_CAPTURE_HEIGHT_METERS});
  assert.ok(estimatedMeasurementPoint(scene,0,Math.PI/4)!.y>0);
  assert.equal(scene.depth,undefined);
  assert.equal(estimatedMeasurementPoint({...scene,displayDepth:undefined},0,0),null);

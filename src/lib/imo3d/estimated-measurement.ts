@@ -2,7 +2,10 @@ import type {Point,Scene,DisplayDepth,Tour} from './model';
 import {supportedDisplayDepth} from './display-depth';
 import {radians,worldRay} from './spatial';
 /** Explicit display-depth estimate, NEVER promotes a tour to metric geometry. */
-export const ASSUMED_CAMERA_HEIGHT_METERS=1.6;
+/** Shared capture setup: user measured floor-to-lens height as 1.27 m.
+ * Fallback for existing/new projects; a tour's recorded height takes precedence.
+ * It is an assumption for captures whose individual setup was not confirmed. */
+export const DEFAULT_CAPTURE_HEIGHT_METERS=1.27;
 export function recordedMeasurementHeight(tour:Pick<Tour,'measurementScale'>,sceneId:string):number|null{
  const scale=tour.measurementScale;
  return scale?.source==='operator_measured'&&Number.isFinite(scale.heightMeters)&&scale.heightMeters>=.15&&scale.heightMeters<=10&&Array.isArray(scale.sceneIds)&&scale.sceneIds.includes(sceneId)?scale.heightMeters:null;
@@ -43,7 +46,7 @@ export function continuousMeasurementDepth(depth:DisplayDepth,u:number,v:number)
  const inverse=samples.reduce((sum,s)=>sum+s.weight/s.value!,0);
  return Number.isFinite(inverse)&&inverse>0?1/inverse:nearest;
 }
-export function estimatedMeasurementPoint(scene:Scene,yaw:number,pitch:number,heightMeters=ASSUMED_CAMERA_HEIGHT_METERS):Point|null{
+export function estimatedMeasurementPoint(scene:Scene,yaw:number,pitch:number,heightMeters=DEFAULT_CAPTURE_HEIGHT_METERS):Point|null{
  const depth=supportedDisplayDepth(scene.displayDepth);
  if(!depth||!Number.isFinite(yaw)||!Number.isFinite(pitch)||Math.abs(pitch)>Math.PI/2||!Number.isFinite(heightMeters)||heightMeters<.15||heightMeters>10)return null;
  const u=((.5+(yaw-radians(scene.yaw))/(2*Math.PI))%1+1)%1;

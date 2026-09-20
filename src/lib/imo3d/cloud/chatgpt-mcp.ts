@@ -6,6 +6,7 @@ import {getAsset,getTour,listTours,withinRateLimit,getPlanRefs} from './reposito
 import {chatgptConnection,chatgptOrigin,chatgptScope,signedValue,verifiedValue,type ChatGPTConnection} from './chatgpt-auth';
 import {CloudHTTPError,eq,json,readJSON,readBytes} from './http';
 import {aiPlanFingerprint} from '../ai-plan-jobs';
+import {imagePlanRegistration} from '../plan-registration';
 import {panoramaEvidenceSheet,sceneEvidenceSchema,floorplanAuditSchema,floorplanLayoutSchema,validateFloorplanLayout,renderFloorplanLayoutSVG} from '../openai-floorplan-pipeline';
 import {cloudIsAdmin,cloudSameOrigin} from './auth';
 import {furnishedPlanInstructions,furnishedPlanStyle} from '../furnished-plan';
@@ -102,8 +103,14 @@ export async function chatgptDrafts(request:Request){
   if(source.result.qualityHold)throw new CloudHTTPError('هذه التجربة مستبعدة بسبب اختلاف التوزيع الهندسي؛ لا يمكن اعتمادها.',409);
   if(source.input_hash!==aiPlanFingerprint(tour.scenes))throw new CloudHTTPError('تغيرت الصور؛ حلل الصور الحالية أولًا.',409);
   const previous=(await getPlanRefs(tourId)).find(ref=>ref.floor===source.floor),png=await furnishedPNG(source),job=randomUUID(),key=`reviewed-plans/${tour.projectId}/${tour.id}/${job}.png`;
+  const raw=source.result.navigation as Record<string,unknown>|undefined,meta=await sharp(png).metadata();
+  const registered=raw?imagePlanRegistration({points:raw.points,outline:raw.outline},tour.scenes.filter(scene=>scene.floor===source.floor).map(scene=>scene.id),meta.width!,meta.height!):null;
   await cloudUploadObject(key,png,'image/png');
   await cloudRpc('use_furnished_draft',{p_draft:source.id,p_revision:tour.revision,p_job:job,p_key:key,p_sha:createHash('sha256').update(png).digest('hex'),p_previous_job:previous?.job_id??null});
+  if(registered){
+   const updated=await cloudQuery<unknown[]>('approved_plan_refs',`tour_id=eq.${eq(tour.id)}&floor=eq.${source.floor}&job_id=eq.${eq(job)}`,'PATCH',{navigation:registered});
+   if(updated.length!==1)throw new CloudHTTPError('تغير المخطط أثناء حفظ نقاطه. أعد اختيار النسخة.',409);
+  }
   return json({status:'selected',notice:'تم اختيار هذه النسخة للعرض في الجولة.'});
  }
  if(request.method==='PATCH'){
@@ -133,7 +140,7 @@ export async function chatgptDrafts(request:Request){
   try{const image=sharp(Buffer.from(await file.arrayBuffer()),{limitInputPixels:20_000_000});const meta=await image.metadata();if(!['png','jpeg'].includes(meta.format||'')||(meta.pages??1)>1||!meta.width||!meta.height||Math.min(meta.width,meta.height)<256)throw new Error();png=await image.rotate().png().toBuffer();}catch{throw new CloudHTTPError('الصورة غير صالحة أو تتجاوز 20 مليون بكسل.');}
   const nextId=randomUUID(),key=`chatgpt-drafts/${tour.projectId}/${tour.id}/${nextId}.png`;
   await cloudUploadObject(key,png,'image/png');
-  const result={...source.result,source:'furnished-image-draft',furnished:{styleVersion:furnishedPlanStyle,parentDraftId:source.id,reviewNotes,reviewStatus:'needs-review'}};
+  const result={...source.result,navigation:undefined,source:'furnished-image-draft',furnished:{styleVersion:furnishedPlanStyle,parentDraftId:source.id,reviewNotes,reviewStatus:'needs-review'}};
   await cloudQuery('chatgpt_drafts','','POST',{id:nextId,project_id:tour.projectId,tour_id:tour.id,floor:source.floor,input_hash:source.input_hash,result});
   return json({id:nextId,status:'draft',notice:'حُفظت نسخة مفروشة منفصلة للمراجعة.'},201);
  }

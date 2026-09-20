@@ -64,13 +64,40 @@ test('choosing a furnished draft validates source images before uploading and re
  source.input_hash=aiPlanFingerprint(tour.scenes);assert.equal((await chatgptDrafts(request())).status,200);assert.ok(!calls.some(c=>c.method==='DELETE'||c.method==='PATCH'));
  source.result.qualityHold='Geometry rejected';const writes=calls.filter(c=>c.method==='POST').length;await assert.rejects(chatgptDrafts(request()),/مستبعدة/);assert.equal(calls.filter(c=>c.method==='POST').length,writes);
 });
+test('approving a registered furnished plan preserves only its own floor points on the new snapshot',async()=>{
+ const tour=syntheticTour(),id='00000000-0000-4000-8000-000000000002';
+ const navigation={points:tour.scenes.filter(s=>s.floor===0).map(s=>({sceneId:s.id,x:.5,y:.5})),outline:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}]};
+ const source={id,project_id:tour.projectId,tour_id:tour.id,floor:0,input_hash:aiPlanFingerprint(tour.scenes),result:{navigation,furnished:{reviewStatus:'needs-review'}}};
+ const png=await sharp({create:{width:512,height:256,channels:3,background:'white'}}).png().toBuffer();
+ let snapshot:string|undefined,patched=false;
+ mock=call=>{
+  if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);
+  if(call.url.pathname.endsWith('/imo3d_chatgpt_drafts'))return result([source]);
+  if(call.url.pathname.endsWith('/imo3d_approved_plan_refs')){
+   if(call.method==='PATCH'){
+    assert.equal(call.url.searchParams.get('tour_id'),'eq.'+tour.id);
+    assert.equal(call.url.searchParams.get('floor'),'eq.0');
+    assert.equal(call.url.searchParams.get('job_id'),'eq.'+snapshot);
+    assert.deepEqual((call.body?.navigation as typeof navigation).points,navigation.points);
+    assert.equal((call.body?.navigation as {width:number}).width,512);patched=true;
+   }
+   return result([{floor:0,job_id:'old'}]);
+  }
+  if(call.url.pathname.includes('/object/authenticated/'))return new Response(new Uint8Array(png));
+  if(call.url.pathname.includes('/storage/'))return result({});
+  assert.equal(call.url.pathname,'/rest/v1/rpc/imo3d_use_furnished_draft');snapshot=String(call.body?.p_job);return result(true);
+ };
+ const response=await chatgptDrafts(new Request(origin+'/api/imo3d-chatgpt/drafts?tourId='+tour.id+'&id='+id+'&approve=1',{method:'POST',headers:{cookie:adminCookie(),Origin:origin}}));
+ assert.equal(response.status,200);assert.equal(patched,true);
+});
+
 test('photo and furnished-label contracts reject omitted sources and wrong room anchors',()=>{
  const scenes=[{id:'s1',floor:0},{id:'s2',floor:0}],audit={verdict:'inconclusive',reviewedSceneIds:['s1','s2'],issues:[],limitations:['Estimate']};
  const floor={floor:0,geometryBasis:'image-supported',geometryExplanation:'Synthetic matching wall directions in s1 and s2.',evidence:scenes.map(s=>({sceneId:s.id,roomCategory:'living',visibleEvidence:['Sofa'],openings:[],distinctiveFeatures:[],uncertainties:[]})),layout:{rooms:[{id:'r',label:'صالة',evidenceSceneIds:['s1','s2'],polygon:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}],uncertainty:'Estimate'}],openings:[],uncertainties:['Estimate']},audit};
  assert.equal(validateSubscriptionAnalysis({floors:[floor]},scenes).floors.length,1);
  assert.throws(()=>validateSubscriptionAnalysis({floors:[{...floor,evidence:floor.evidence.slice(0,1)}]},scenes),/COVERAGE/);
  assert.throws(()=>validateSubscriptionAnalysis({floors:[{...floor,geometryBasis:'topology-only'}]},scenes),/GEOMETRY_UNRESOLVED/);
- const image={imagePath:'generated.png',labels:[{roomId:'r',name:'صالة',x:.5,y:.5}],baseImageHasNoText:true,reviewNotes:'Reviewed photo furniture',audit};
+ const image={imagePath:'generated.png',labels:[{roomId:'r',name:'صالة',x:.5,y:.5}],baseImageHasNoText:true,navigation:null,reviewNotes:'Reviewed photo furniture',audit};
  assert.equal(validateImageReview(image,['r'],['s1','s2']).labels.length,1);
  assert.throws(()=>validateImageReview(image,['different'],['s1','s2']),/COVERAGE/);
  assert.throws(()=>validateImageReview({...image,baseImageHasNoText:false},['r'],['s1','s2']));

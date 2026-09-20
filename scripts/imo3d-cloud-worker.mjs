@@ -1,7 +1,7 @@
-import {access,readFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import {createWorkerTransport,pollCloudJobs} from './lib/imo3d-cloud-worker.mjs';
+import {workerRuntimePresent} from './lib/imo3d-worker-runtime.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const args=process.argv.slice(2);
@@ -11,8 +11,7 @@ if(args.some(value=>!['--once','--check'].includes(value))||args.includes('--onc
 }else{
   const config={url:process.env.SUPABASE_URL,serviceRoleKey:process.env.SUPABASE_SERVICE_ROLE_KEY,projectRef:process.env.IMO3D_CLOUD_PROJECT_REF};
   const missing=['SUPABASE_URL','SUPABASE_SERVICE_ROLE_KEY','IMO3D_CLOUD_PROJECT_REF'].filter(name=>!process.env[name]?.trim());
-  let localRuntime=false;
-  try{const runtime=JSON.parse(await readFile(path.join(root,'work','reconstruction-runtime.json'),'utf8'));const python=process.env.IMO3D_PYTHON||runtime.python;if(python){await access(python);localRuntime=true;}}catch{/* Printed as a setup gap, without private paths. */}
+  const localRuntime=await workerRuntimePresent(root);
   if(missing.length||!localRuntime){
     console.error(JSON.stringify({status:'setup-required',missing,localRuntimeConfigured:localRuntime,networkContacted:false}));process.exitCode=1;
   }else{

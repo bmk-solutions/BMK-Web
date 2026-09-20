@@ -43,6 +43,11 @@ test('subscription subprocess excludes database, API and session credentials',()
  const env=subscriptionChildEnvironment({NODE_ENV:'test',PATH:'bin',USERPROFILE:'profile',SUPABASE_SERVICE_ROLE_KEY:'private',OPENAI_API_KEY:'private',IMO3D_ADMIN_SECRET:'private',CODEX_ACCESS_TOKEN:'private'});
  assert.equal(env.PATH,'bin');assert.equal(env.USERPROFILE,'profile');assert.ok(!JSON.stringify(env).includes('private'));
 });
+test('subscription subprocess retains Linux identity and isolated Codex directory without server secrets',()=>{
+ const env=subscriptionChildEnvironment({NODE_ENV:'test',HOME:'/home/imo3d',CODEX_HOME:'/srv/imo3d/codex',XDG_CONFIG_HOME:'/home/imo3d/.config',LANG:'C.UTF-8',TMPDIR:'/tmp/imo3d',SUPABASE_SERVICE_ROLE_KEY:'private',VERCEL_TOKEN:'private',DATABASE_URL:'private'});
+ assert.equal(env.HOME,'/home/imo3d');assert.equal(env.CODEX_HOME,'/srv/imo3d/codex');assert.equal(env.LANG,'C.UTF-8');assert.equal(env.TMPDIR,'/tmp/imo3d');
+ assert.ok(!JSON.stringify(env).includes('private'));
+});
 test('administrator viewer keeps the registered floor while a new subscription draft is processing',async()=>{
  const tour=syntheticTour();mock=call=>{if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);assert.equal(call.url.pathname,'/rest/v1/imo3d_approved_plan_refs');return result([{tour_id:tour.id,floor:0,job_id:'old-selected',input_hash:aiPlanFingerprint(tour.scenes),scene_ids:tour.scenes.map(s=>s.id),storage_key:'private/selected.png'}]);};
  const response=await cloudRoute(req(`tours/${tour.id}/ai-plan?viewer=1&floor=0`,{},true));assert.equal(response.status,200);assert.equal((await response.json()).job.id,'old-selected');

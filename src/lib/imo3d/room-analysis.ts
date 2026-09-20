@@ -105,16 +105,22 @@ export async function runRoomAnalysis(options:Options):Promise<RoomAnalysisResul
   await mkdir(attemptDir,{recursive:true});const input=path.join(attemptDir,"room-analysis-input.json");await writeFile(input,JSON.stringify({scenes}),"utf8");
   const boundaries=run(python,"imo3d-horizon-layout.py",input,path.join(attemptDir,"room-profiles.json"),"boundaries",options);
   const recognition=run(python,"imo3d-room-vision.py",input,path.join(attemptDir,"room-vision.json"),"room_recognition",options);
-  const displayDepth=boundaries.then(async value=>{
+  const analyzeDepth=async(value:unknown,filename="photo-depth.json")=>{
     if(options.signal?.aborted)throw new DOMException("Room analysis cancelled","AbortError");
     const profiles:Record<string,RoomProfile>=Object.create(null);
     if(record(value)&&value.version===1&&value.scale==="camera_height"&&record(value.profiles))for(const scene of scenes){const profile=value.profiles[scene.id];if(validRoomProfile(profile))profiles[scene.id]=profile;}
     const supported=scenes.filter(scene=>profiles[scene.id]);if(!supported.length)return undefined;
     const depthInput=path.join(attemptDir,"photo-depth-input.json");await writeFile(depthInput,JSON.stringify({scenes:supported,roomProfiles:profiles}),"utf8");
-    return run(python,"imo3d-photo-depth.py",depthInput,path.join(attemptDir,"photo-depth.json"),"photo_depth",{...options,scenes:supported});
-  });
+    return run(python,"imo3d-photo-depth.py",depthInput,path.join(attemptDir,filename),"photo_depth",{...options,scenes:supported});
+  };
+  const displayDepth=boundaries.then(value=>analyzeDepth(value));
   const results=await Promise.allSettled([boundaries,recognition,displayDepth]);
   if(options.signal?.aborted)throw new DOMException("Room analysis cancelled","AbortError");
+  // Retry once with the other local models unloaded, using a fresh output file.
+  if(results[2].status==="rejected"&&results[0].status==="fulfilled"){
+    try{results[2]={status:"fulfilled",value:await analyzeDepth(results[0].value,"photo-depth-retry.json")};}catch{/* Preserve the original failure and the other successful analyses. */}
+    if(options.signal?.aborted)throw new DOMException("Room analysis cancelled","AbortError");
+  }
   const ids=scenes.map(scene=>scene.id),result=validateRoomAnalysisResults(ids,results[0].status==="fulfilled"?results[0].value:undefined,results[1].status==="fulfilled"?results[1].value:undefined);
   const depth=validateDisplayDepthResults(ids,results[2].status==="fulfilled"?results[2].value:undefined);
   return{...result,...(depth.displayDepths?{displayDepths:depth.displayDepths}:{}),warnings:[...result.warnings,...depth.warnings]};

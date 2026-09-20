@@ -103,7 +103,7 @@ test("photo depth waits for current boundaries and its failure cannot discard su
       return child;
     }) as unknown as typeof childProcess.spawn);
     const result=await runRoomAnalysis(f.options);
-    assert.deepEqual(started,["boundaries","recognition","photo_depth"]);assert.equal(Object.keys(result.profiles).length,1);assert.equal(result.observations.length,1);assert.equal(result.displayDepths,undefined);assert.ok(result.warnings.some(value=>value.includes("عمق العرض")));
+    assert.deepEqual(started,["boundaries","recognition","photo_depth","photo_depth"]);assert.equal(Object.keys(result.profiles).length,1);assert.equal(result.observations.length,1);assert.equal(result.displayDepths,undefined);assert.ok(result.warnings.some(value=>value.includes("عمق العرض")));
   }finally{f.close();}
 });
 
@@ -117,4 +117,21 @@ test("abort while depth and recognition run terminates both without consuming pr
     }) as unknown as typeof childProcess.spawn);
     await assert.rejects(runRoomAnalysis({...f.options,signal:controller.signal}),{name:"AbortError"});assert.equal(killed,2);
   }finally{f.close();}
+});
+
+test("failed depth retries once after recognition and uses a new output file",async context=>{
+ const f=fixture();let attempts=0,recognitionDone=false;const depthOutputs:string[]=[];
+ try{
+  context.mock.method(childProcess,"spawn",((_python:string,args:readonly string[])=>{
+   const child=modelProcess(),isDepth=args[0].includes("photo-depth"),isBoundary=args[0].includes("horizon");
+   if(isDepth){attempts++;depthOutputs.push(args[4]);}
+   setImmediate(()=>{
+    if(isDepth&&attempts===1){child.emit("close",2);return;}
+    if(isDepth)assert.equal(recognitionDone,true);
+    if(!isDepth&&!isBoundary)recognitionDone=true;
+    writeFileSync(args[4],JSON.stringify(isBoundary?{version:1,scale:"camera_height",profiles:{photo:profile()}}:isDepth?{version:"photo-depth-overlap-v2-128",scenes:[displayDepth()]}:{inference:"local_cpu",observations:[observation()]}));child.emit("close",0);
+   });return child;
+  }) as unknown as typeof childProcess.spawn);
+  const result=await runRoomAnalysis(f.options);assert.equal(attempts,2);assert.equal(new Set(depthOutputs).size,2);assert.ok(result.displayDepths?.photo);
+ }finally{f.close();}
 });

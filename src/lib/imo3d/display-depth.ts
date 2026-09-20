@@ -1,4 +1,13 @@
-import type {DisplayDepth} from "./model";
+import type {DisplayDepth,Scene} from "./model";
+
+/** Enrich an existing tour without changing its room assignments or camera poses. */
+export function fillMissingDisplayDepth(scenes:Scene[],depths:Record<string,DisplayDepth>){
+  return scenes.map(scene=>{
+    if(scene.depth||supportedDisplayDepth(scene.displayDepth))return scene;
+    const depth=supportedDisplayDepth(depths[scene.id]);
+    return depth?{...scene,displayDepth:depth}:scene;
+  });
+}
 
 /** The worker and renderer share the same usable-area gate for depth upgrades. */
 export function supportedDisplayDepth(depth:DisplayDepth|undefined):DisplayDepth|undefined{

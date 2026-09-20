@@ -13,7 +13,7 @@ import {runRoomAnalysis} from '../src/lib/imo3d/room-analysis.ts';
 import {runJointDepth} from '../src/lib/imo3d/joint-depth.ts';
 import {currentSurfaceModel,encodeSurfaceModel,surfaceModelFloorHeight,surfaceModelMime} from '../src/lib/imo3d/surface-model.ts';
 import {applyDepthArchitecture,runDepthArchitecture} from '../src/lib/imo3d/depth-architecture.ts';
-import {supportedDisplayDepth} from '../src/lib/imo3d/display-depth.ts';
+import {supportedDisplayDepth,fillMissingDisplayDepth} from '../src/lib/imo3d/display-depth.ts';
 import {applyRoomSemantics} from '../src/lib/imo3d/room-semantics.ts';
 
 const directory=path.resolve(process.env.IMO3D_DATA_DIR||'.imo3d-data');
@@ -125,6 +125,8 @@ async function processJob(job){
       let status=result.status==='ready'&&!analysis.warnings.length?'completed':'review',next=null;
       if(current.spatialSource!=='images'&&current.scenes.some(s=>s.position)){
         status='review';warnings.unshift('تم تحليل الصور وحفظ النتيجة للمراجعة مع إبقاء معايرة الكاميرات والمخطط المعتمد.');
+        const scenes=fillMissingDisplayDepth(current.scenes,analysis.displayDepths??{});
+        if(scenes.some((scene,index)=>scene!==current.scenes[index]))next={...current,scenes,revision:current.revision+1,updatedAt:new Date().toISOString()};
       }else if(registered>=2){
         const proposed=proposedScenes(current,result,placedIds,displayDepths);
         const semantics=applyRoomSemantics(applyConnectionOverrides(proposed),{observations:[...analysis.observations,...(result.roomObservations??[])],relations:result.roomRelations??[],suiteObservations:analysis.suiteObservations});
@@ -140,7 +142,7 @@ async function processJob(job){
       }else{
         status='review';
         // Useful room recognition survives a batch with insufficient spatial overlap.
-        if(analysis.observations.length||analysis.displayDepths){const semantics=applyRoomSemantics(current.scenes.map(scene=>({...scene,displayDepth:analysis.displayDepths?.[scene.id]})),{observations:analysis.observations,relations:[],suiteObservations:analysis.suiteObservations});warnings.push(...semantics.warnings);next={...current,scenes:semantics.scenes,revision:current.revision+1,updatedAt:new Date().toISOString(),quality:{...current.quality,warnings}};}
+        if(analysis.observations.length||analysis.displayDepths){const semantics=applyRoomSemantics(fillMissingDisplayDepth(current.scenes,analysis.displayDepths??{}),{observations:analysis.observations,relations:[],suiteObservations:analysis.suiteObservations});warnings.push(...semantics.warnings);next={...current,scenes:semantics.scenes,revision:current.revision+1,updatedAt:new Date().toISOString(),quality:{...current.quality,warnings}};}
       }
       summary.rooms=(next??current).plans.reduce((count,plan)=>count+(plan.authoredRooms??plan.generatedRooms??[]).length,0);
       if(next){

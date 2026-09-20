@@ -6,12 +6,25 @@ import {mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync} from "node:fs";
 import path from "node:path";
 import {PassThrough} from "node:stream";
 import {jointDepthSource,runJointDepth,validateJointDepthResults} from "../src/lib/imo3d/joint-depth";
-import {supportedDisplayDepth} from "../src/lib/imo3d/display-depth";
+import {supportedDisplayDepth,fillMissingDisplayDepth} from "../src/lib/imo3d/display-depth";
+import type {Scene,DisplayDepth} from '../src/lib/imo3d/model';
 
 const scenes=[{id:"a",componentId:"main",floor:0},{id:"b",componentId:"main",floor:0},{id:"separate",componentId:"other",floor:0},{id:"upstairs",componentId:"main",floor:1}];
 const depth=()=>({width:128,height:64,values:Array(8192).fill(2),confidence:.8,coverage:1,source:jointDepthSource,units:"camera_height",purpose:"display_only"});
 const point=()=>({x:1,y:0,z:2,r:255,g:120,b:50,confidence:.8,sceneIds:["a","b"]});
 const output=()=>({version:1,source:jointDepthSource,units:"camera_height",purpose:"display_only",depths:{a:depth()},pointSamples:[point()]});
+
+test('existing tours receive missing display depth without overwriting cameras, rooms or calibrated depth',()=>{
+ const source={id:'a',room:'Existing room',yaw:1,position:{x:4,y:0,z:2},links:['b']} as Scene;
+ const candidate=depth() as DisplayDepth;
+ const enriched=fillMissingDisplayDepth([source],{a:candidate,foreign:candidate})[0];
+ assert.deepEqual(enriched,{...source,displayDepth:candidate});assert.equal(source.displayDepth,undefined);
+ assert.equal(fillMissingDisplayDepth([enriched],{a:{...candidate,confidence:.9}})[0],enriched);
+ const calibrated={...source,depth:{width:8,height:4,values:Array(32).fill(3)}};
+ assert.equal(fillMissingDisplayDepth([calibrated],{a:candidate})[0],calibrated);
+ assert.equal(fillMissingDisplayDepth([source],{a:{...candidate,coverage:.1}})[0],source);
+ assert.equal(fillMissingDisplayDepth([enriched],{})[0],enriched);
+});
 
 test("joint output admits only current nonmetric depths and multiview same-component evidence",()=>{
   const accepted=validateJointDepthResults(scenes,{...output(),geometryEvidence:{manifestPath:"private/geometry/manifest.json"},depths:{a:{...depth(),privatePath:"secret"},foreign:depth()}});

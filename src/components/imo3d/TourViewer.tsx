@@ -15,7 +15,7 @@ import {roomChoices,roomFunctionCategories} from "./room-labels";
 import {InteractiveFloorPlan} from "./InteractiveFloorPlan";
 import {ViewerFloorPlan} from "./ViewerFloorPlan";
 import {Icon} from "./Icon";
-import {projectPanoramaFloor,projectPanoramaMeasurement,type PanoramaMeasurementRay,type PanoramaMeasurementCalibration} from "@/lib/imo3d/panorama-measurement";
+import {calibratePanoramaHeight,projectPanoramaFloor,projectPanoramaMeasurement,type PanoramaMeasurementRay,type PanoramaMeasurementCalibration} from "@/lib/imo3d/panorama-measurement";
 import {formatMeasurement,type MeasurementUnit} from "@/lib/imo3d/measurement-units";
 import {MeasurementUnitPicker} from "./MeasurementUnitPicker";
 import {useMeasurementNotebook} from './MeasurementNotebook';
@@ -76,6 +76,7 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
   const [controlsHidden,setControlsHidden]=useState(false);
   const [,setRoomFilter]=useState("all");
   const [measure,setMeasure]=useState(false),measureRef=useRef(false),[points,setPoints]=useState<Point[]>([]),pointsRef=useRef<Point[]>([]);
+  const [planeMeasure,setPlaneMeasure]=useState(false),planeMeasureRef=useRef(false);
   const [floorRays,setFloorRays]=useState<PanoramaMeasurementRay[]>([]);
   const photoCalibration=useRef<PanoramaMeasurementCalibration|null>(null);
   const measurementCalibrations=useRef(new Map<string,PanoramaMeasurementCalibration>());
@@ -119,7 +120,7 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
     if((!currentRef.current.depth||tour.spatialScale!=="metric")&&!supportedDisplayDepth(currentRef.current.displayDepth)){openPanel(null);setNotice("لا تتوفر بيانات عمق كافية للقياس في هذه اللقطة. اختر لقطة أخرى.");return;}
     setNotice("");
     setFloor(currentRef.current.floor);
-    setPoints([]);setFloorRays([]);photoCalibration.current=measurementCalibrations.current.get(currentRef.current.id)??null;setMeasurementSeed(photoCalibration.current);openPanel(null);setMeasure(value=>!value);
+    setPoints([]);setFloorRays([]);photoCalibration.current=measurementCalibrations.current.get(currentRef.current.id)??calibratePanoramaHeight(currentRef.current.id,recordedMeasurementHeight(tour,currentRef.current.id)??DEFAULT_CAPTURE_HEIGHT_METERS);setMeasurementSeed(photoCalibration.current);planeMeasureRef.current=!(currentRef.current.depth&&tour.spatialScale==="metric")&&!supportedDisplayDepth(currentRef.current.displayDepth);setPlaneMeasure(planeMeasureRef.current);openPanel(null);setMeasure(value=>!value);
   }
   function setMinimapVisible(visible:boolean) {if(mobile)setMobileMapVisible(visible);else setMapVisible(visible);}
   function toggleFullscreen() {
@@ -226,8 +227,8 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
         setMeasurementsVisible(true);
         if(navigating.current||instance.busy)return;
         const scene=currentRef.current;
-        if((scene.depth&&tour.spatialScale==="metric")||supportedDisplayDepth(scene.displayDepth)){
-          const point=scene.depth&&tour.spatialScale==="metric"?surfacePoint(scene,ray.yaw,ray.pitch):estimatedMeasurementPoint(scene,ray.yaw,ray.pitch,recordedMeasurementHeight(tour,scene.id)??undefined);if(!point){setNotice("بيانات العمق ناقصة هنا. حرّك النقطة قليلًا على سطح الباب أو الجدار نفسه.");return;}setNotice("");
+        if(!planeMeasureRef.current&&((scene.depth&&tour.spatialScale==="metric")||supportedDisplayDepth(scene.displayDepth))){
+          const point=scene.depth&&tour.spatialScale==="metric"?surfacePoint(scene,ray.yaw,ray.pitch):estimatedMeasurementPoint(scene,ray.yaw,ray.pitch,recordedMeasurementHeight(tour,scene.id)??undefined);if(!point){setNotice("بيانات العمق ناقصة هنا. اختر «تحديد سطح» لقياس الجدار أو الباب من حدوده الظاهرة.");return;}setNotice("");
           const next=pointsRef.current.length===1?[pointsRef.current[0],point]:[point];
           pointsRef.current=next;setPoints(next);setSelectedMeasurement(null);
           if(next.length===2){
@@ -284,17 +285,18 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
     {busy&&<div className={`imo-view-loading ${ready?"delayed":""}`} role="status"><span className="imo-spinner"/> جارٍ تحميل المشهد</div>}
     {error&&<div className="imo-view-error" role="alert"><p>{error}</p><button onClick={()=>window.location.reload()} className="imo-button primary">إعادة المحاولة</button></div>}
     {notice&&<div className="imo-notice" role="status">{notice}</div>}
-    {measure&&((current.depth&&tour.spatialScale==="metric")||supportedDisplayDepth(current.displayDepth)?<div className="imo-measure-tools" role="toolbar" aria-label="أدوات القياس">
-      <button type="button" title="إضافة قياس جديد" aria-label="إضافة قياس جديد" onClick={()=>{setMeasurementsVisible(true);pointsRef.current=[];setPoints([]);setSelectedMeasurement(null);}}><Icon name="plus"/></button>
-      <button type="button" title="حذف القياس المحدد" aria-label="حذف القياس المحدد" disabled={!selectedMeasurement&&points.length===0} onClick={()=>{if(selectedMeasurement)notebook.remove(selectedMeasurement);setSelectedMeasurement(null);pointsRef.current=[];setPoints([]);}}><Icon name="trash"/></button>
+    {measure&&<><div className="imo-measure-tools" role="toolbar" aria-label="أدوات القياس">
+      <button type="button" title="إضافة قياس جديد" aria-label="إضافة قياس جديد" onClick={()=>{setMeasurementsVisible(true);pointsRef.current=[];setPoints([]);setFloorRays([]);setSelectedMeasurement(null);}}><Icon name="plus"/></button>
+      <button type="button" title="حذف القياس المحدد" aria-label="حذف القياس المحدد" disabled={!selectedMeasurement&&points.length===0} onClick={()=>{if(selectedMeasurement)notebook.remove(selectedMeasurement);setSelectedMeasurement(null);pointsRef.current=[];setPoints([]);setFloorRays([]);}}><Icon name="trash"/></button>
       <button type="button" className="imo-measure-clear-all" title="حذف كل القياسات" aria-label="حذف كل القياسات" disabled={!notebook.measurements.length&&!points.length} onClick={()=>{if(!window.confirm("حذف جميع قياسات هذه الجولة؟ لا يمكن التراجع عن الحذف."))return;notebook.clear();setSelectedMeasurement(null);pointsRef.current=[];setPoints([]);setFloorRays([]);}}><Icon name="trash"/><small>الكل</small></button>
       <button type="button" title={measurementsVisible?"إخفاء القياسات":"إظهار القياسات"} aria-label={measurementsVisible?"إخفاء القياسات":"إظهار القياسات"} aria-pressed={!measurementsVisible} onClick={()=>{setMeasurementsVisible(value=>!value);setSelectedMeasurement(null);setPoints([]);}}><Icon name={measurementsVisible?"eye":"eye-off"}/></button>
+      <button type="button" title={planeMeasure?"العودة إلى عمق الصور":"تحديد سطح جدار أو باب أو سقف"} aria-label="تحديد سطح" aria-pressed={planeMeasure} onClick={()=>{planeMeasureRef.current=!planeMeasureRef.current;setPlaneMeasure(planeMeasureRef.current);photoCalibration.current=measurementCalibrations.current.get(current.id)??calibratePanoramaHeight(current.id,recordedMeasurementHeight(tour,current.id)??DEFAULT_CAPTURE_HEIGHT_METERS);setMeasurementSeed(photoCalibration.current);pointsRef.current=[];setPoints([]);setFloorRays([]);setNotice("");}}><Icon name="map"/><small>سطح</small></button>
       <MeasurementUnitPicker value={measurementUnit} onChange={setMeasurementUnit}/>
       {!(current.depth&&tour.spatialScale==="metric")&&<details className="imo-measure-assumption"><summary title="تفاصيل التقدير">≈ تقديري</summary><p>{recordedMeasurementHeight(tour,current.id)!==null?`المقياس يستخدم ارتفاع العدسة المسجّل ${recordedMeasurementHeight(tour,current.id)!.toFixed(2)} م. العمق مستنتج من الصور؛ الأبعاد تقريبية وليست مسحًا هندسيًا معتمدًا.`:`المقياس يستخدم إعداد التصوير المشترك ${DEFAULT_CAPTURE_HEIGHT_METERS.toFixed(2)} م. يلزم تعديل إعداد المشروع إذا اختلف ارتفاع التصوير. العمق مستنتج من الصور والأبعاد تقديرية.`}</p></details>}
       <button type="button" title="إنهاء القياس" aria-label="إنهاء القياس" onClick={()=>{setMeasure(false);setPoints([]);setSelectedMeasurement(null);}}><Icon name="close"/></button>
       {measurementsVisible&&points.length===2&&<button type="button" className="imo-measure-live-result" aria-label="تحديد القياس الأخير" onClick={()=>setSelectedMeasurement(JSON.stringify([current.id,points]))}>{!(current.depth&&tour.spatialScale==="metric")?"≈ ":""}{formatMeasurement(distance(points[0],points[1]),measurementUnit)}</button>}
       <span className="imo-measure-instruction" role="status">{!measurementsVisible?"القياسات مخفية · اضغط العين لإظهارها":selectedMeasurement?"القياس محدد · اضغط سلة الحذف لإزالته":points.length===0?"حدّد نقطتين على الصورة":points.length===1?"حدّد النقطة الثانية":"اضغط على قيمة القياس لتحديده"}</span>
-    </div>:<PanoramaMeasurementControls onSave={notebook.save} key={current.id} sceneId={current.id} initialCalibration={measurementSeed} points={floorRays} markers={markers} onCalibrationChange={value=>{photoCalibration.current=value;if(value)measurementCalibrations.current.set(current.id,value);else measurementCalibrations.current.delete(current.id);}} onClear={()=>{setFloorRays([]);setPoints([]);}} onClose={()=>{setMeasure(false);setFloorRays([]);setPoints([]);photoCalibration.current=null;}}/>)}
+    </div>{planeMeasure&&<PanoramaMeasurementControls fixedHeight unit={measurementUnit} origin={current.position??{x:0,y:0,z:0}} onSave={item=>{notebook.save(item);setSelectedMeasurement(item.id);pointsRef.current=[];setPoints([]);setFloorRays([]);}} key={current.id} sceneId={current.id} initialCalibration={measurementSeed} points={floorRays} markers={markers} onCalibrationChange={value=>{photoCalibration.current=value;if(value)measurementCalibrations.current.set(current.id,value);else measurementCalibrations.current.delete(current.id);}} onClear={()=>{setFloorRays([]);setPoints([]);}} onClose={()=>{setMeasure(false);setFloorRays([]);setPoints([]);photoCalibration.current=null;}}/>}</>}
     {measurementsVisible&&!controlsHidden&&!busy&&notebook.measurements.length>0&&<>
       <svg className="imo-photo-ruler-line" aria-hidden="true">{savedLines.filter(line=>line.a.inFront&&line.b.inFront&&notebook.measurements.some(item=>item.id===line.id&&item.sceneId===current.id)).map(line=><g key={line.id}><line x1={line.a.x} y1={line.a.y} x2={line.b.x} y2={line.b.y} stroke="#182522" strokeOpacity=".7" strokeWidth="5"/><line x1={line.a.x} y1={line.a.y} x2={line.b.x} y2={line.b.y} stroke={selectedMeasurement===line.id?"#ffcf52":"#ffffff"} strokeWidth="2"/>{[line.a,line.b].map((point,index)=><circle key={index} cx={point.x} cy={point.y} r="4" fill={selectedMeasurement===line.id?"#ffcf52":"white"} stroke="#24312b" strokeWidth="1.5"/>)}</g>)}</svg>
       {layoutMeasurementLabels(savedLines.filter(line=>notebook.measurements.some(item=>item.id===line.id&&item.sceneId===current.id)),measurementViewport.width,measurementViewport.height).map(({line,position:anchor})=>{

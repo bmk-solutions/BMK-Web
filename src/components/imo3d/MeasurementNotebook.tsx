@@ -26,7 +26,7 @@ export function useMeasurementNotebook(tourId:string,revision:number,sceneIds:st
  return {measurements,save:store.save,remove:store.remove,clear:store.clear};
 }
 /** Notify after a completed, calibrated pair; changing viewing angle adds nothing. */
-export function CompletedMeasurement({id,sceneId,label,meters,onSave,endpoints,estimated}:{estimated?:boolean;id:string;sceneId:string;label:string;meters:number|null;endpoints?:[Point,Point];onSave:(item:SavedMeasurement)=>void}){
- useEffect(()=>{if(meters!==null&&Number.isFinite(meters)&&meters>0)onSave({id,sceneId,label,meters,endpoints,estimated});},[id,sceneId,label,meters,onSave,endpoints,estimated]);
+export function CompletedMeasurement({id,sceneId,label,meters,onSave,endpoints,estimated,lensHeightMeters}:{lensHeightMeters?:number;estimated?:boolean;id:string;sceneId:string;label:string;meters:number|null;endpoints?:[Point,Point];onSave:(item:SavedMeasurement)=>void}){
+ useEffect(()=>{if(meters!==null&&Number.isFinite(meters)&&meters>0)onSave({id,sceneId,label,meters,endpoints,estimated,lensHeightMeters});},[id,sceneId,label,meters,onSave,endpoints,estimated,lensHeightMeters]);
  return null;
 }

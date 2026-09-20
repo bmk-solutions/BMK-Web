@@ -4,9 +4,15 @@ import { calibratePanoramaHeight, calibratePanoramaReference, calibratePanoramaW
 import { Icon } from "./Icon";
 import {CompletedMeasurement,type SavedMeasurement} from './MeasurementNotebook';
 import "./panorama-measurement.css";
+import {projectPanoramaMeasurement} from "@/lib/imo3d/panorama-measurement";
+import {formatMeasurement,type MeasurementUnit} from "@/lib/imo3d/measurement-units";
+import type {Point} from "@/lib/imo3d/model";
 
 type Props = {
   sceneId: string;
+  fixedHeight?:boolean;
+  origin?:Point;
+  unit?:MeasurementUnit;
   initialCalibration?: PanoramaMeasurementCalibration | null;
   points: readonly PanoramaMeasurementRay[];
   markers?: readonly { x: number; y: number; visible: boolean }[];
@@ -17,7 +23,7 @@ type Props = {
 };
 
 /** Mount with key={scene.id}; this scale belongs only to the current capture. */
-export function PanoramaMeasurementControls({ sceneId, initialCalibration, points, markers, onClear, onClose, onCalibrationChange,onSave }: Props) {
+export function PanoramaMeasurementControls({ sceneId, initialCalibration, points, markers, onClear, onClose, onCalibrationChange,onSave,fixedHeight=false,origin={x:0,y:0,z:0},unit="m" }: Props) {
   const [method, setMethod] = useState<"floor_reference" | "camera_height" | "wall_reference">("camera_height");
   const [calibration, setCalibration] = useState<PanoramaMeasurementCalibration | null>(initialCalibration?.sceneId===sceneId?initialCalibration:null);
   const [setup,setSetup]=useState<"wall"|"ceiling"|null>(null);
@@ -25,6 +31,8 @@ export function PanoramaMeasurementControls({ sceneId, initialCalibration, point
   const [value, setValue] = useState(""), [error, setError] = useState("");
   const validCalibration = calibration?.sceneId === sceneId ? calibration : null;
   const length = !setup && validCalibration && points.length === 2 ? measurePanoramaPlane(sceneId, points[0], points[1], validCalibration) : null;
+  const localEndpoints=length!==null&&validCalibration?points.map(ray=>projectPanoramaMeasurement(ray,validCalibration)):[];
+  const endpoints=localEndpoints.length===2&&localEndpoints.every(Boolean)?localEndpoints.map(p=>({x:p!.x+origin.x,y:p!.y+origin.y,z:p!.z+origin.z})) as [Point,Point]:undefined;
   const clear = () => { setError(""); onClear(); };
   const applyCalibration=(next:PanoramaMeasurementCalibration|null)=>{setCalibration(next);onCalibrationChange?.(next);if(next?.source==="wall_reference"||next?.source==="wall_height")setLastWall(next);};
   const changeMethod = (next: typeof method) => { setMethod(next); setValue(""); applyCalibration(null); setSetup(null);setLastWall(null);clear(); };
@@ -33,7 +41,7 @@ export function PanoramaMeasurementControls({ sceneId, initialCalibration, point
   const surface = setup==="ceiling"?"التقاء الجدار بالسقف":setup==="wall"?"التقاء الجدار بالأرض":ceilingMode?"السقف نفسه":validCalibration && wallMode ? "الجدار أو الباب في مستواه" : wallMode ? "التقاء الجدار بالأرض" : "الأرض";
   const selection = setup==="ceiling"?(points.length?"تم تحديد تقاطع السقف؛ اضغط اعتماد السقف":"اختر نقطة التقاء الجدار بالسقف"):points.length === 0 ? `اختر النقطة الأولى على ${surface}` : points.length === 1 ? `اختر النقطة الثانية على ${surface}` : "تم تحديد النقطتين";
   return <>
-    {onSave&&<CompletedMeasurement id={JSON.stringify([sceneId,points,validCalibration])} sceneId={sceneId} label={ceilingMode?'السقف':wallMode?'الجدار أو الباب':'الأرضية'} meters={length} onSave={onSave}/>}
+    {onSave&&<CompletedMeasurement id={JSON.stringify([sceneId,points,validCalibration])} sceneId={sceneId} label={ceilingMode?'السقف':wallMode?'الجدار أو الباب':'الأرضية'} meters={length} onSave={onSave} endpoints={endpoints} estimated lensHeightMeters={validCalibration?.heightMeters}/>}
     {points.length === 2 && markers?.length === 2 && markers.every(point => point.visible) && <svg className="imo-photo-ruler-line" aria-hidden="true">
       <line x1={markers[0].x} y1={markers[0].y} x2={markers[1].x} y2={markers[1].y} stroke="#102a23" strokeOpacity=".65" strokeWidth="6"/>
       <line x1={markers[0].x} y1={markers[0].y} x2={markers[1].x} y2={markers[1].y} stroke={validCalibration ? "#65edbd" : "#f4ca82"} strokeWidth="2.5"/>
@@ -69,11 +77,12 @@ export function PanoramaMeasurementControls({ sceneId, initialCalibration, point
         {setup&&<div className="imo-photo-ruler-selection" role="status"><span>{setup==="wall"?"حدّد نقطتين متباعدتين عند التقاء الجدار نفسه بالأرض، ثم اعتمد الجدار.":"حدّد نقطة واحدة عند التقاء الجدار المحدد بالسقف الأفقي، ثم اعتمد السقف."}</span><button type="button" disabled={points.length!==(setup==="wall"?2:1)} onClick={()=>{
           const next=setup==="wall"?calibratePanoramaWallHeight(sceneId,points[0],points[1],validCalibration.heightMeters):lastWall?calibratePanoramaCeiling(sceneId,points[0],lastWall):null;
           if(!next){setError("تعذر تحديد السطح من هذه النقاط. اختر التقاطعات الحقيقية بوضوح، بعيدًا عن الأفق والأثاث.");return;}
+          if(next.source==="ceiling_height"&&onSave){const top=projectPanoramaMeasurement(points[0],next);if(top){const a={x:origin.x+top.x,y:origin.y-next.heightMeters,z:origin.z+top.z},b={x:origin.x+top.x,y:origin.y+top.y,z:origin.z+top.z};onSave({id:JSON.stringify([sceneId,"ceiling-height",points[0],next]),sceneId,label:"ارتفاع الأرض إلى السقف",meters:next.heightMeters+next.ceilingOffsetMeters,endpoints:[a,b],estimated:true,lensHeightMeters:next.heightMeters});}}
           applyCalibration(next);setSetup(null);clear();
         }}>{setup==="wall"?"اعتماد الجدار":"اعتماد السقف"}</button><button type="button" onClick={clear} disabled={!points.length}>مسح النقاط</button></div>}
-        {validCalibration.source==="ceiling_height"&&!setup&&<div className="imo-photo-ruler-result" role="status"><div><small>ارتفاع الأرض إلى السقف المحدد</small><strong><bdi>{(validCalibration.heightMeters+validCalibration.ceilingOffsetMeters).toLocaleString("ar",{minimumFractionDigits:2,maximumFractionDigits:2})}</bdi><span>م تقريبًا</span></strong></div></div>}
-        <div className="imo-photo-ruler-result" aria-live="polite"><div><small>{length === null ? selection : "المسافة بين النقطتين"}</small><strong>{length === null ? "—" : <><bdi>{length.toLocaleString("ar", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</bdi><span>م تقريبًا</span></>}</strong></div><button type="button" onClick={clear} disabled={!points.length}>قياس جديد</button></div>
-        <div className="imo-photo-ruler-source"><span>ارتفاع العدسة المستخدم: <bdi>{validCalibration.heightMeters.toLocaleString("ar",{maximumFractionDigits:2})}</bdi> م · محفوظ لهذه اللقطة أثناء الجولة</span><button type="button" onClick={() => { applyCalibration(null);setLastWall(null);setSetup(null);setMethod("camera_height");setValue(String(validCalibration.heightMeters));clear(); }}>تعديل ارتفاع العدسة</button></div>
+        {validCalibration.source==="ceiling_height"&&!setup&&<div className="imo-photo-ruler-result" role="status"><div><small>ارتفاع الأرض إلى السقف المحدد</small><strong><bdi>{formatMeasurement(validCalibration.heightMeters+validCalibration.ceilingOffsetMeters,unit)}</bdi><span>تقريبًا</span></strong></div></div>}
+        <div className="imo-photo-ruler-result" aria-live="polite"><div><small>{length === null ? selection : "المسافة بين النقطتين"}</small><strong>{length === null ? "—" : <><bdi>{formatMeasurement(length,unit)}</bdi><span>تقريبًا</span></>}</strong></div><button type="button" onClick={clear} disabled={!points.length}>قياس جديد</button></div>
+        <div className="imo-photo-ruler-source"><span>ارتفاع العدسة المستخدم: <bdi>{validCalibration.heightMeters.toLocaleString("ar",{maximumFractionDigits:2})}</bdi> م · محفوظ لهذه اللقطة أثناء الجولة</span>{!fixedHeight&&<button type="button" onClick={() => { applyCalibration(null);setLastWall(null);setSetup(null);setMethod("camera_height");setValue(String(validCalibration.heightMeters));clear(); }}>تعديل ارتفاع العدسة</button>}</div>
       </>}
       {error && <p className="imo-photo-ruler-error" role="alert">{error}</p>}
       <details className="imo-photo-ruler-details"><summary>شروط دقة القياس</summary><p className="imo-photo-ruler-note">{ceilingMode?"للسقف الأفقي عند الارتفاع الذي حددته فقط؛ لا يشمل الأسقف المائلة أو اختلاف مستويات الجبس.":wallMode ? "للجدار الرأسي المستوي الذي حددته، وفتحات الأبواب في مستواه. الباب المفتوح أو الغائر يحتاج تحديد مستواه الخاص." : "للأرضية الأفقية المستوية فقط."} الدقة تعتمد على ارتفاع العدسة الحقيقي واستواء التصوير واختيار التقاطعات. القياس تقديري ولا يغني عن القياس الميداني للتنفيذ. اسحب الصورة لتوجيه النظر.</p></details>

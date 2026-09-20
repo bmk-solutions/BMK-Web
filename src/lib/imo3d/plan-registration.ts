@@ -12,6 +12,16 @@ export function validatePlanRegistration(value:unknown,sceneIds:string[]){
  if(ids.length!==sceneIds.length||new Set(ids).size!==ids.length||ids.some(id=>!sceneIds.includes(id)))throw Error('REGISTRATION_COVERAGE');
  const area=result.outline.reduce((sum,p,i)=>{const next=result.outline[(i+1)%result.outline.length];return sum+p.x*next.y-next.x*p.y;},0);
  if(Math.abs(area)<.0001)throw Error('REGISTRATION_OUTLINE');
+ for(const point of result.points){
+  let inside=false,boundary=false;
+  for(let i=0,j=result.outline.length-1;i<result.outline.length;j=i++){
+   const a=result.outline[j],b=result.outline[i],dx=b.x-a.x,dy=b.y-a.y;
+   const cross=(point.x-a.x)*dy-(point.y-a.y)*dx;
+   if(Math.abs(cross)<1e-8&&point.x>=Math.min(a.x,b.x)-1e-8&&point.x<=Math.max(a.x,b.x)+1e-8&&point.y>=Math.min(a.y,b.y)-1e-8&&point.y<=Math.max(a.y,b.y)+1e-8)boundary=true;
+   if((a.y>point.y)!==(b.y>point.y)&&point.x<(b.x-a.x)*(point.y-a.y)/(b.y-a.y)+a.x)inside=!inside;
+  }
+  if(!inside&&!boundary)throw Error('REGISTRATION_POINT_OUTSIDE_APARTMENT');
+ }
  return result;
 }
 export function imagePlanRegistration(value:unknown,sceneIds:string[],width:number,height:number):RasterNavigation{

@@ -15,5 +15,7 @@ test('registration rejects foreign scenes, missing scenes, duplicate scenes and 
  assert.throws(()=>validatePlanRegistration({...registration,points:[registration.points[0],registration.points[0]]},['a','b']),/COVERAGE/);
  assert.throws(()=>validatePlanRegistration({...registration,points:[{sceneId:'a',x:2,y:0}]},['a']));
  assert.throws(()=>imagePlanRegistration(registration,['a','b'],NaN,500));
+ assert.throws(()=>validatePlanRegistration({...registration,points:[{sceneId:'a',x:.95,y:.95}]},['a']),/OUTSIDE_APARTMENT/);
+ assert.doesNotThrow(()=>validatePlanRegistration({...registration,points:[{sceneId:'a',x:.1,y:.5}]},['a']));
  assert.throws(()=>validatePlanRegistration({...registration,outline:[{x:0,y:0},{x:.5,y:.5},{x:1,y:1}]},['a','b']),/OUTLINE/);
 });

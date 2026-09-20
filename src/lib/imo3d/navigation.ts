@@ -1,5 +1,5 @@
 import {supportedDisplayDepth} from "./display-depth";
-import type {Scene,Tour} from "./model";
+import type {Point,Scene,Tour} from "./model";
 import {angleDifference,radians,sampleDepth,surfacePoint} from "./spatial";
 
 const movementCodes=new Set(["KeyW","KeyA","KeyS","KeyD","ArrowUp","ArrowLeft","ArrowDown","ArrowRight"]);
@@ -74,10 +74,36 @@ export function pickNavigationDirection(scenes:Scene[],currentId:string,yaw:numb
     .sort((a,b)=>a.distance-b.distance||Math.abs(angleDifference(a.yaw,yaw))-Math.abs(angleDifference(b.yaw,yaw))||a.scene.id.localeCompare(b.scene.id))[0]?.scene??null;
 }
 
+export type PointerSurface={kind:"floor"|"wall"|"unknown";point?:Point};
+export function sameNavigationRoom(a:Scene,b:Scene):boolean{
+  if(a.floor!==b.floor)return false;
+  if(a.roomSemantic?.groupId&&b.roomSemantic?.groupId)return a.roomSemantic.groupId===b.roomSemantic.groupId;
+  return Boolean(a.room?.trim())&&a.room.trim()===b.room?.trim();
+}
+/** Walls select a capture on this side; a room exit needs a supported floor ray
+ * aimed through a reciprocal visual/manual connection, not a diagram shortcut. */
+export function pointerRoomAllowed(current:Scene,target:Scene,yaw:number,surface:PointerSurface):boolean{
+  if(sameNavigationRoom(current,target))return true;
+  if(surface.kind!=="floor")return false;
+  const link=navigationLink(current,target);
+  return Boolean(link&&link.kind!=="spatial"&&Math.abs(angleDifference(link.fromYaw,yaw))<=radians(12));
+}
+
 /** Prefer reciprocal links, then nearby directional captures; never modify graph edges. */
-export function pointerDestination(scenes:Scene[],currentId:string,yaw:number,pitch:number,metricGeometry=false):Scene|null {
+export function pointerDestination(scenes:Scene[],currentId:string,yaw:number,pitch:number,metricGeometry=false,surface?:PointerSurface):Scene|null {
   if(!Number.isFinite(pitch)||pitch>Math.PI/3)return null;
   const current=scenes.find(scene=>scene.id===currentId);
+  if(current&&surface?.kind==="wall"&&surface.point){
+    const hit=surface.point;
+    const separation=(scene:Scene)=>scene.position?Math.hypot(scene.position.x-hit.x,scene.position.z-hit.z):Infinity;
+    let best:Scene|null=null,bestDistance=separation(current);
+    for(const scene of scenes){
+      if(scene.id===current.id||!sameNavigationRoom(current,scene)||current.blockedLinks?.includes(scene.id)||scene.blockedLinks?.includes(current.id))continue;
+      const d=separation(scene);
+      if(d+1e-5<bestDistance){best=scene;bestDistance=d;}
+    }
+    return best;
+  }
   if(metricGeometry&&current?.depth&&current.position){
     const hit=surfacePoint(current,yaw,pitch);
     if(hit){
@@ -104,6 +130,7 @@ export function pointerDestination(scenes:Scene[],currentId:string,yaw:number,pi
   if(current&&Number.isFinite(yaw)){
     const candidates=scenes.flatMap(scene=>{
       if(scene.floor!==current.floor||scene.id===current.id||current.blockedLinks?.includes(scene.id)||scene.blockedLinks?.includes(current.id))return [];
+      if(surface&&!pointerRoomAllowed(current,scene,yaw,surface))return [];
       const link=navigationLink(current,scene);
       const dx=current.position&&scene.position?scene.position.x-current.position.x:0;
       const dz=current.position&&scene.position?scene.position.z-current.position.z:0;
@@ -127,7 +154,7 @@ export function pointerDestination(scenes:Scene[],currentId:string,yaw:number,pi
     }else aimed.sort((a,b)=>a.angle-b.angle||a.distance-b.distance||a.scene.id.localeCompare(b.scene.id));
     if(aimed[0])return aimed[0].scene;
   }
-  return pickNavigationDirection(scenes,currentId,yaw,radians(40));
+  return surface?null:pickNavigationDirection(scenes,currentId,yaw,radians(40));
 }
 
 export function cursorDirection(viewYaw:number,destinationYaw:number) {

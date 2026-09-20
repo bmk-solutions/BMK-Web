@@ -176,3 +176,27 @@ test("distant image captures with supported depth use direct parallax preserving
  assert.equal(navigationTransition(a,{...b,blockedLinks:["a"]},1.2,"images","direct").animation,"handover");
  assert.equal(navigationTransition(a,{...b,floor:1},1.2,"images","direct").animation,"handover");
 });
+
+
+test("wall click chooses nearest capture in current room, never a closer kitchen behind wall",()=>{
+ const a={...scene("a",0,0),room:"master"},near={...scene("near",0,-2),room:"master"},kitchen={...scene("kitchen",0,-3),room:"kitchen"};
+ assert.equal(pointerDestination([a,near,kitchen],a.id,0,0,false,{kind:"wall",point:{x:0,y:1,z:-3}})?.id,"near");
+ assert.equal(pointerDestination([a,kitchen],a.id,0,0,false,{kind:"wall",point:{x:0,y:1,z:-3}}),null);
+});
+test("current capture remains selected when closest to clicked wall",()=>{
+ const a={...scene("a",0,0),room:"master"},far={...scene("far",0,-4),room:"master"};
+ assert.equal(pointerDestination([a,far],a.id,0,0,false,{kind:"wall",point:{x:0,y:1,z:-.2}}),null);
+});
+test("cross-room floor movement requires an aimed reciprocal visual doorway connection",()=>{
+ const a={...scene("a",0,0,["b"]),room:"master",visualLinks:[{targetId:"b",yaw:0}]};
+ const b={...scene("b",0,-3,["a"]),room:"corridor",visualLinks:[{targetId:"a",yaw:180}]};
+ assert.equal(pointerDestination([a,b],a.id,0,-.4,false,{kind:"floor"})?.id,"b");
+ assert.equal(pointerDestination([a,b],a.id,radians(25),-.4,false,{kind:"floor"}),null);
+ assert.equal(pointerDestination([a,b],a.id,0,-.4,false,{kind:"unknown"}),null);
+ assert.equal(pointerDestination([a,{...b,visualLinks:[]}],a.id,0,-.4,false,{kind:"floor"}),null);
+});
+test("distinct semantic rooms cannot merge just because they share a bedroom label",()=>{
+ const a={...scene("a",0,0),room:"bedroom",roomSemantic:{groupId:"room1"}} as Scene;
+ const b={...scene("b",0,-1),room:"bedroom",roomSemantic:{groupId:"room2"}} as Scene;
+ assert.equal(pointerDestination([a,b],a.id,0,0,false,{kind:"wall",point:{x:0,y:0,z:-1}}),null);
+});

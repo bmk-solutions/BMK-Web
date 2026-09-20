@@ -185,7 +185,7 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
     const destinationAt=(x:number,y:number)=>{
       if(!instance)return null;const rect=el.getBoundingClientRect();
       const ray=instance.rayAt((x-rect.left)/rect.width*2-1,1-(y-rect.top)/rect.height*2);
-      return pointerDestination(tour.scenes,currentRef.current.id,ray.yaw,ray.pitch,tour.spatialScale==="metric"&&tour.spatialSource==="calibrated");
+      return pointerDestination(tour.scenes,currentRef.current.id,ray.yaw,ray.pitch,tour.spatialScale==="metric"&&tour.spatialSource==="calibrated",instance.pointedSurface((x-rect.left)/rect.width*2-1,1-(y-rect.top)/rect.height*2));
     };
     const updateCursor=()=>{
       if(!instance)return;
@@ -247,7 +247,7 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
         }
         return;
       }
-      const target=pointerDestination(tour.scenes,currentRef.current.id,ray.yaw,ray.pitch,tour.spatialScale==="metric"&&tour.spatialSource==="calibrated");
+      const target=destinationAt(e.clientX,e.clientY);
       if(target)void navigationRef.current(target,false);
     };
     const pointerCancel=(e:PointerEvent)=>{pointers.delete(e.pointerId);down=null;updateCursor();};

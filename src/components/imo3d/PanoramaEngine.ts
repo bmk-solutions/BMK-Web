@@ -456,6 +456,17 @@ export class PanoramaEngine {
     return {yaw:Math.atan2(ray.x,-ray.z),pitch:Math.asin(ray.y)};
   }
 
+  pointedSurface(x:number,y:number):{kind:"floor"|"wall"|"unknown";point?:Point}{
+    if(!this.current||this.busy||!Number.isFinite(x)||!Number.isFinite(y)||Math.abs(x)>1||Math.abs(y)>1)return {kind:"unknown"};
+    const entry=this.cache.get(this.current.id);
+    if(!entry||(!this.current.depth&&!entry.displayMesh))return {kind:"unknown"};
+    this.camera.updateMatrixWorld();
+    this.cursorRay.setFromCamera(new THREE.Vector2(x,y),this.camera);
+    const hit=this.cursorDepthHit(entry,this.current,this.cursorRay.ray);
+    if(!hit)return {kind:"unknown"};
+    return {kind:hit.normal.y>.65&&hit.point.y<this.camera.position.y-.2?"floor":"wall",point:{x:hit.point.x,y:hit.point.y,z:hit.point.z}};
+  }
+
   /** Transient surface cursor; estimated display surfaces never become metric evidence. */
   setNavigationCursor(x: number, y: number, destination: Scene | null,measuring=false): boolean {
     if(this.destroyed||this.busy||!this.current||(!measuring&&(!destination||destination.floor!==this.current.floor||destination.id===this.current.id||this.current.blockedLinks?.includes(destination.id)||destination.blockedLinks?.includes(this.current.id)))||!Number.isFinite(x)||!Number.isFinite(y)||Math.abs(x)>1||Math.abs(y)>1){this.clearNavigationCursor();return false;}

@@ -162,3 +162,17 @@ test("pointer screen height distinguishes near and far captures in the same dire
  assert.equal(pointerDestination([a,near,{...far,floor:1}],'a',0,-.12)?.id,'near');
  assert.equal(pointerDestination([a,near,{...far,blockedLinks:['a']}],'a',0,-.12)?.id,'near');
 });
+
+
+test("distant image captures with supported depth use direct parallax preserving view heading",()=>{
+ const depth={source:"da3-base-pose-conditioned-multiview",purpose:"display_only",units:"camera_height",width:8,height:4,confidence:.9,coverage:1,values:Array(32).fill(2)} as const;
+ const a={id:"a",floor:0,links:[],yaw:0,position:{x:0,y:0,z:0},displayDepth:depth} as unknown as Scene;
+ const b={...a,id:"b",position:{x:0,y:0,z:-10}};
+ const result=navigationTransition(a,b,1.2,"images","direct");
+ assert.equal(result.animation,"visual");assert.equal(result.arrivalYaw,1.2);
+ assert.deepEqual(result.bearings,{fromYaw:0,toYaw:Math.PI});
+ assert.equal(navigationTransition(a,b,1.2,"images","step").animation,"handover");
+ assert.equal(navigationTransition(a,{...b,displayDepth:undefined},1.2,"images","direct").animation,"handover");
+ assert.equal(navigationTransition(a,{...b,blockedLinks:["a"]},1.2,"images","direct").animation,"handover");
+ assert.equal(navigationTransition(a,{...b,floor:1},1.2,"images","direct").animation,"handover");
+});

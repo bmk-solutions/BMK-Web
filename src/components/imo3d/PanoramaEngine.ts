@@ -384,7 +384,8 @@ export class PanoramaEngine {
       this.onLoading?.(false);
       const from=this.current, source=from ? this.cache.get(from.id) : undefined;
       const reduced=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      const visual=animate==="visual"&&bearings&&from&&from.floor===to.floor&&from.links.includes(to.id)&&to.links.includes(from.id)&&
+      const visual=animate==="visual"&&bearings&&from&&from.floor===to.floor&&
+        ((from.links.includes(to.id)&&to.links.includes(from.id))||(source?.displayMesh&&entry.displayMesh))&&
         !from.blockedLinks?.includes(to.id)&&!to.blockedLinks?.includes(from.id);
       // Bearings define the calibration change, independent of where the user
       // looked while the next image loaded. Preserve that latest look direction.
@@ -527,7 +528,7 @@ export class PanoramaEngine {
 
   project(point: Point) {
     const v=new THREE.Vector3(point.x,point.y,point.z).project(this.camera);
-    return {x:(v.x+1)/2*this.canvas.clientWidth,y:(1-v.y)/2*this.canvas.clientHeight,visible:v.z<1&&v.z>-1&&Math.abs(v.x)<1&&Math.abs(v.y)<1};
+    return {x:(v.x+1)/2*this.canvas.clientWidth,y:(1-v.y)/2*this.canvas.clientHeight,inFront:v.z<1&&v.z>-1,visible:v.z<1&&v.z>-1&&Math.abs(v.x)<1&&Math.abs(v.y)<1};
   }
 
   private lookAt(ray: Point) {

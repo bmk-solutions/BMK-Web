@@ -1,3 +1,4 @@
+import {supportedDisplayDepth} from "./display-depth";
 import type {Scene,Tour} from "./model";
 import {angleDifference,radians,sampleDepth,surfacePoint} from "./spatial";
 
@@ -146,7 +147,20 @@ export function navigationTransition(from:Scene,to:Scene,viewYaw:number,spatialS
   animation:true|"handover"|"visual"|false;arrivalYaw?:number;bearings?:NavigationBearings;
 } {
   const link=navigationLink(from,to);
-  if(!link)return intent==="direct"?{animation:"handover",arrivalYaw:viewYaw}:{animation:"handover"};
+  if(!link){
+    // A direct destination can have useful local depth without an immediate graph
+    // edge. Preserve heading and use bounded depth parallax, never invent a route
+    // through intermediate captures or promote diagram coordinates to meters.
+    const a=from.position,b=to.position;
+    if(intent==="direct"&&from.id!==to.id&&from.floor===to.floor&&a&&b&&
+      !from.blockedLinks?.includes(to.id)&&!to.blockedLinks?.includes(from.id)&&
+      supportedDisplayDepth(from.displayDepth)&&supportedDisplayDepth(to.displayDepth)&&
+      [a.x,a.z,b.x,b.z].every(Number.isFinite)&&Math.hypot(b.x-a.x,b.z-a.z)>.001){
+      const heading=Math.atan2(b.x-a.x,-(b.z-a.z));
+      return {animation:"visual",arrivalYaw:viewYaw,bearings:{fromYaw:heading,toYaw:heading+Math.PI}};
+    }
+    return intent==="direct"?{animation:"handover",arrivalYaw:viewYaw}:{animation:"handover"};
+  }
   if(link.kind==="spatial"&&spatialSource!=="images")return {animation:true};
   return {animation:"visual",arrivalYaw:link.toYaw+Math.PI+angleDifference(viewYaw,link.fromYaw),
     bearings:{fromYaw:link.fromYaw,toYaw:link.toYaw}};

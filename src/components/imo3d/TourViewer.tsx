@@ -1,6 +1,7 @@
 "use client";
 import {useEffect,useMemo,useRef,useState,type CSSProperties} from "react";
 import type {Point,Scene,Tour} from "@/lib/imo3d/model";
+import {layoutMeasurementLabels} from "@/lib/imo3d/measurement-projection";
 import {estimatedMeasurementPoint} from "@/lib/imo3d/estimated-measurement";
 import {supportedDisplayDepth} from "@/lib/imo3d/display-depth";
 import {distance,monthlyPayment,radians,surfacePoint} from "@/lib/imo3d/spatial";
@@ -17,7 +18,7 @@ import {Icon} from "./Icon";
 import {projectPanoramaFloor,projectPanoramaMeasurement,type PanoramaMeasurementRay,type PanoramaMeasurementCalibration} from "@/lib/imo3d/panorama-measurement";
 import {formatMeasurement,type MeasurementUnit} from "@/lib/imo3d/measurement-units";
 import {MeasurementUnitPicker} from "./MeasurementUnitPicker";
-import {CompletedMeasurement,useMeasurementNotebook} from './MeasurementNotebook';
+import {useMeasurementNotebook} from './MeasurementNotebook';
 import {PanoramaMeasurementControls} from "./PanoramaMeasurementControls";
 import "./viewer-mobile.css";
 import "./room-functions.css";
@@ -40,8 +41,11 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
   const [measurementsVisible,setMeasurementsVisible]=useState(true);
   const [selectedMeasurement,setSelectedMeasurement]=useState<string|null>(null);
   const notebook=useMeasurementNotebook(tour.id,tour.revision,tour.scenes.map(scene=>scene.id));
+  const saveMeasurement=useRef(notebook.save);
+  useEffect(()=>{saveMeasurement.current=notebook.save;},[notebook.save]);
+  const [measurementViewport,setMeasurementViewport]=useState({width:0,height:0});
   const savedMeasurements=useRef(notebook.measurements);
-  const [savedLines,setSavedLines]=useState<{id:string;meters:number;a:{x:number;y:number;visible:boolean};b:{x:number;y:number;visible:boolean}}[]>([]);
+  const [savedLines,setSavedLines]=useState<{id:string;meters:number;a:{x:number;y:number;visible:boolean;inFront?:boolean};b:{x:number;y:number;visible:boolean;inFront?:boolean}}[]>([]);
   useEffect(()=>{savedMeasurements.current=notebook.measurements;engine.current?.invalidate();},[notebook.measurements]);
   const media=useRef(tour.media);
   useEffect(()=>{
@@ -162,7 +166,7 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
         // Keep panorama frames outside React when no overlay consumes the pose.
         if(!mapViewActive.current&&!measuring)return;
         const now=performance.now();
-        if(now-lastViewSync.current<(measuring?30:66))return;
+        if(!measuring&&now-lastViewSync.current<66)return;
         lastViewSync.current=now;
         if(mapViewActive.current){setYaw(nextYaw);setPosition(nextPosition);}
         if(measuring){
@@ -170,7 +174,7 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
           setSavedLines(savedMeasurements.current.flatMap(item=>item.sceneId===currentRef.current.id&&item.endpoints?[{id:item.id,meters:item.meters,a:instance!.project(item.endpoints[0]),b:instance!.project(item.endpoints[1])}]:[]));
         }
       };
-      resize=new ResizeObserver(([entry])=>instance?.resize(entry.contentRect.width,entry.contentRect.height));resize.observe(el);
+      resize=new ResizeObserver(([entry])=>{const {width,height}=entry.contentRect;instance?.resize(width,height);setMeasurementViewport({width,height});});resize.observe(el);
       instance.resize(el.clientWidth,el.clientHeight);await instance.move(currentRef.current,false);
       if(!cancelled){if(tour.initialView&&!initialSceneId){instance.yaw=radians(tour.initialView.yaw);instance.pitch=radians(tour.initialView.pitch);instance.invalidate();}initialized.current=true;setReady(true);setBusy(false);instance.prefetch(navigationPrefetch(tour.scenes,currentRef.current,instance.yaw));}
     }).catch(e=>{if(!cancelled){setError(e instanceof Error?e.message:"الجهاز لا يدعم عرض 360");setBusy(false);}});
@@ -217,7 +221,17 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
         if(navigating.current||instance.busy)return;
         const scene=currentRef.current;
         if((scene.depth&&tour.spatialScale==="metric")||supportedDisplayDepth(scene.displayDepth)){
-          const point=scene.depth&&tour.spatialScale==="metric"?surfacePoint(scene,ray.yaw,ray.pitch):estimatedMeasurementPoint(scene,ray.yaw,ray.pitch);if(!point){setNotice("بيانات العمق ناقصة هنا. حرّك النقطة قليلًا على سطح الباب أو الجدار نفسه.");return;}setNotice("");setPoints(prev=>prev.length===2?[point]:[...prev,point]);
+          const point=scene.depth&&tour.spatialScale==="metric"?surfacePoint(scene,ray.yaw,ray.pitch):estimatedMeasurementPoint(scene,ray.yaw,ray.pitch);if(!point){setNotice("بيانات العمق ناقصة هنا. حرّك النقطة قليلًا على سطح الباب أو الجدار نفسه.");return;}setNotice("");
+          const next=pointsRef.current.length===1?[pointsRef.current[0],point]:[point];
+          pointsRef.current=next;setPoints(next);setSelectedMeasurement(null);
+          if(next.length===2){
+            const meters=distance(next[0],next[1]),measurementId=JSON.stringify([scene.id,next]);
+            if(meters>0&&Number.isFinite(meters)){
+              const estimated=!(scene.depth&&tour.spatialScale==="metric");
+              saveMeasurement.current({id:measurementId,sceneId:scene.id,label:scene.room||scene.name,meters,endpoints:next as [Point,Point],estimated});
+              setSelectedMeasurement(measurementId);
+            }
+          }
         }else{
           const calibration=photoCalibration.current?.sceneId===scene.id?photoCalibration.current:null;
           const local=calibration?projectPanoramaMeasurement(ray,calibration):projectPanoramaFloor(ray);
@@ -271,14 +285,14 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
       <MeasurementUnitPicker value={measurementUnit} onChange={setMeasurementUnit}/>
       {!(current.depth&&tour.spatialScale==="metric")&&<details className="imo-measure-assumption"><summary title="تفاصيل التقدير">≈ تقديري</summary><p>غير مُعاير. ارتفاع عدسة افتراضي 1.60 م؛ ليس ارتفاعًا مثبتًا لكاميرا Insta360. الأبعاد والدقة غير مضمونة.</p></details>}
       <button type="button" title="إنهاء القياس" aria-label="إنهاء القياس" onClick={()=>{setMeasure(false);setPoints([]);setSelectedMeasurement(null);}}><Icon name="close"/></button>
+      {measurementsVisible&&points.length===2&&<button type="button" className="imo-measure-live-result" aria-label="تحديد القياس الأخير" onClick={()=>setSelectedMeasurement(JSON.stringify([current.id,points]))}>{!(current.depth&&tour.spatialScale==="metric")?"≈ ":""}{formatMeasurement(distance(points[0],points[1]),measurementUnit)}</button>}
       <span className="imo-measure-instruction" role="status">{!measurementsVisible?"القياسات مخفية · اضغط العين لإظهارها":selectedMeasurement?"القياس محدد · اضغط سلة الحذف لإزالته":points.length===0?"حدّد نقطتين على الصورة":points.length===1?"حدّد النقطة الثانية":"اضغط على قيمة القياس لتحديده"}</span>
     </div>:<PanoramaMeasurementControls onSave={notebook.save} key={current.id} sceneId={current.id} initialCalibration={measurementSeed} points={floorRays} markers={markers} onCalibrationChange={value=>{photoCalibration.current=value;if(value)measurementCalibrations.current.set(current.id,value);else measurementCalibrations.current.delete(current.id);}} onClear={()=>{setFloorRays([]);setPoints([]);}} onClose={()=>{setMeasure(false);setFloorRays([]);setPoints([]);photoCalibration.current=null;}}/>)}
-    {measure&&((current.depth&&tour.spatialScale==="metric")||supportedDisplayDepth(current.displayDepth))&&points.length===2&&<CompletedMeasurement id={JSON.stringify([current.id,points])} sceneId={current.id} label={(current.room||current.name)+(!(current.depth&&tour.spatialScale==="metric")?" · تقديري (عدسة مفترضة 1.60 م)":"")} estimated={!(current.depth&&tour.spatialScale==="metric")} endpoints={points as [Point,Point]} meters={distance(points[0],points[1])} onSave={notebook.save}/>}
     {measurementsVisible&&!controlsHidden&&!busy&&notebook.measurements.length>0&&<>
-      <svg className="imo-photo-ruler-line" aria-hidden="true">{savedLines.filter(line=>line.a.visible&&line.b.visible&&notebook.measurements.some(item=>item.id===line.id&&item.sceneId===current.id)).map(line=><g key={line.id}><line x1={line.a.x} y1={line.a.y} x2={line.b.x} y2={line.b.y} stroke="#182522" strokeOpacity=".7" strokeWidth="5"/><line x1={line.a.x} y1={line.a.y} x2={line.b.x} y2={line.b.y} stroke={selectedMeasurement===line.id?"#ffcf52":"#ffffff"} strokeWidth="2"/>{[line.a,line.b].map((point,index)=><circle key={index} cx={point.x} cy={point.y} r="4" fill={selectedMeasurement===line.id?"#ffcf52":"white"} stroke="#24312b" strokeWidth="1.5"/>)}</g>)}</svg>
-      {savedLines.filter(line=>line.a.visible&&line.b.visible&&notebook.measurements.some(item=>item.id===line.id&&item.sceneId===current.id)).map(line=>{
+      <svg className="imo-photo-ruler-line" aria-hidden="true">{savedLines.filter(line=>line.a.inFront&&line.b.inFront&&notebook.measurements.some(item=>item.id===line.id&&item.sceneId===current.id)).map(line=><g key={line.id}><line x1={line.a.x} y1={line.a.y} x2={line.b.x} y2={line.b.y} stroke="#182522" strokeOpacity=".7" strokeWidth="5"/><line x1={line.a.x} y1={line.a.y} x2={line.b.x} y2={line.b.y} stroke={selectedMeasurement===line.id?"#ffcf52":"#ffffff"} strokeWidth="2"/>{[line.a,line.b].map((point,index)=><circle key={index} cx={point.x} cy={point.y} r="4" fill={selectedMeasurement===line.id?"#ffcf52":"white"} stroke="#24312b" strokeWidth="1.5"/>)}</g>)}</svg>
+      {layoutMeasurementLabels(savedLines.filter(line=>notebook.measurements.some(item=>item.id===line.id&&item.sceneId===current.id)),measurementViewport.width,measurementViewport.height).map(({line,position:anchor})=>{
        const item=notebook.measurements.find(item=>item.id===line.id)!;
-       return <button key={line.id} type="button" className="imo-measure-label" aria-label={`تحديد قياس ${formatMeasurement(line.meters,measurementUnit)}${item.estimated?" تقديري":""}`} aria-pressed={selectedMeasurement===line.id} style={{left:(line.a.x+line.b.x)/2,top:(line.a.y+line.b.y)/2}} onClick={()=>{setSelectedMeasurement(line.id);setMeasure(true);setPoints([]);}}>{item.estimated?"≈ ":""}{formatMeasurement(line.meters,measurementUnit)}{item.estimated&&<small>تقديري</small>}</button>;
+       return <button key={line.id} type="button" className="imo-measure-label" aria-label={`تحديد قياس ${formatMeasurement(line.meters,measurementUnit)}${item.estimated?" تقديري":""}`} aria-pressed={selectedMeasurement===line.id} style={{left:anchor.x,top:anchor.y}} onClick={()=>{setSelectedMeasurement(line.id);setMeasure(true);setPoints([]);}}>{item.estimated?"≈ ":""}{formatMeasurement(line.meters,measurementUnit)}{item.estimated&&<small>تقديري</small>}</button>;
       })}
     </>}
     {measure&&measurementsVisible&&markers.map((p,i)=>i<points.length&&p.visible&&<div key={i} className="imo-measure-point" style={{left:p.x,top:p.y}}>{i+1}</div>)}

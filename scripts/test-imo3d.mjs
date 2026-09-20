@@ -9,8 +9,9 @@ const testFiles=['tests/imo3d-spatial.test.ts','tests/imo3d-navigation.test.ts',
 testFiles.push('tests/imo3d-developers.test.ts','tests/imo3d-measurement-notebook.test.ts');
 testFiles.push('tests/imo3d-raster-navigation.test.ts');
 testFiles.push('tests/imo3d-private-example.test.ts','tests/imo3d-private-reference.test.ts');
+testFiles.push('tests/imo3d-measurement-projection.test.ts');
 const managementFiles=['developer-management','scene-removal','scene-deletion','private-asset-cleanup','project-management','processing-cleanup','connection-overrides','connection-editing','connection-storage','measurement'].map(name=>`src/lib/imo3d/${name}.ts`);
-managementFiles.push('src/lib/imo3d/branding-policy.ts','src/lib/imo3d/measurement-notebook.ts','src/lib/imo3d/measurement-units.ts');
+managementFiles.push('src/lib/imo3d/measurement-projection.ts','src/lib/imo3d/branding-policy.ts','src/lib/imo3d/measurement-notebook.ts','src/lib/imo3d/measurement-units.ts');
 managementFiles.push('src/lib/imo3d/architecture.ts','src/lib/imo3d/architecture-storage.ts','src/lib/imo3d/architecture-visibility.ts');
 managementFiles.push('src/lib/imo3d/private-example.ts','tests/fixtures/imo3d-synthetic-tour.ts');
 managementFiles.push('src/lib/imo3d/ai-plan-jobs.ts','src/lib/imo3d/openai-floorplan-pipeline.ts');

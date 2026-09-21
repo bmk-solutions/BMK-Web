@@ -17,3 +17,5 @@
 @media(max-width:720px){.imo-floor-selector select,.imo-floor-selector input{min-height:44px}.imo-floor-selector input{font-size:16px!important}}
 
 .imo-scene-card .imo-scene-field{display:grid;gap:5px;margin:12px 0 0;color:#61796e;font-size:11px}.imo-scene-card .imo-scene-field input{width:100%;margin:0;padding:9px 10px;border:1px solid #dce5df;border-radius:8px;font-size:13px;color:#254b3d;background:#fff}
+
+.imo-upload-progress{flex-wrap:wrap;gap:10px}.imo-upload-progress progress{flex-basis:100%;width:100%}.imo-upload-progress span{line-height:1.8;overflow-wrap:anywhere}

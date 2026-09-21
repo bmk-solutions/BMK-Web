@@ -10,8 +10,8 @@ import {MAX_PANORAMA_BYTES,MAX_PANORAMA_PIXELS,panoramaProblem,uploadConflict,up
 type Session={id:string;tour_id:string;name:string;size:number;mime:string;floor:number;object_key:string;scene_id:string;status:string;expires_at:string;lease_token:string|null};
 const hash=(bytes:Uint8Array)=>createHash('sha256').update(bytes).digest('hex');
 async function originalBytes(session:Session){
- const {url,bucket,serviceRoleKey}=cloudConfig();
- const response=await fetch(`${url}/storage/v1/object/authenticated/${bucket}/${cloudObjectPath(session.object_key)}`,{cache:'no-store',headers:{apikey:serviceRoleKey,Authorization:`Bearer ${serviceRoleKey}`},signal:AbortSignal.timeout(120000)});
+ const {storageUrl,bucket,serviceRoleKey}=cloudConfig();
+ const response=await fetch(`${storageUrl}/storage/v1/object/authenticated/${bucket}/${cloudObjectPath(session.object_key)}`,{cache:'no-store',headers:{apikey:serviceRoleKey,Authorization:`Bearer ${serviceRoleKey}`},signal:AbortSignal.timeout(120000)});
  if(!response.ok)throw new CloudHTTPError('لم يكتمل رفع الصورة بعد. أعد المحاولة.',409);
  if(Number(response.headers.get('content-length'))>MAX_PANORAMA_BYTES)throw new CloudHTTPError('حجم الصورة يتجاوز 100 MiB.',413);
  const reader=response.body?.getReader();if(!reader)throw new CloudHTTPError('ملف الصورة فارغ.',422);
@@ -43,12 +43,17 @@ export async function handleCloudUpload(request:Request,tour:Tour):Promise<Respo
   let meta:sharp.Metadata;try{meta=await sharp(bytes,{limitInputPixels:MAX_PANORAMA_PIXELS,animated:false}).metadata();}catch{throw new CloudHTTPError('تعذر قراءة الصورة أو دقتها تتجاوز الحد الآمن.',422);}
   const problem=panoramaProblem(meta);if(problem)throw new CloudHTTPError(problem,422);
   const variants:Record<string,string>={},assets:Record<string,unknown>[]=[];let detail:Scene['detail'];
+  // Encode one image at a time; overlap storage writes with the next encode.
+  const writes:Promise<{error?:unknown}>[]=[];
   for(const [kind,width,quality] of [['image',4096,86],['preview',2048,78],['thumbnail',512,72],...(meta.width!>4096?[['detail',8192,94] as const]:[])] as const){
    const id=randomUUID(),key=`tours/${tour.id}/scenes/${session.scene_id}/${lease}/${id}.webp`;
    const output=await sharp(bytes,{limitInputPixels:MAX_PANORAMA_PIXELS,animated:false}).rotate().resize({width,withoutEnlargement:true}).webp({quality}).toBuffer({resolveWithObject:true});
-   await cloudUploadObject(key,output.data,'image/webp');assets.push({id,file:`${id}.webp`,mime:'image/webp',storage_key:key,sha256:hash(output.data),byte_size:output.data.length});
+   writes.push(cloudUploadObject(key,output.data,'image/webp').then(()=>({}),error=>({error})));
+   if(writes.length>=2){const previous=await writes.shift()!;if(previous.error)throw previous.error;}
+   assets.push({id,file:`${id}.webp`,mime:'image/webp',storage_key:key,sha256:hash(output.data),byte_size:output.data.length});
    variants[kind]=`/api/imo3d/assets/${id}`;if(kind==='detail')detail={image:variants[kind],width:output.info.width,height:output.info.height};
   }
+  for(const write of writes){const result=await write;if(result.error)throw result.error;}
   const scene:Scene={id:session.scene_id,name:session.name.replace(/\.[^.]+$/,'').trim().slice(0,100)||'لقطة 360',sourceName:session.name,room:'لقطات تحتاج تسمية',roomSemantic:initialRoomSemantic(session.scene_id),floor:session.floor,image:variants.image,preview:variants.preview,thumbnail:variants.thumbnail,...(detail?{detail}:{}),position:null,yaw:0,links:[]};
   const prepared:Tour={...tour,...mergeTourSpatial(tour,[...tour.scenes,scene])};
   const preparedScene=prepared.scenes.find(value=>value.id===scene.id);if(!preparedScene)throw new CloudHTTPError("تعذر إتمام دمج اللقطة في الجولة.",422);

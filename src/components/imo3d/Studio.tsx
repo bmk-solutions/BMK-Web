@@ -10,7 +10,7 @@ import {AIPlanPanel} from "./AIPlanPanel";
 import {DeveloperDirectory} from "./DeveloperDirectory";
 import type {Developer,Lead,Project,Scene,Tour} from "@/lib/imo3d/model";
 import {api,number} from "./client";
-import {uploadPanorama} from "./panorama-upload";
+import {uploadPanoramas,type UploadProgress} from "./panorama-upload";
 import {Icon} from "./Icon";
 import {Dialog} from "./Dialog";
 import {InteractiveFloorPlan} from "./InteractiveFloorPlan";
@@ -94,7 +94,7 @@ function Editor({initial,onChange,onBack,onError,onNotice,onBlockedChange,onSett
   const [uploadFloor,setUploadFloor]=useState(initial.scenes[0]?.floor??0);
   const [floorDirty,setFloorDirty]=useState(false),[boundaries,setBoundaries]=useState(false);
   const boundariesRef=useRef(false);
-  const [progress,setProgress]=useState({done:0,total:0}),[failures,setFailures]=useState<UploadFailure[]>([]);
+  const [progress,setProgress]=useState<UploadProgress>({done:0,total:0,uploadedBytes:0,totalBytes:0,stage:"uploading"}),[failures,setFailures]=useState<UploadFailure[]>([]);
   const [dirty,setDirty]=useState(false),[floor,setFloor]=useState(initial.plans[0]?.floor??0),[publish,setPublish]=useState(false),[ruler,setRuler]=useState(false);
   const [sceneRemoval,setSceneRemoval]=useState<Scene|null>(null),[deletionError,setDeletionError]=useState("");
   const [job,setJob]=useState<ProcessingJob|null>(null),[jobLoading,setJobLoading]=useState(true),[jobError,setJobError]=useState(""),[resultWaiting,setResultWaiting]=useState(false);
@@ -135,7 +135,7 @@ function Editor({initial,onChange,onBack,onError,onNotice,onBlockedChange,onSett
     };
     void poll();return()=>{stopped=true;abort.abort();if(timer)clearTimeout(timer);};
   },[initial.id]);
-  const run=async(action:()=>Promise<void>)=>{if(workingRef.current)return;workingRef.current=true;setWorking(true);onError("");try{await action();}catch(error){if(active.current)onError(error instanceof Error?error.message:"تعذر تنفيذ العملية");}finally{workingRef.current=false;if(active.current){setWorking(false);setProgress({done:0,total:0});}}};
+  const run=async(action:()=>Promise<void>)=>{if(workingRef.current)return;workingRef.current=true;setWorking(true);onError("");try{await action();}catch(error){if(active.current)onError(error instanceof Error?error.message:"تعذر تنفيذ العملية");}finally{workingRef.current=false;if(active.current){setWorking(false);setProgress({done:0,total:0,uploadedBytes:0,totalBytes:0,stage:"uploading"});}}};
   const save=async(published=tourRef.current.published)=>{
     const draft=tourRef.current;
     const latest=await api<Tour>(`tours/${draft.id}`);
@@ -156,13 +156,9 @@ function Editor({initial,onChange,onBack,onError,onNotice,onBlockedChange,onSett
     await run(async()=>{
       if(dirtyRef.current)await save();
       if(processingActive(jobRef.current))setProcessing(await api<ProcessingJob|null>(`tours/${tourRef.current.id}/processing-cancel`,{method:"POST"}));
-      setFailures([]);setProgress({done:0,total:list.length});let uploaded=0;
-      for(let index=0;index<list.length;index++){
-        if(!active.current)break;
-        try{if(list[index].size>100*1024*1024)throw Error("الحد الأقصى للصورة 100 ميجابايت.");const updated=await uploadPanorama(tourRef.current,list[index],uploadFloor);if(active.current)accept(updated);uploaded++;}
-        catch(error){failed.push({file:list[index],message:error instanceof Error?error.message:"فشل الرفع"});}
-        if(active.current)setProgress({done:index+1,total:list.length});
-      }
+      setFailures([]);setProgress({done:0,total:list.length,uploadedBytes:0,totalBytes:list.reduce((sum,file)=>sum+file.size,0),stage:"uploading"});
+      const result=await uploadPanoramas(tourRef.current,list,uploadFloor,{isActive:()=>active.current,onSaved:updated=>{if(active.current)accept(updated);},onProgress:value=>{if(active.current)setProgress(value);}});
+      const uploaded=result.uploaded;failed.push(...result.failures);
       if(!active.current)return;setFailures(failed);
       // Photo analysis starts explicitly after the administrator finishes uploading.
       // Do not consume subscription usage after every partial upload batch.
@@ -182,7 +178,7 @@ function Editor({initial,onChange,onBack,onError,onNotice,onBlockedChange,onSett
     {jobError&&<p className="imo-inline-alert" role="status">{jobError} ستُعاد محاولة الاتصال تلقائيًا؛ لا تبدأ عملية أخرى.</p>}
     <div className="imo-editor-layout"><section className="imo-editor-main"><div className="imo-tabs" role="tablist" aria-label="إعدادات الجولة">{([['scenes','اللقطات والغرف'],['views','جهة دخول الغرف'],['hotspots','الهوت سبوت'],['retouch','تحرير الصور AI'],['links','الربط اليدوي'],['plan','مخطط الشقة'],['unit','بيانات الوحدة']] as const).map(([key,label])=><button role="tab" aria-selected={tab===key} key={key} disabled={working} onClick={()=>{if(key==="links"&&dirtyRef.current)void run(async()=>{await save();setTab(key);});else setTab(key);}}>{label}</button>)}</div>
       {tab==="scenes"&&<><div className="imo-dropzone" onDragOver={event=>event.preventDefault()} onDrop={event=>{event.preventDefault();if(!working)void upload(event.dataTransfer.files);}}><div className="imo-upload-symbol"><Icon name="upload" size={26}/></div><div><h3>ارفع الصور، ودع الربط يبدأ</h3><p>اختر لقطات 360 متداخلة؛ يبدأ تحليلها مع انتهاء الدفعة.</p><small>JPG، PNG، WEBP · بانوراما 2:1 · حتى 100 MiB للصورة</small><small>حتى 300 صورة للتحليل التلقائي في الجولة. يمكن حفظ حتى 500 صورة مع الربط اليدوي أو بيانات الكاميرات.</small><FloorSelector value={uploadFloor} floors={tour.scenes.map(scene=>scene.floor)} onChange={setUploadFloor} disabled={working} label="دور الصور الجديدة"/></div><button className="imo-button secondary" disabled={working||jobLoading} onClick={()=>images.current?.click()}>اختيار الصور</button><input ref={images} type="file" hidden multiple accept="image/jpeg,image/png,image/webp" onChange={event=>{void upload(event.target.files);event.target.value="";}}/></div>
-      {working&&progress.total>0&&<div className="imo-upload-progress" role="status"><progress value={progress.done} max={progress.total}/><span>{number(progress.done)} / {number(progress.total)} لقطات</span></div>}
+      {working&&progress.total>0&&<div className="imo-upload-progress" role="status"><progress aria-label="تقدم نقل الصور" value={progress.uploadedBytes} max={progress.totalBytes||1}/><span>{number(progress.done)} / {number(progress.total)} ملفات مكتملة · {number(progress.uploadedBytes/1048576)} / {number(progress.totalBytes/1048576)} ميجابايت · {progress.stage==="preparing"?"تجهيز نسخ العرض…":"رفع الصور…"}</span></div>}
       {failures.length>0&&<div className="imo-upload-failures"><strong>ملفات تحتاج إعادة محاولة</strong><ul>{failures.map(({file,message},index)=><li key={`${file.name}-${index}`}><b>{file.name}</b><span>{message}</span></li>)}</ul><button type="button" disabled={working} className="imo-button secondary" onClick={()=>void upload(failures.map(failure=>failure.file))}>إعادة رفع الملفات الفاشلة</button></div>}
       {floorDirty&&<p className="imo-inline-alert">نقل صورة إلى دور آخر يزيل موضعها القديم وروابطها غير المتوافقة. احفظ التعديلات ثم أعد تحليل الصور لتحديد موقعها الصحيح.</p>}
       {tour.scenes.length?<div className="imo-scene-grid">{tour.scenes.map((scene,index)=><div className="imo-scene-card" key={scene.id}><div><img src={scene.thumbnail} alt={`بانوراما ${scene.name}`} loading="lazy"/><span>{String(index+1).padStart(2,"0")}</span><button className="imo-scene-delete" disabled={working} title="حذف الصورة" aria-label={`حذف صورة ${scene.sourceName}`} onClick={()=>{setSceneRemoval(scene);setDeletionError("");}}><Icon name="trash" size={18}/></button></div><label className="imo-scene-field">اسم الصورة<input aria-label={`اسم الصورة ${index+1}`} disabled={working} value={scene.name} onChange={event=>edit({...tourRef.current,scenes:tourRef.current.scenes.map(item=>item.id===scene.id?{...item,name:event.target.value}:item)})} maxLength={100}/></label><label className="imo-scene-field">اسم الغرفة<input aria-label={`اسم غرفة اللقطة ${index+1}`} disabled={working} value={scene.room} onChange={event=>edit({...tourRef.current,scenes:tourRef.current.scenes.map(item=>item.id===scene.id?{...item,room:event.target.value}:item)})} maxLength={100}/></label><small title={scene.sourceName}>{scene.sourceName}</small><FloorSelector value={scene.floor} floors={tour.scenes.map(item=>item.floor)} disabled={working} label={`دور اللقطة ${index+1}`} onChange={next=>edit({...tourRef.current,scenes:tourRef.current.scenes.map(item=>item.id===scene.id?{...item,floor:next}:item)})}/><div className="imo-scene-status"><span className={scene.position?"yes":""}>{scene.position?estimated?"موقع مقدّر":"موقع معاير":"بانتظار المعالجة"}</span><span>{scene.depth?"عمق متوفر":`${number(scene.links.length)} روابط`}</span></div></div>)}</div>:<div className="imo-empty small"><p>ارفع صورتين متداخلتين على الأقل. يمكنك تعديل أسماء الغرف بعد الرفع.</p></div>}</>}

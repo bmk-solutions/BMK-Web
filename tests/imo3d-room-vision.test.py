@@ -4,6 +4,7 @@ import importlib.util
 import json
 import tempfile
 import unittest
+from unittest.mock import Mock, patch
 
 spec = importlib.util.spec_from_file_location("room_vision", Path(__file__).resolve().parents[1] / "scripts" / "imo3d-room-vision.py")
 vision = importlib.util.module_from_spec(spec)
@@ -11,6 +12,41 @@ spec.loader.exec_module(vision)
 
 
 class RoomEvidenceTests(unittest.TestCase):
+    def test_gpu_selection_probes_kernels_memory_and_keeps_cpu_fallback(self):
+        torch = Mock()
+        torch.cuda.is_available.return_value = True
+        torch.cuda.mem_get_info.return_value = (4 * 1024 ** 3, 8 * 1024 ** 3)
+        with patch.dict(vision.os.environ, {"IMO3D_ROOM_DEVICE": "auto"}):
+            self.assertEqual(vision.inference_device(torch), "cuda")
+            torch.zeros.assert_called_with(1, device="cuda")
+            torch.cuda.mem_get_info.return_value = (1024, 8 * 1024 ** 3)
+            self.assertEqual(vision.inference_device(torch), "cpu")
+            torch.cuda.is_available.return_value = False
+            self.assertEqual(vision.inference_device(torch), "cpu")
+        with patch.dict(vision.os.environ, {"IMO3D_ROOM_DEVICE": "cuda"}):
+            self.assertRaises(RuntimeError, vision.inference_device, torch)
+        with patch.dict(vision.os.environ, {"IMO3D_ROOM_DEVICE": "cpu"}):
+            self.assertEqual(vision.inference_device(torch), "cpu")
+
+    def test_complete_cached_evidence_skips_image_decoding_and_inference(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            model = vision.RoomVision.__new__(vision.RoomVision)
+            model.cache_dir, model.revision, model.detector_revision = Path(tmp), "vlm", "detector"
+            digest, caption = "image-hash", "Room: living room. Objects: sofa, coffee table, TV."
+            keys = [vision.CAPTION_VERSION + model.revision + digest]
+            keys += ["room-view-v2" + model.revision + digest + str(yaw) for yaw in (0, 90, 180, 270)]
+            for key in keys:
+                (model.cache_dir / (vision.hashlib.sha256(key.encode()).hexdigest() + ".json")).write_text(json.dumps({"imageSha256": digest, "caption": caption}), encoding="utf-8")
+            object_key = vision.hashlib.sha256(("room-objects-v1" + model.detector_revision + digest).encode()).hexdigest()
+            object_file = model.cache_dir / (object_key + ".json")
+            object_file.write_text(json.dumps({"imageSha256": digest, "views": [[], [], [], []]}), encoding="utf-8")
+            with patch.object(vision, "image_hash", return_value=digest), patch.object(vision.Image, "open", side_effect=ValueError("decode required")):
+                result = model.classify({"id": "scene", "path": "unused"})
+                self.assertEqual(result["id"], "scene")
+                self.assertEqual(len(result["viewEvidence"]), 4)
+                object_file.write_text("{}", encoding="utf-8")
+                self.assertRaisesRegex(ValueError, "decode required", model.classify, {"id": "scene", "path": "unused"})
+
     def test_room_function_and_visible_objects(self):
         examples = [("kitchen", "Room: Kitchen. Objects: sink, stove, cabinets."),
                     ("bedroom", "Room: bedroom. Objects: bed, curtains, mirror."),

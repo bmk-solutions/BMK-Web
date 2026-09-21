@@ -237,6 +237,27 @@ def bathroom_directions(scene_id, full_kind, views):
     return proposals
 
 
+def inference_device(torch):
+    requested = os.environ.get("IMO3D_ROOM_DEVICE", "auto")
+    if requested not in ("auto", "cpu", "cuda"):
+        raise ValueError("IMO3D_ROOM_DEVICE must be auto, cpu or cuda")
+    if requested == "cpu":
+        return "cpu"
+    try:
+        if not torch.cuda.is_available():
+            raise RuntimeError("CUDA runtime is unavailable")
+        # Probe the real GPU kernel, not just driver presence.
+        torch.zeros(1, device="cuda").add_(1)
+        torch.cuda.synchronize()
+        if torch.cuda.mem_get_info()[0] < 3 * 1024 ** 3:
+            raise RuntimeError("At least 3 GiB of free GPU memory is required")
+        return "cuda"
+    except RuntimeError:
+        if requested == "cuda":
+            raise
+        return "cpu"
+
+
 class RoomVision:
     """Small VLM executes locally with downloads disabled during inference."""
     def __init__(self):
@@ -245,6 +266,9 @@ class RoomVision:
         for package_path in reversed(runtime_paths):
             if package_path and Path(package_path).is_dir():
                 sys.path.insert(0, str(package_path))
+        gpu_runtime = ROOT / "work" / "gpu-python"
+        if (gpu_runtime / ".imo3d-verified.json").is_file():
+            sys.path.insert(0, str(gpu_runtime))
         os.environ["HF_HUB_OFFLINE"] = "1"
         os.environ["TRANSFORMERS_OFFLINE"] = "1"
         os.environ["HF_HOME"] = str(ROOT / "work" / "room-vision-models")
@@ -252,17 +276,18 @@ class RoomVision:
         import torch
         from transformers import AutoProcessor, AutoModelForVision2Seq, AutoImageProcessor, AutoModelForObjectDetection
         self.torch = torch
+        self.device = inference_device(torch)
         torch.set_num_threads(max(1, min(8, (os.cpu_count() or 2) // 2)))
         model_dir = Path(os.environ.get("IMO3D_VLM_MODEL_DIR", ROOT / "work" / "room-vision-models" / "SmolVLM-500M-Instruct"))
         manifest = json.loads((model_dir / "manifest.json").read_text(encoding="utf-8"))
         self.revision = manifest["revision"]
         self.processor = AutoProcessor.from_pretrained(str(model_dir), local_files_only=True)
         self.model = AutoModelForVision2Seq.from_pretrained(str(model_dir), local_files_only=True,
-            torch_dtype=torch.float32, _attn_implementation="sdpa").eval()
+            torch_dtype=torch.float32, _attn_implementation="sdpa").eval().to(self.device)
         detector_dir = Path(os.environ.get("IMO3D_OBJECT_MODEL_DIR", ROOT / "work" / "room-vision-models" / "rtdetr_v2_r18vd"))
         self.detector_revision = json.loads((detector_dir / "manifest.json").read_text(encoding="utf-8"))["revision"]
         self.object_processor = AutoImageProcessor.from_pretrained(str(detector_dir), local_files_only=True, use_fast=False)
-        self.object_model = AutoModelForObjectDetection.from_pretrained(str(detector_dir), local_files_only=True).eval()
+        self.object_model = AutoModelForObjectDetection.from_pretrained(str(detector_dir), local_files_only=True).eval().to(self.device)
         self.prompt = self.processor.apply_chat_template([{"role": "user", "content": [
             {"type": "image"}, {"type": "text", "text": "Identify the type of room and list the visible furniture. Use this format: Room: <room type>. Objects: <three main objects>."}]}], add_generation_prompt=True)
         self.view_prompt = self.processor.apply_chat_template([{"role": "user", "content": [
@@ -272,6 +297,7 @@ class RoomVision:
 
     def caption_image(self, image, max_tokens=36, perspective=False):
         inputs = self.processor(text=self.view_prompt if perspective else self.prompt, images=[image], return_tensors="pt", size={"longest_edge": max(image.size)})
+        inputs = {key: value.to(self.device) for key, value in inputs.items()}
         with self.torch.inference_mode():
             generated = self.model.generate(**inputs, max_new_tokens=max_tokens, do_sample=False)
         return self.processor.batch_decode(generated[:, inputs["input_ids"].shape[1]:], skip_special_tokens=True)[0]
@@ -286,10 +312,11 @@ class RoomVision:
         if isinstance(cache, dict) and cache.get("imageSha256") == digest and valid_object_views(cache.get("views")):
             return cache["views"]
         inputs = self.object_processor(images=crops, return_tensors="pt")
+        inputs = {key: value.to(self.device) for key, value in inputs.items()}
         with self.torch.inference_mode():
             outputs = self.object_model(**inputs)
         detected = self.object_processor.post_process_object_detection(outputs,
-            target_sizes=self.torch.tensor([[512, 512]] * len(crops)), threshold=.75)
+            target_sizes=self.torch.tensor([[512, 512]] * len(crops), device=self.device), threshold=.75)
         result = []
         for view in detected:
             objects = []
@@ -312,20 +339,38 @@ class RoomVision:
         cache_key = hashlib.sha256((CAPTION_VERSION + self.revision + digest).encode()).hexdigest()
         cache_path = self.cache_dir / (cache_key + ".json")
         cached = read_cached_caption(cache_path, digest)
-        if cached is None:
-            with Image.open(image_path) as source:
-                if not 1.8 <= source.width / source.height <= 2.2:
-                    raise ValueError("Room vision requires an equirectangular 360 photograph")
-                image = source.convert("RGB")
-                image.thumbnail((1024, 512), Image.Resampling.LANCZOS)
-            caption = self.caption_image(image)
-            cached = {**parse_room_caption(caption), "caption": caption, "imageSha256": digest}
-            cache_path.write_text(json.dumps(cached, ensure_ascii=False), encoding="utf-8")
+        # Reuse complete evidence before decoding the original panorama.
+        previous_views = []
+        for yaw in (0, 90, 180, 270):
+            key = hashlib.sha256(("room-view-v2" + self.revision + digest + str(yaw)).encode()).hexdigest()
+            view = read_cached_caption(self.cache_dir / (key + ".json"), digest)
+            if view is not None:
+                previous_views.append({"yaw": yaw, **view})
+        object_key = hashlib.sha256(("room-objects-v1" + self.detector_revision + digest).encode()).hexdigest()
+        try:
+            objects = json.loads((self.cache_dir / (object_key + ".json")).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            objects = None
+        if cached is not None and len(previous_views) == 4 and isinstance(objects, dict) and objects.get("imageSha256") == digest and valid_object_views(objects.get("views")):
+            for view, detected in zip(previous_views, objects["views"]):
+                view["objects"] = detected
+            verified = verify_room_views(cached, previous_views)
+            return {**verified, "id": scene["id"], "roomType": verified["kind"], "roomLabel": ARABIC_LABELS[verified["kind"]]}
         views, crops = [], []
         with Image.open(image_path) as source:
             if not 1.8 <= source.width / source.height <= 2.2:
                 raise ValueError("Room vision requires an equirectangular 360 photograph")
             panorama = source.convert("RGB")
+            if cached is None:
+                image = panorama.copy()
+                image.thumbnail((1024, 512), Image.Resampling.LANCZOS)
+                caption = self.caption_image(image)
+                cached = {**parse_room_caption(caption), "caption": caption, "imageSha256": digest}
+                cache_path.write_text(json.dumps(cached, ensure_ascii=False), encoding="utf-8")
+                image.close()
+            # Resize the source once, instead of copying/resizing a 128 MP image
+            # again for each of four perspective views.
+            panorama.thumbnail((3072, 1536), Image.Resampling.LANCZOS)
             for yaw in (0, 90, 180, 270):
                 crop = perspective_image(panorama, yaw)
                 crops.append(crop)
@@ -346,6 +391,7 @@ class RoomVision:
 def run(request):
     scenes = validate_request(request)
     vision = RoomVision()
+    print(json.dumps({"event": "runtime", "device": vision.device}), flush=True)
     results, errors, observations, doorways = [], [], [], []
     for index, scene in enumerate(scenes):
         try:
@@ -360,7 +406,7 @@ def run(request):
         print(json.dumps({"event": "progress", "stage": "room_recognition", "completed": index + 1, "total": len(scenes)}), flush=True)
     return {"version": VERSION, "model": "HuggingFaceTB/SmolVLM-500M-Instruct", "modelRevision": vision.revision,
             "objectModel": "PekingU/rtdetr_v2_r18vd", "objectModelRevision": vision.detector_revision,
-            "inference": "local_cpu", "scenes": results, "observations": observations, "bathroomDoorways": doorways, "errors": errors}
+            "inference": "local_cuda" if vision.device == "cuda" else "local_cpu", "scenes": results, "observations": observations, "bathroomDoorways": doorways, "errors": errors}
 
 
 def main():

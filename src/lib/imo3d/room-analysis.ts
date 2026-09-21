@@ -25,7 +25,7 @@ async function run(python:string,script:string,input:string,output:string,stage:
   await new Promise<void>((resolve,reject)=>{
     const child=spawn(python,[path.join(process.cwd(),"scripts",script),"--input",input,"--output",output],{
       cwd:process.cwd(),windowsHide:true,stdio:["ignore","pipe","pipe"],
-      env:{...process.env,PYTHONUTF8:"1",PYTHONIOENCODING:"utf-8",HF_HUB_OFFLINE:"1",TRANSFORMERS_OFFLINE:"1",HF_HUB_DISABLE_TELEMETRY:"1",IMO3D_ANALYSIS_CACHE_DIR:path.join(options.outputDir,"analysis-cache")},
+      env:{...process.env,PYTHONUTF8:"1",PYTHONIOENCODING:"utf-8",HF_HUB_OFFLINE:"1",TRANSFORMERS_OFFLINE:"1",HF_HUB_DISABLE_TELEMETRY:"1",IMO3D_ANALYSIS_CACHE_DIR:path.join(process.cwd(),"work","room-vision-cache")},
     });
     let buffer="",stderr="",failure:Error|undefined,settled=false,completed=-1;
     const abort=()=>{failure=new DOMException("Room analysis cancelled","AbortError");child.kill();};
@@ -72,13 +72,13 @@ export function validateRoomAnalysisResults(sceneIds:readonly string[],boundarie
   if(record(boundaries)&&boundaries.version===1&&boundaries.scale==="camera_height"&&record(boundaries.profiles)){
     for(const [id,value] of Object.entries(boundaries.profiles))if(ids.has(id)&&validRoomProfile(value))profiles.set(id,value);
   }else warnings.push("تعذّر استخراج حدود الغرف محليًا؛ راجع إعداد نموذج الحدود.");
-  if(record(recognition)&&recognition.inference==="local_cpu"&&Array.isArray(recognition.observations)){
+  if(record(recognition)&&["local_cpu","local_cuda"].includes(String(recognition.inference))&&Array.isArray(recognition.observations)){
     const seenScenes=new Set<string>(),seenIds=new Set<string>();for(const value of recognition.observations){const parsed=roomObservationSchema.safeParse(value);if(parsed.success&&ids.has(parsed.data.sceneId)&&!seenScenes.has(parsed.data.sceneId)&&!seenIds.has(parsed.data.id)){seenScenes.add(parsed.data.sceneId);seenIds.add(parsed.data.id);observations.push(parsed.data);}}
   }else warnings.push("تعذّر التعرف على أسماء الغرف محليًا؛ راجع إعداد نموذج الرؤية.");
   if(profiles.size<ids.size)warnings.push(`حدود قابلة للتحليل: ${profiles.size} من ${ids.size} لقطة.`);
   if(observations.length<ids.size)warnings.push(`صور تم التعرف على محتواها: ${observations.length} من ${ids.size}.`);
   const suiteObservations:RoomSuiteObservation[]=[];
-  if(record(recognition)&&recognition.inference==="local_cpu"&&Array.isArray(recognition.bathroomDoorways))for(const [index,raw] of recognition.bathroomDoorways.slice(0,ids.size*16).entries()){
+  if(record(recognition)&&["local_cpu","local_cuda"].includes(String(recognition.inference))&&Array.isArray(recognition.bathroomDoorways))for(const [index,raw] of recognition.bathroomDoorways.slice(0,ids.size*16).entries()){
     if(!record(raw))continue;
     // Fixture detection proposes a bathroom; it cannot certify access/privacy.
     const parsed=roomSuiteObservationSchema.safeParse({...raw,id:`bathroom-view-${raw.sceneId}-${index}`,verified:false,direct:false,doorwayVerified:false,privateToFrom:false,privacyConfidence:0});

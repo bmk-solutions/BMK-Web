@@ -135,3 +135,5 @@ test("failed depth retries once after recognition and uses a new output file",as
   const result=await runRoomAnalysis(f.options);assert.equal(attempts,2);assert.equal(new Set(depthOutputs).size,2);assert.ok(result.displayDepths?.photo);
  }finally{f.close();}
 });
+
+test("local GPU observations use the same scene filtering and cannot certify metric scale",()=>{const result=validateRoomAnalysisResults(["photo"],null,{inference:"local_cuda",observations:[observation(),observation("foreign")]});assert.equal(result.observations.length,1);assert.equal(result.observations[0].sceneId,"photo");assert.deepEqual(result.profiles,{});});

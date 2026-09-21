@@ -122,7 +122,7 @@ async function processJob(job){
       const workerAuthority=db.prepare("SELECT owner FROM processing_worker_lock WHERE name='reconstruction' AND owner=? AND lease_until>=?").get(owner,Date.now());
       if(!authority||!workerAuthority){db.exec('ROLLBACK');return;}
       if(!current||imageFingerprint(current.scenes)!==job.input_hash){finish(job,'stale','تغيّرت صور الجولة أثناء المعالجة. حُفظت التعديلات؛ ابدأ معالجة جديدة.');db.exec('COMMIT');return;}
-      let status=result.status==='ready'&&!analysis.warnings.length?'completed':'review',next=null;
+      let status=result.status==='ready'&&!analysis.warnings.length&&!joint.warnings.length&&!architecture?.warnings?.length?'completed':'review',next=null;
       if(current.spatialSource!=='images'&&current.scenes.some(s=>s.position)){
         status='review';warnings.unshift('تم تحليل الصور وحفظ النتيجة للمراجعة مع إبقاء معايرة الكاميرات والمخطط المعتمد.');
         const scenes=fillMissingDisplayDepth(current.scenes,analysis.displayDepths??{});

@@ -1,7 +1,7 @@
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import {createWorkerTransport,pollCloudJobs} from './lib/imo3d-cloud-worker.mjs';
-import {workerRuntimePresent} from './lib/imo3d-worker-runtime.mjs';
+import {workerRuntimePresent,checkWorkerRuntime} from './lib/imo3d-worker-runtime.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const args=process.argv.slice(2);
@@ -17,7 +17,7 @@ if(args.some(value=>!['--once','--check'].includes(value))||args.includes('--onc
   }else{
     try{
       const transport=createWorkerTransport(config);
-      if(args.includes('--check'))console.log(JSON.stringify({status:'configuration-present',localRuntimeConfigured:true,networkContacted:false,modelsOrCloudNotVerified:true}));
+      if(args.includes('--check')){const health=await checkWorkerRuntime(root);console.log(JSON.stringify({status:health.ok?'local-runtime-checked':'setup-required',...health,networkContacted:false,cloudNotVerified:true}));if(!health.ok)process.exitCode=1;}
       else{
         const controller=new AbortController();
         const stop=()=>controller.abort(new Error('Local worker stopped.'));

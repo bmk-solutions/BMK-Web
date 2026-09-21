@@ -6,6 +6,7 @@ import {spawn} from 'node:child_process';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {ensureProcessingTables,imageFingerprint} from '../../src/lib/imo3d/processing-jobs.ts';
+import {checkWorkerRuntime} from './imo3d-worker-runtime.mjs';
 
 const MAX_IMAGE_BYTES=100*1024*1024;
 const idPattern=/^[A-Za-z0-9_-]{1,80}$/;
@@ -175,7 +176,7 @@ function startLease(transport,job,owner,controller,getProgress,{leaseMs=30000,he
   return {beat,lost:()=>lost,async stop(){stopped=true;clearInterval(timer);if(inFlight)await inFlight;}};
 }
 
-export async function processCloudJob({root,transport,job,owner,signal,executeLocal=runLocalReconstruction,leaseOptions}){
+export async function processCloudJob({root,transport,job,owner,signal,executeLocal=runLocalReconstruction,leaseOptions,checkRuntime=checkWorkerRuntime}){
   assertId(job?.id);assertId(job?.tour_id);
   if(job.lease_owner!==owner||job.cancel_requested||job.status!=='running')throw new WorkerLeaseLost();
   const controller=new AbortController();const abort=()=>controller.abort(signal.reason??new Error('WORKER_STOPPED'));
@@ -184,6 +185,11 @@ export async function processCloudJob({root,transport,job,owner,signal,executeLo
   const lease=startLease(transport,job,owner,controller,()=>progress,leaseOptions);
   try{
     controller.signal.throwIfAborted();
+    progress={value:0,stage:'فحص محرك المعالجة قبل تجهيز الصور'};
+    await lease.beat();
+    const health=await checkRuntime(root,{signal:controller.signal});
+    controller.signal.throwIfAborted();
+    if(!health.ok)throw Error('LOCAL_RUNTIME_UNAVAILABLE');
     const [tourRows,assets,originals]=await Promise.all([
       transport.query('tours',`id=eq.${encodeURIComponent(job.tour_id)}&select=payload,revision,project_id&limit=1`,{signal:controller.signal}),
       transport.query('assets',`tour_id=eq.${encodeURIComponent(job.tour_id)}&select=*`,{signal:controller.signal}),
@@ -233,14 +239,14 @@ export async function processCloudJob({root,transport,job,owner,signal,executeLo
     return {status:'committed',jobId:job.id,revision:saved?.revision,directory};
   }catch(error){
     if(lease.lost()||error instanceof WorkerLeaseLost)return {status:'lease_lost',jobId:job.id,directory};
-    const code=error?.message==='STALE_PROCESSING_INPUT'||error?.code==='40001'?'STALE_PROCESSING_INPUT':controller.signal.aborted?'LOCAL_WORKER_STOPPED':'LOCAL_PROCESSING_FAILED';
+    const code=error?.message==='LOCAL_RUNTIME_UNAVAILABLE'?'LOCAL_RUNTIME_UNAVAILABLE':error?.message==='STALE_PROCESSING_INPUT'||error?.code==='40001'?'STALE_PROCESSING_INPUT':controller.signal.aborted?'LOCAL_WORKER_STOPPED':'LOCAL_PROCESSING_FAILED';
     const retry=code==='LOCAL_WORKER_STOPPED'||!controller.signal.aborted&&(error?.status===429||error?.status>=500||error?.name==='TimeoutError'||error?.name==='TypeError');
-    await transport.rpc('fail_job',{p_id:job.id,p_owner:owner,p_error:code,p_retry:retry},{timeoutMs:8000}).catch(()=>{});
+    await transport.rpc('fail_job',{p_id:job.id,p_owner:owner,p_error:code==='LOCAL_RUNTIME_UNAVAILABLE'?'محرك المعالجة على الجهاز يحتاج إصلاحًا. لم تبدأ إعادة تنزيل الصور؛ الصور المرفوعة محفوظة.':code,p_retry:retry},{timeoutMs:8000}).catch(()=>{});
     return {status:code==='STALE_PROCESSING_INPUT'?'stale':code==='LOCAL_WORKER_STOPPED'?'stopped':'failed',jobId:job.id,directory};
   }finally{await lease.stop();signal?.removeEventListener('abort',abort);}
 }
 
-export async function pollCloudJobs({root,transport,signal,once=false,pollMs=10000,onStatus=()=>{},owner=randomUUID(),executeLocal}){
+export async function pollCloudJobs({root,transport,signal,once=false,pollMs=10000,onStatus=()=>{},owner=randomUUID(),executeLocal,checkRuntime}){
   if(!Number.isInteger(pollMs)||pollMs<1000||pollMs>60000)throw Error('INVALID_POLL_INTERVAL');
   let completed=0,failures=0;
   while(!signal.aborted){
@@ -252,7 +258,7 @@ export async function pollCloudJobs({root,transport,signal,once=false,pollMs=100
       try{await delay(Math.min(60000,pollMs*2**Math.min(failures-1,3)),undefined,{signal});}catch{if(!signal.aborted)throw error;}
       continue;
     }
-    if(job){const result=await processCloudJob({root,transport,job,owner,signal,executeLocal});onStatus({status:result.status,jobId:job.id});completed++;}
+    if(job){const result=await processCloudJob({root,transport,job,owner,signal,executeLocal,checkRuntime});onStatus({status:result.status,jobId:job.id});completed++;}
     else onStatus({status:'idle'});
     if(once)return {processed:completed};
     try{await delay(job?250:pollMs,undefined,{signal});}catch(error){if(!signal.aborted)throw error;}

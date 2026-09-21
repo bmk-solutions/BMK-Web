@@ -1,0 +1,28 @@
+# IMO3D processing and multi-project audit — 2026-09-21
+
+## Shipped changes
+
+- Processing now runs a local dependency/model-file preflight before fetching a tour or downloading its photographs. It exercises OpenCV remapping, SciPy optimization and spatial indexing, and imports the actual depth/vision runtimes. A broken environment fails explicitly without an automatic retry loop or tour mutation.
+- The preflight is cancellable, bounded to 45 seconds, and does not receive cloud credentials. `--check` distinguishes local runtime health from cloud connectivity. Model-file presence is not a full weight-integrity or accuracy test.
+- Dashboard and tour-list routes use a service-only, read-only SQL projection. Depth arrays and photo-edit records are removed in PostgreSQL, rather than transported to Vercel and discarded there. Full tour reads remain available to authorized editors/viewers.
+- Depth/architecture warnings now keep a processing job in review instead of reporting completed.
+
+## Verification
+
+- Core tests: 464 passed. Cloud route tests: 66 passed. Cloud worker, upload and runtime tests: 29 passed. Production build and TypeScript passed.
+- Actual local runtime preflight passed after restarting the idle photo worker.
+- SQL transaction test: 100 synthetic projects, 100 scenes each. Verified project scope, scene ordering, empty scope behavior, denied anonymous/authenticated RPC access, unchanged real payloads, and rollback of all fixtures. Query including transport took 2.3 seconds. This is not a 100-project concurrent image-processing load test.
+- Current database: 4 tours, 209 scenes, 807 derivative/other asset records, 174 original records. No duplicate scene IDs, missing navigation targets, foreign media references or orphan original records were found by the audit.
+- Storage metadata: all 981 referenced objects exist and their recorded sizes match. This is not a full byte download/hash audit of every object.
+- Current dashboard payload projection: 11,111,420 bytes reduced to 646,090 bytes (database JSON text sizes, before HTTP compression).
+- Browser smoke test on the affected tour: floor-to-top wall selection produced an estimated 2.47 m, hide/show retained it, selection and deletion removed the test measurement. No physical dimension was available to validate that estimate.
+
+## Remaining acceptance limits
+
+The latest 100-photo tour has 72 positioned photographs, 8 photographs without navigation links, and 85 accepted display-depth maps. These are rendering estimates, not calibrated metric depth. Successful execution does not establish complete spatial reconstruction.
+
+The repaired joint-depth runtime produced 150,000 points without runtime errors. Offline architecture evaluation found 16 wall planes and 5 opening candidates, but no closed room outlines. A complete furnished floorplan therefore remains unverified. Preserve existing plans and photographs; do not fabricate walls, force links through walls, or promote these outputs to surveyed geometry.
+
+The 1.27 m capture-height setting supports estimated planar/vertical measurement. It does not certify arbitrary point-to-point dimensions, 95% accuracy, or Biganto-equivalent reconstruction. Ground-truth validation and adequate overlapping capture/geometry are still required for those claims.
+
+One local device processes the queues. Its availability, model capacity and subscription limits remain operational dependencies. Dashboard scale tests do not establish processing throughput for 100 simultaneous projects.

@@ -6,7 +6,7 @@ import {tourMedia} from './media';
 import {z} from "zod";
 import {cloudAccess,cloudChangePassword,cloudLogin,cloudSameOrigin} from "./auth";
 import {cloudQuery,cloudRpc,cloudSignedDownload} from "./client";
-import {createProject,deleteTour,getAsset,getBranding,getTour,listProjects,listTours,saveTour,withinRateLimit} from "./repository";
+import {createProject,deleteTour,getAsset,getBranding,getTour,listProjects,listTourSummaries,saveTour,withinRateLimit} from "./repository";
 import {cloudManagement,cloudDevelopers} from "./management";
 import {cloudAIPlan,cloudLeadsPage,cloudProcessing} from "./jobs";
 import {cloudFailure,fail,json,readJSON,signedRedirect} from "./http";
@@ -79,7 +79,7 @@ async function handle(request:Request){
  const management=await cloudManagement(request,segments,access);if(management)return management;
  if(!access.sessionAdmin&&!access.integration)return fail("تسجيل دخول الإدارة مطلوب.",401);
  if(resource==="dashboard"&&segments.length===1&&method==="GET"){
-  const[projects,tours,developers,page]=await Promise.all([listProjects(),listTours(access.integration?.projectId),access.sessionAdmin?cloudDevelopers():Promise.resolve([]),access.sessionAdmin||access.integration?.scopes.includes("leads")?cloudLeadsPage({projectId:access.integration?.projectId,limit:100}):Promise.resolve({leads:[],total:0})]);
+  const[projects,tours,developers,page]=await Promise.all([listProjects(),listTourSummaries(access.integration?.projectId),access.sessionAdmin?cloudDevelopers():Promise.resolve([]),access.sessionAdmin||access.integration?.scopes.includes("leads")?cloudLeadsPage({projectId:access.integration?.projectId,limit:100}):Promise.resolve({leads:[],total:0})]);
   return json({features:{privateExample:null,cloud:true},projects:projects.filter(project=>access.allowed(project.id)),tours:tours.filter(tour=>access.allowed(tour.projectId)).map(tourSummary),developers,leads:page.leads,leadTotal:page.total});
  }
  if(resource==="example")return fail("استيراد العينة المحلية غير متاح في النشر السحابي.",404);
@@ -97,7 +97,7 @@ async function handle(request:Request){
  }
  if(resource!=="tours")return fail("المسار غير موجود.",404);
  if(!id){
-  if(method==="GET")return json((await listTours(access.integration?.projectId)).filter(tour=>access.allowed(tour.projectId)).map(tourSummary));
+  if(method==="GET")return json((await listTourSummaries(access.integration?.projectId)).filter(tour=>access.allowed(tour.projectId)).map(tourSummary));
   if(method==="POST"){
    const input=z.object({projectId:z.string().uuid(),title:z.string().trim().min(2).max(120)}).parse(await readJSON(request,3000));
    if(!access.allowed(input.projectId,"write"))return fail("المشروع خارج صلاحية مفتاح API.",403);

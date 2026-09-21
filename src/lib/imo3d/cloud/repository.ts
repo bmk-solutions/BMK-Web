@@ -5,6 +5,8 @@ import type {CloudAsset,CloudOriginal,CloudPlanRef,CloudJob,CloudTourRow,SceneUp
 const eq=(value:string)=>encodeURIComponent(value);
 export async function getTour(id:string):Promise<Tour|null>{return (await cloudQuery<CloudTourRow[]>('tours',`id=eq.${eq(id)}&select=payload&limit=1`))[0]?.payload??null;}
 export async function listTours(projectId?:string):Promise<Tour[]>{return (await cloudQuery<CloudTourRow[]>('tours',`select=payload${projectId?`&project_id=eq.${eq(projectId)}`:''}`)).map(row=>row.payload);}
+/** Dashboard projection omits heavy render arrays before the database response. */
+export async function listTourSummaries(projectId?:string):Promise<Tour[]>{return cloudRpc<Tour[]>('list_tour_summaries',{p_project_id:projectId??null});}
 export async function listProjects():Promise<Project[]>{
   const [projects,links]=await Promise.all([cloudQuery<{id:string;name:string;location:string;created_at:string}[]>('projects','select=*&order=created_at.desc'),cloudQuery<{project_id:string;developer_id:string}[]>('project_developers','select=*')]);
   const developers=new Map(links.map(row=>[row.project_id,row.developer_id]));return projects.map(row=>({id:row.id,name:row.name,location:row.location,createdAt:row.created_at,...(developers.has(row.id)?{developerId:developers.get(row.id)}:{})}));

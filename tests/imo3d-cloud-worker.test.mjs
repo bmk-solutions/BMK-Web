@@ -4,7 +4,9 @@ import {mkdtemp,mkdir,readFile,writeFile} from 'node:fs/promises';
 import {DatabaseSync} from 'node:sqlite';
 import path from 'node:path';
 import {imageFingerprint} from '../src/lib/imo3d/processing-jobs.ts';
-import {buildLocalInputPlan,createJobWorkspace,createWorkerTransport,hashBytes,pollCloudJobs,processCloudJob,runLocalReconstruction,seedLocalMirror,validateLocalResult,verifyDownloadedObject} from '../scripts/lib/imo3d-cloud-worker.mjs';
+import {buildLocalInputPlan,createJobWorkspace,createWorkerTransport,hashBytes,pollCloudJobs as pollCloudJobsImpl,processCloudJob as processCloudJobImpl,runLocalReconstruction,seedLocalMirror,validateLocalResult,verifyDownloadedObject} from '../scripts/lib/imo3d-cloud-worker.mjs';
+const processCloudJob=options=>processCloudJobImpl({checkRuntime:async()=>({ok:true}),...options});
+const pollCloudJobs=options=>pollCloudJobsImpl({checkRuntime:async()=>({ok:true}),...options});
 
 const owner='test-worker';
 function fixture(){
@@ -175,4 +177,21 @@ test('processing reuses verified tour-scoped photo cache and recovers corrupted 
  assert.equal((await execute()).status,'committed');assert.equal(downloaded,2);
  await writeFile(path.join(root,'work','cloud-input-cache',data.tour.id,data.assets[0].sha256),'corrupt');
  assert.equal((await execute()).status,'committed');assert.equal(downloaded,3);
+});
+
+test('broken runtime fails before fetching project data or downloading images, without retry loop',async()=>{
+ const data=fixture(),root=await workspace(),run=harness(data);
+ run.transport.query=async()=>assert.fail('Data must not be fetched before runtime passes');
+ run.transport.download=async()=>assert.fail('Photos must not be downloaded');
+ const result=await processCloudJob({root,transport:run.transport,job:data.job,owner,signal:new AbortController().signal,checkRuntime:async()=>({ok:false,failure:'dependencies'}),executeLocal:async()=>assert.fail('Broken runtime must not execute')});
+ assert.equal(result.status,'failed');
+ const failure=run.calls.find(call=>call.name==='fail_job');assert.equal(failure.args.p_id,data.job.id);assert.equal(failure.args.p_retry,false);
+ assert.match(failure.args.p_error,/محرك المعالجة/);assert.equal(run.uploads.length,0);assert.ok(!run.calls.some(call=>call.name==='commit_job'));
+});
+
+test('cancellation during preflight does not download or commit a tour',async()=>{
+ const data=fixture(),root=await workspace(),run=harness(data),controller=new AbortController();
+ run.transport.query=async()=>assert.fail('Cancelled preflight must not read project data');
+ const result=await processCloudJob({root,transport:run.transport,job:data.job,owner,signal:controller.signal,checkRuntime:async()=>{controller.abort(Error('Stop'));return {ok:true};},executeLocal:run.executeLocal});
+ assert.equal(result.status,'stopped');assert.equal(run.uploads.length,0);assert.ok(!run.calls.some(call=>call.name==='commit_job'));
 });

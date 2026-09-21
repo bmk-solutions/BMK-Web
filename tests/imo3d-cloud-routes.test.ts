@@ -37,6 +37,30 @@ type Call={url:URL;method:string;body:Record<string,unknown>|null};let storedCre
 beforeEach(()=>{Object.assign(process.env,{IMO3D_CLOUD:'1',SUPABASE_URL:'https://synthetic.supabase.co',SUPABASE_SERVICE_ROLE_KEY:'synthetic-key',IMO3D_ADMIN_SECRET:secret,IMO3D_PUBLIC_ORIGIN:origin,IMO3D_DATA_DIR:path.resolve('work/cloud-test-must-not-create-database')});storedCredential=null;calls=[];mock=call=>{throw Error('Unexpected cloud request '+call.url.pathname);};globalThis.fetch=async(input,init)=>{const call={url:new URL(String(input)),method:init?.method??'GET',body:typeof init?.body==='string'?JSON.parse(init.body):null};if(call.url.pathname.endsWith("/imo3d_admin_credentials")&&call.method==="GET")return result(storedCredential?[storedCredential]:[]);calls.push(call);return mock(call);};});
 afterEach(()=>{globalThis.fetch=fetchOriginal;for(const key of Object.keys(process.env))if(!(key in envOriginal))delete process.env[key];Object.assign(process.env,envOriginal);});
 
+test('tour listing requests lightweight database summaries and still strips private render data',async()=>{
+ const tour=syntheticTour();
+ mock=call=>{assert.equal(call.url.pathname,'/rest/v1/rpc/imo3d_list_tour_summaries');assert.deepEqual(call.body,{p_project_id:null});return result([{...tour,photoEdits:[{private:true}],scenes:tour.scenes.map(s=>({...s,depth:{values:[1]},displayDepth:{values:[2]}}))}]);};
+ const response=await cloudRoute(req('tours',{},true));assert.equal(response.status,200);
+ const values=await response.json();assert.equal(values.length,1);assert.equal(values[0].id,tour.id);assert.equal(values[0].photoEdits,undefined);
+ assert.ok(values[0].scenes.every((s:Record<string,unknown>)=>!('depth' in s)&&!('displayDepth' in s)));
+ assert.equal(calls.length,1);
+});
+
+test('summary listing scopes integration at the database and rejects foreign rows defensively',async()=>{
+ const tour=syntheticTour(),token='imo3d_'+'a'.repeat(43);
+ mock=call=>{
+  if(call.url.pathname.endsWith('/imo3d_integration_keys'))return result([{id:'key',project_id:tour.projectId,scopes:['read'],last_used_at:new Date().toISOString()}]);
+  assert.equal(call.url.pathname,'/rest/v1/rpc/imo3d_list_tour_summaries');assert.deepEqual(call.body,{p_project_id:tour.projectId});
+  return result([tour,{...tour,id:'foreign-tour',projectId:'foreign-project'}]);
+ };
+ const response=await cloudRoute(req('tours',{headers:{Authorization:'Bearer '+token}}));assert.equal(response.status,200);
+ assert.deepEqual((await response.json()).map((t:{id:string})=>t.id),[tour.id]);
+});
+
+test('anonymous listing cannot invoke even the lightweight summary RPC',async()=>{
+ assert.equal((await cloudRoute(req('tours'))).status,401);assert.equal(calls.length,0);
+});
+
 test('subscription queue requires admin and an online worker, and binds each job to its tour photographs',async()=>{
  const tour=syntheticTour();let online=false;
  mock=call=>{

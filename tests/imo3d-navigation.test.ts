@@ -200,3 +200,49 @@ test("distinct semantic rooms cannot merge just because they share a bedroom lab
  const b={...scene("b",0,-1),room:"bedroom",roomSemantic:{groupId:"room2"}} as Scene;
  assert.equal(pointerDestination([a,b],a.id,0,0,false,{kind:"wall",point:{x:0,y:0,z:-1}}),null);
 });
+
+
+test("a floor click reaches distant rooms along a straight doorway chain in one selection",()=>{
+ const a={...scene("a",0,0,["door"]),room:"bedroom",visualLinks:[{targetId:"door",yaw:0}]};
+ const door={...scene("door",0,-2,["a","far"]),room:"hall",visualLinks:[{targetId:"a",yaw:180},{targetId:"far",yaw:0}]};
+ const far={...scene("far",0,-10,["door"]),room:"living",visualLinks:[{targetId:"door",yaw:180}]};
+ const all=[a,door,far];
+ assert.equal(pointerDestination(all,"a",0,-.12,false,{kind:"floor"})?.id,"far");
+ assert.equal(pointerDestination(all,"a",0,-.85,false,{kind:"floor"})?.id,"door");
+ assert.equal(pointerDestination(all,"a",0,-.12,false,{kind:"wall",point:{x:0,y:1,z:-10}}),null);
+ assert.equal(pointerDestination(all,"a",0,-.12,false,{kind:"unknown"}),null);
+ for(const changed of [{...far,links:[]},{...far,blockedLinks:["door"]},{...far,floor:1},{...far,visualLinks:[]}]){
+  assert.notEqual(pointerDestination([a,door,changed],"a",0,-.12,false,{kind:"floor"})?.id,"far");
+ }
+ assert.deepEqual(a.links,["door"]);
+});
+
+test("distant doorway routing rejects a sideways turn and a backwards edge",()=>{
+ const a={...scene("a",0,0,["door"]),room:"bedroom",visualLinks:[{targetId:"door",yaw:0}]};
+ const door={...scene("door",0,-2,["a","far"]),room:"hall",visualLinks:[{targetId:"a",yaw:180},{targetId:"far",yaw:90}]};
+ const far={...scene("far",0,-10,["door"]),room:"living",visualLinks:[{targetId:"door",yaw:270}]};
+ assert.equal(pointerDestination([a,door,far],"a",0,-.12,false,{kind:"floor"})?.id,"door");
+ const behind={...far,position:{x:0,y:1.6,z:-1},visualLinks:[{targetId:"door",yaw:180}]};
+ assert.notEqual(pointerDestination([a,{...door,visualLinks:[{targetId:"a",yaw:180},{targetId:"far",yaw:0}]},behind],"a",0,-.12,false,{kind:"floor"})?.id,"far");
+});
+
+test("metric depth cannot bypass room boundaries on an uncertain surface",()=>{
+ const a={...scene("a",0,0),room:"bedroom",depth:{width:8,height:4,values:Array(32).fill(10)}};
+ const b={...scene("b",0,-8),room:"kitchen"};
+ assert.equal(pointerDestination([a,b],"a",0,0,true,{kind:"unknown"}),null);
+ assert.equal(pointerDestination([a,b],"a",0,0,true,{kind:"floor"}),null);
+});
+
+test("upper-image clicks with a known surface still choose a point in the same room",()=>{
+ const a={...scene("a",0,0),room:"bedroom"},b={...scene("b",0,-3),room:"bedroom"};
+ assert.equal(pointerDestination([a,b],"a",0,1.2,false,{kind:"wall",point:{x:0,y:4,z:-4}})?.id,"b");
+ assert.equal(pointerDestination([a,b],"a",NaN,0,false,{kind:"wall",point:{x:0,y:4,z:-4}}),null);
+});
+
+
+test("unpositioned capture uses a same-room bearing rather than comparing a local wall to map coordinates",()=>{
+ const a={...scene("a",0,0,["b"]),position:null,room:"bedroom",visualLinks:[{targetId:"b",yaw:90}]};
+ const b={...scene("b",0,-3,["a"]),room:"bedroom",visualLinks:[{targetId:"a",yaw:270}]};
+ assert.equal(pointerDestination([a,b],"a",Math.PI/2,0,false,{kind:"wall",point:{x:2,y:1,z:0}})?.id,"b");
+ assert.equal(pointerDestination([a,b],"a",0,0,false,{kind:"wall",point:{x:0,y:1,z:-3}}),null);
+});

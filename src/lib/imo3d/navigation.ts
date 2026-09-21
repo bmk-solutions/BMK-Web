@@ -89,11 +89,38 @@ export function pointerRoomAllowed(current:Scene,target:Scene,yaw:number,surface
   return Boolean(link&&link.kind!=="spatial"&&Math.abs(angleDifference(link.fromYaw,yaw))<=radians(12));
 }
 
+/** Extend a doorway click along reciprocal forward links. A bent graph path is
+ * not evidence that the destination is visible through the door. */
+function forwardDoorwayDestinations(scenes:Scene[],current:Scene,yaw:number):Set<string>{
+  const byId=new Map(scenes.map(scene=>[scene.id,scene]));
+  const reached=new Set<string>([current.id]),queue=[current];
+  for(let index=0;index<queue.length;index++){
+    const from=queue[index];
+    for(const id of from.links){
+      const to=byId.get(id);if(!to||reached.has(id)||to.floor!==current.floor||current.blockedLinks?.includes(id)||to.blockedLinks?.includes(current.id))continue;
+      const link=navigationLink(from,to);if(!link)continue;
+      const crossing=!sameNavigationRoom(from,to);
+      if(crossing&&link.kind==="spatial")continue;
+      if(Math.abs(angleDifference(link.fromYaw,yaw))>radians(crossing?12:25))continue;
+      if(current.position&&to.position){
+        const dx=to.position.x-current.position.x,dz=to.position.z-current.position.z;
+        if(Math.abs(angleDifference(Math.atan2(dx,-dz),yaw))>radians(25))continue;
+        if(from.position){
+          const progress=(to.position.x-from.position.x)*Math.sin(yaw)-(to.position.z-from.position.z)*Math.cos(yaw);
+          if(progress<=.001)continue;
+        }
+      }
+      reached.add(id);queue.push(to);
+    }
+  }
+  return reached;
+}
+
 /** Prefer reciprocal links, then nearby directional captures; never modify graph edges. */
 export function pointerDestination(scenes:Scene[],currentId:string,yaw:number,pitch:number,metricGeometry=false,surface?:PointerSurface):Scene|null {
-  if(!Number.isFinite(pitch)||pitch>Math.PI/3)return null;
+  if(!Number.isFinite(yaw)||!Number.isFinite(pitch)||(!surface&&pitch>Math.PI/3))return null;
   const current=scenes.find(scene=>scene.id===currentId);
-  if(current&&surface?.kind==="wall"&&surface.point){
+  if(current?.position&&surface?.kind==="wall"&&surface.point){
     const hit=surface.point;
     const separation=(scene:Scene)=>scene.position?Math.hypot(scene.position.x-hit.x,scene.position.z-hit.z):Infinity;
     let best:Scene|null=null,bestDistance=separation(current);
@@ -104,6 +131,8 @@ export function pointerDestination(scenes:Scene[],currentId:string,yaw:number,pi
     }
     return best;
   }
+  const doorwayTargets=current&&surface?.kind==="floor"?forwardDoorwayDestinations(scenes,current,yaw):new Set<string>();
+  const allowed=(scene:Scene)=>!surface||Boolean(current&&(pointerRoomAllowed(current,scene,yaw,surface)||doorwayTargets.has(scene.id)));
   if(metricGeometry&&current?.depth&&current.position){
     const hit=surfacePoint(current,yaw,pitch);
     if(hit){
@@ -111,6 +140,7 @@ export function pointerDestination(scenes:Scene[],currentId:string,yaw:number,pi
       let best:Scene|null=null,bestDistance=Math.hypot(hit.x-origin.x,hit.z-origin.z);
       for(const scene of scenes){
         if(scene.id===current.id||scene.floor!==current.floor||!scene.position||current.blockedLinks?.includes(scene.id)||scene.blockedLinks?.includes(current.id))continue;
+        if(!allowed(scene))continue;
         const dx=scene.position.x-origin.x,dy=scene.position.y-origin.y,dz=scene.position.z-origin.z;
         const horizontal=Math.hypot(dx,dz),distance=Math.hypot(dx,dy,dz),heading=Math.atan2(dx,-dz);
         if(distance<.01||!Number.isFinite(distance)||Math.abs(angleDifference(heading,yaw))>radians(40))continue;
@@ -130,7 +160,7 @@ export function pointerDestination(scenes:Scene[],currentId:string,yaw:number,pi
   if(current&&Number.isFinite(yaw)){
     const candidates=scenes.flatMap(scene=>{
       if(scene.floor!==current.floor||scene.id===current.id||current.blockedLinks?.includes(scene.id)||scene.blockedLinks?.includes(current.id))return [];
-      if(surface&&!pointerRoomAllowed(current,scene,yaw,surface))return [];
+      if(!allowed(scene))return [];
       const link=navigationLink(current,scene);
       const dx=current.position&&scene.position?scene.position.x-current.position.x:0;
       const dz=current.position&&scene.position?scene.position.z-current.position.z:0;

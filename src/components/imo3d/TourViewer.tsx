@@ -215,7 +215,7 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
       const rect=el.getBoundingClientRect();
       const projected=lastPointer&&instance.setNavigationCursor((lastPointer.x-rect.left)/rect.width*2-1,1-(lastPointer.y-rect.top)/rect.height*2,target);
       if(!lastPointer)instance.clearNavigationCursor();
-      el.dataset.cursor=projected?"navigate":"look";
+      el.dataset.cursor=projected?"navigate":target?"navigate-flat":"look";
     };
     const pointerDown=(e:PointerEvent)=>{if(e.button!==0)return;el.setPointerCapture(e.pointerId);pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});down={x:e.clientX,y:e.clientY,time:performance.now(),dragged:false};
       if(pointers.size===2){const p=[...pointers.values()];lastPinch=Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y);down.dragged=true;}};
@@ -287,7 +287,7 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
       <div className="imo-view-title"><span>{tour.title}</span></div>
       <button className="imo-glass imo-icon" title={fullscreen?"الخروج من ملء الشاشة":"ملء الشاشة"} aria-label={fullscreen?"الخروج من ملء الشاشة":"ملء الشاشة"} onClick={toggleFullscreen}><Icon name="expand"/></button>
     </header>
-    {!measure&&panel!=="map"&&(mobile?mobileMapVisible:mapVisible)&&<aside className="imo-under-logo-map"><ViewerFloorPlan cache={planCache} onIntent={warmTarget} scenes={tour.scenes} yaw={yaw} key={`${tour.id}/${current.floor}`} tourId={tour.id} floor={current.floor} compact current={current.id} sceneIds={tour.scenes.filter(s=>s.floor===current.floor).map(s=>s.id)} onSelect={id=>{const target=scenesById.current.get(id);if(target)void navigate(target,false);}} onExpand={()=>{setFloor(current.floor);openPanel("map");}}/><UnitSummary tour={tour} onOpen={()=>openPanel("info")}/></aside>}
+    {!measure&&panel!=="map"&&(mobile?mobileMapVisible:mapVisible)&&<aside className="imo-under-logo-map"><ViewerFloorPlan cache={planCache} onIntent={warmTarget} scenes={tour.scenes} yaw={yaw} key={`${tour.id}/${current.floor}`} tourId={tour.id} floor={current.floor} compact current={current.id} sceneIds={tour.scenes.filter(s=>s.floor===current.floor).map(s=>s.id)} onSelect={id=>{const target=scenesById.current.get(id);if(target)void navigate(target,false);}} onExpand={()=>{setFloor(current.floor);openPanel("map");}}/><UnitSummary tour={tour}/></aside>}
     {busy&&<div className={`imo-view-loading ${ready?"delayed":""}`} role="status"><span className="imo-spinner"/> جارٍ تحميل المشهد</div>}
     {error&&<div className="imo-view-error" role="alert"><p>{error}</p><button onClick={()=>window.location.reload()} className="imo-button primary">إعادة المحاولة</button></div>}
     {notice&&<div className="imo-notice" role="status">{notice}</div>}
@@ -342,9 +342,17 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
     {(panel==="info"||panel==="lead")&&<Dialog title={panel==="lead"?"سجّل اهتمامك":"تفاصيل الوحدة"} onClose={()=>openPanel(null)}><UnitCard tour={tour} lead={panel==="lead"} onLead={()=>openPanel("lead")}/></Dialog>}
   </div>;
 }
-function UnitSummary({tour,onOpen}:{tour:Tour;onOpen:()=>void}){
+function UnitSummary({tour}:{tour:Tour}){
  const u=tour.unit;
- return <button type="button" className="imo-unit-summary" onClick={onOpen} aria-label="تفاصيل الوحدة"><span className="imo-unit-summary-title">تفاصيل الوحدة <Icon name="info" size={14}/></span><span className="imo-unit-summary-stats">{u.area!==null&&<span title="المساحة"><Icon name="area" size={18}/><b>{number(u.area)}</b><small>م²</small></span>}{u.bedrooms!==null&&<span title="غرف النوم"><Icon name="bed" size={18}/><b>{u.bedrooms}</b><small>غرف</small></span>}{u.bathrooms!==null&&<span title="الحمامات"><Icon name="bath" size={18}/><b>{u.bathrooms}</b><small>حمام</small></span>}</span>{u.price!==null&&<strong className="imo-unit-summary-price">{number(u.price)} <small>ر.س</small></strong>}</button>;
+ return <section className="imo-unit-summary" aria-label="تفاصيل الوحدة">
+   <h2 className="imo-unit-summary-title">تفاصيل الوحدة</h2>
+   <dl className="imo-unit-summary-stats">
+     <div><dt><Icon name="area" size={18}/><span>المساحة م²</span></dt><dd>{u.area===null?"—":number(u.area)}</dd></div>
+     <div><dt><Icon name="bed" size={18}/><span>غرف النوم</span></dt><dd>{u.bedrooms??"—"}</dd></div>
+     <div><dt><Icon name="bath" size={18}/><span>الحمامات</span></dt><dd>{u.bathrooms??"—"}</dd></div>
+   </dl>
+   {u.price!==null&&<strong className="imo-unit-summary-price">{number(u.price)} <small>ر.س</small></strong>}
+ </section>;
 }
 function UnitCard({tour,lead,onLead}:{tour:Tour;lead:boolean;onLead:()=>void}) {
   const [down,setDown]=useState(20),[rate,setRate]=useState(6),[years,setYears]=useState(20),[status,setStatus]=useState("");

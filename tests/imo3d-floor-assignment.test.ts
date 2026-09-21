@@ -227,3 +227,17 @@ test('entry view is revision safe, saves only one room entrance and does not cha
   const removed=saveTourMetadata(database,original.id,{revision:6,entryView:{sceneId:'b',view:null}});assert.equal(removed.scenes[1].entryView,undefined);
  }finally{database.close();}
 });
+
+
+test("renaming a photo preserves its room, pose and navigation links",()=>{
+ const original=tour([{...scene("a"),links:["b"],entryView:{yaw:90,pitch:0,fov:70}},scene("b")]);
+ const database=fixture([original]);
+ try{
+  const next=saveTourMetadata(database,original.id,{revision:4,scenes:metadata(original.scenes).map(value=>value.id==="a"?{...value,name:"لقطة الباب"}:value)});
+  assert.equal(next.scenes[0].name,"لقطة الباب");
+  assert.equal(next.scenes[0].room,original.scenes[0].room);
+  assert.deepEqual(next.scenes[0].entryView,original.scenes[0].entryView);
+  assert.deepEqual(next.scenes[0].links,["b"]);
+  assert.deepEqual(next.scenes[1],original.scenes[1]);
+ }finally{database.close();}
+});

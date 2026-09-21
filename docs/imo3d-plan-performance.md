@@ -5,12 +5,20 @@ The photographed panel is the floorplan job, not the photo upload. On 21 Septemb
 was already at review/100%. The floorplan worker had prepared 100 evidence sheets
 and was waiting on a single Codex call using `gpt-6-astra` with `xhigh` reasoning.
 The old next step regenerated the complete per-photo evidence in a second call.
+The stopped job's buffered event log additionally revealed five WebSocket reconnect
+attempts before falling back to HTTPS. This transport failure had been invisible
+to the admin panel and to live diagnostics.
 
 ## Changes
 
 - Prepare up to three evidence sheets concurrently, preserving attachment/scene order.
 - Keep every input photograph in the analysis and independent review. Use `high`
   reasoning for floorplan calls, leaving photo retouching's existing effort intact.
+- Use an invocation-scoped `imo3d_https` provider at the official ChatGPT Codex
+  endpoint with `requires_openai_auth=true` and `supports_websockets=false`. This
+  retains existing subscription sign-in, uses no API key, and avoids the repeated
+  WebSocket startup failures. Built-in provider IDs cannot be overridden in the
+  installed Codex version. The user's global Codex configuration is untouched.
 - The independent review returns corrected geometry and only changed photo evidence.
   Merge corrections deterministically; still require exact source-photo coverage,
   valid room polygons/openings, and supported geometry before rendering.

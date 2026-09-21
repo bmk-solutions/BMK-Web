@@ -210,3 +210,20 @@ test("a failed cancellation rolls back the floor change instead of leaving a liv
     assert.equal(latestJob(database, original.id)?.status, "running");
   } finally { database.close(); }
 });
+
+
+test('entry view is revision safe, saves only one room entrance and does not change navigation',()=>{
+ const original=tour([scene('a'),scene('b'),{...scene('c'),room:'different'}]),other=tour([scene('foreign')],'other');
+ const database=fixture([original,other]);
+ try{
+  const view={yaw:90,pitch:0,fov:74};
+  const saved=saveTourMetadata(database,original.id,tourMetadataSchema.parse({revision:4,entryView:{sceneId:'a',view}}));
+  assert.deepEqual(saved.scenes[0],{...original.scenes[0],entryView:view});assert.deepEqual(saved.plans,original.plans);
+  assert.throws(()=>saveTourMetadata(database,original.id,{revision:4,entryView:{sceneId:'b',view}}),/تغيّرت/);
+  assert.throws(()=>saveTourMetadata(database,original.id,{revision:5,entryView:{sceneId:'foreign',view}}),/غير موجودة/);
+  const moved=saveTourMetadata(database,original.id,{revision:5,entryView:{sceneId:'b',view}});
+  assert.equal(moved.scenes[0].entryView,undefined);assert.deepEqual(moved.scenes[1].entryView,view);
+  assert.equal(database.prepare('SELECT payload FROM tours WHERE id=?').get(other.id)?.payload,JSON.stringify(other));
+  const removed=saveTourMetadata(database,original.id,{revision:6,entryView:{sceneId:'b',view:null}});assert.equal(removed.scenes[1].entryView,undefined);
+ }finally{database.close();}
+});

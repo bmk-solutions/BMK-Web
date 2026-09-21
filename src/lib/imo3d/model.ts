@@ -43,6 +43,7 @@ export const sceneSchema = z.object({
   image: localAsset, preview: localAsset, thumbnail: localAsset,
   detail: z.object({ image: localAsset, width: z.number().int().min(1).max(8192), height: z.number().int().min(1).max(8192) }).optional(),
   sourceName: z.string().max(200), position: pointSchema.nullable(), yaw: z.number().finite(),
+  entryView:z.object({yaw:z.number().finite().min(-180).max(180),pitch:z.number().finite().min(-65).max(80),fov:z.number().finite().min(40).max(95)}).optional(),
   depth: depthSchema.optional(), displayDepth: displayDepthSchema.optional(), links: z.array(z.string().max(80)).max(200),
   manualLinks: z.array(z.object({ targetId: z.string().regex(/^[\w-]+$/).max(80), yaw: z.number().finite() })).max(200).refine(values => new Set(values.map(value => value.targetId)).size === values.length, "الروابط اليدوية مكررة").optional(),
   visualLinks: z.array(z.object({ targetId: z.string().regex(/^[\w-]+$/).max(80), yaw: z.number().finite() })).max(200).refine(values => new Set(values.map(value => value.targetId)).size === values.length, "الروابط البصرية مكررة").optional(),

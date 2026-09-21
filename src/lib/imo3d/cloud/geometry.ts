@@ -7,12 +7,14 @@ import {planFromRooms} from "../boundary-shapes";
 import {derivePlans} from "../spatial";
 import {architectureSaveSchema,architectureReviewIssues} from "../architecture-storage";
 import {CloudHTTPError} from "./http";
+import {applyEntryView} from "../view-presentation";
 export function requireRevision(tour:Tour,revision:number){if(tour.revision!==revision)throw new CloudHTTPError("تغيّرت الجولة؛ أعد تحميل أحدث نسخة.",409);}
 export function applyMetadata(tour:Tour,input:z.infer<typeof tourMetadataSchema>):Tour{
  requireRevision(tour,input.revision);
  const changes=new Map(input.scenes?.map(scene=>[scene.id,scene]));
  if(input.scenes&&(input.scenes.length!==tour.scenes.length||changes.size!==tour.scenes.length||tour.scenes.some(scene=>!changes.has(scene.id))))throw new CloudHTTPError("قائمة اللقطات غير مطابقة.");
  let scenes=tour.scenes.map(scene=>{const next={...scene,...changes.get(scene.id)};return next.room!==scene.room?markRoomNameAsUser(next):next;});
+ if(input.entryView){try{scenes=applyEntryView({...tour,scenes},input.entryView);}catch(error){throw new CloudHTTPError(error instanceof Error?error.message:"تعذر حفظ جهة العرض.",400);}}
  for(const rename of input.roomRenames??[])scenes=renameSemanticRoom(scenes,rename.groupId,rename.name);
  const published=input.published??tour.published;if(published&&!scenes.length)throw new CloudHTTPError("أضف لقطات قبل إتاحة الجولة.");
  const next:Tour={...tour,title:input.title??tour.title,unit:input.unit??tour.unit,published,...applySceneFloorAssignments(tour,scenes)};

@@ -1,0 +1,20 @@
+.imo-under-logo-map{display:grid;gap:12px;width:210px;max-height:calc(100dvh - 220px);overflow:auto;scrollbar-width:none}
+.imo-draft-minimap .imo-plan-header{display:flex;align-items:center;justify-content:center;gap:2px;height:44px;padding:0;margin-bottom:8px}
+.imo-draft-minimap .imo-plan-header button{position:static;inset:auto;transform:none;display:inline-flex;align-items:center;justify-content:center;min-width:44px;width:44px;min-height:44px;height:44px;padding:0;border:0;border-radius:50%;background:transparent;color:white;text-shadow:0 1px 4px #10241f;font:inherit;cursor:pointer}
+.imo-draft-minimap .imo-plan-header .imo-plan-title{width:auto;border-radius:12px;padding:0 8px;font-size:14px;font-weight:650}
+.imo-draft-minimap .imo-plan-header button:hover{background:#142c3266}
+.imo-draft-minimap [hidden]{display:none!important}
+.imo-viewer .imo-unit-summary{width:100%;border:1px solid #ffffff28;border-radius:16px;background:#17362dd1;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);color:#fff;padding:12px;display:grid;gap:10px;cursor:pointer;text-align:center;font:inherit;box-shadow:0 5px 22px #10241f14}
+.imo-unit-summary-title{display:flex;justify-content:center;align-items:center;gap:8px;font-size:12px;font-weight:600}
+.imo-unit-summary-stats{display:flex;justify-content:space-around;gap:8px}
+.imo-unit-summary-stats>span{display:grid;justify-items:center;align-content:start;gap:3px;min-width:0;flex:1}
+.imo-unit-summary-stats b{font-size:13px;font-variant-numeric:tabular-nums;font-weight:600}.imo-unit-summary-stats small{font-size:10px;opacity:.8}.imo-unit-summary-price{border-top:1px solid #ffffff24;padding-top:9px;font-size:14px}.imo-unit-summary-price small{font-size:10px;font-weight:400}
+.imo-mobile-dock{padding:6px;gap:4px;border-radius:24px!important;bottom:max(20px,env(safe-area-inset-bottom))!important;background:#12372dde!important;box-shadow:0 8px 32px #001c2526!important;border:1px solid #ffffff36!important}
+.imo-mobile-dock>.imo-glass{width:72px!important;min-height:60px!important;border:none!important;border-radius:18px!important;background:transparent!important;gap:5px!important;box-shadow:none!important}
+.imo-mobile-dock>.imo-glass:hover,.imo-mobile-dock>.imo-glass[aria-expanded=true],.imo-mobile-dock>.imo-glass.active{background:#ffffff1f!important}
+.imo-mobile-dock>.imo-glass>svg{width:23px;height:23px}.imo-mobile-dock>.imo-glass>span{font-size:11px!important;font-weight:500!important}
+.imo-viewer .imo-plan-preparing,.imo-plan-preparing{display:grid;place-items:center;min-height:55dvh;width:min(75vw,620px);background:#fff;border-radius:12px;color:#176957;margin:auto}
+.imo-room-titles>button{min-height:52px;border-radius:14px!important}
+.imo-draft-minimap button:focus-visible,.imo-unit-summary:focus-visible,.imo-mobile-dock button:focus-visible{outline:2px solid #aaf4dc;outline-offset:3px}
+@media(max-width:720px){.imo-under-logo-map{top:82px;right:max(12px,env(safe-area-inset-right));width:164px;gap:8px;max-height:calc(100dvh - 192px)}.imo-draft-minimap .imo-plan-header{gap:0;margin-bottom:4px}.imo-draft-minimap .imo-plan-header .imo-plan-title{font-size:13px;padding:0 4px}.imo-draft-minimap .imo-raster-map.is-compact{max-height:25dvh;height:182px}.imo-viewer .imo-unit-summary{padding:10px 8px;border-radius:14px;gap:8px}.imo-unit-summary-stats{gap:4px}.imo-unit-summary-title{font-size:11px}.imo-mobile-dock{bottom:max(12px,env(safe-area-inset-bottom))!important}.imo-mobile-dock>.imo-glass{width:68px!important;min-height:56px!important}.imo-viewer .imo-controls-toggle{top:max(18px,env(safe-area-inset-top));bottom:auto!important;left:12px;right:auto;max-width:44px;min-width:44px;padding:10px!important}.imo-controls-toggle span{display:none}.imo-option-icons button{min-height:64px}}
+@media(max-height:480px){.imo-under-logo-map{top:65px;max-height:calc(100dvh - 150px);width:150px}.imo-unit-summary-stats>span{grid-template-columns:auto auto;gap:4px;align-items:center}.imo-unit-summary-stats small{display:none}.imo-mobile-dock>.imo-glass{min-height:44px!important;flex-direction:row!important;width:80px!important}}

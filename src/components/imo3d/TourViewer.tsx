@@ -13,6 +13,8 @@ import {CompactApartmentMap} from "./CompactApartmentMap";
 import {BrandLogo} from "./BrandLogo";
 import {roomChoices,roomFunctionCategories} from "./room-labels";
 import {InteractiveFloorPlan} from "./InteractiveFloorPlan";
+import {createViewerPlanCache} from "./viewer-plan-cache";
+import {sceneEntryView} from "@/lib/imo3d/view-presentation";
 import {ViewerFloorPlan} from "./ViewerFloorPlan";
 import {Icon} from "./Icon";
 import {calibratePanoramaHeight,projectPanoramaFloor,projectPanoramaMeasurement,type PanoramaMeasurementRay,type PanoramaMeasurementCalibration} from "@/lib/imo3d/panorama-measurement";
@@ -24,6 +26,7 @@ import "./viewer-mobile.css";
 import "./room-functions.css";
 import "./liquid-glass.css";
 import "./viewer-clean.css";
+import "./viewer-presentation.css";
 import {hasReviewedArchitecture} from "@/lib/imo3d/architecture-visibility";
 type ViewerMedia={expiresAt:number;urls:Record<string,string>};
 type ViewerTour=Tour&{media?:ViewerMedia};
@@ -34,9 +37,11 @@ export default function TourViewer({id,embedded=false,initialSceneId}:{id:string
   if(error)return <main className="imo-shell imo-load"><Icon name="info" size={32}/><h1>تعذر فتح الجولة</h1><p>{error}</p><a className="imo-button primary" href="/imo3d">العودة إلى الاستوديو</a></main>;
   if(!tour)return <main className="imo-shell imo-load"><span className="imo-spinner"/><p>جارٍ تحضير جولتك…</p></main>;
   if(!tour.scenes.length)return <main className="imo-shell imo-load"><h1>{tour.title}</h1><p>لم تُضف لقطات لهذه الجولة بعد.</p><a href="/imo3d" className="imo-button primary">فتح الاستوديو</a></main>;
-  return <Viewer tour={tour} embedded={embedded} initialSceneId={tour.scenes.some(scene=>scene.id===initialSceneId)?initialSceneId:undefined}/>;
+  return <Viewer key={tour.id} tour={tour} embedded={embedded} initialSceneId={tour.scenes.some(scene=>scene.id===initialSceneId)?initialSceneId:undefined}/>;
 }
 function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean;initialSceneId?:string}) {
+  const [planCache]=useState(createViewerPlanCache);
+  useEffect(()=>()=>planCache.dispose(),[planCache]);
   const [measurementUnit,setMeasurementUnit]=useState<MeasurementUnit>("m");
   const [measurementsVisible,setMeasurementsVisible]=useState(true);
   const [selectedMeasurement,setSelectedMeasurement]=useState<string|null>(null);
@@ -83,7 +88,7 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
   const [measurementSeed,setMeasurementSeed]=useState<PanoramaMeasurementCalibration|null>(null);
   const [markers,setMarkers]=useState<{x:number;y:number;visible:boolean}[]>([]);
   const navigating=useRef(false),mounted=useRef(false),initialized=useRef(false);
-  const pendingNavigation=useRef<{target:Scene;walk:boolean}|null>(null);
+  const pendingNavigation=useRef<{target:Scene;walk:boolean;entry:boolean}|null>(null);
   const navigationRef=useRef<(scene:Scene,walk?:boolean)=>Promise<void>>(async()=>{});
   const scenesById=useRef(new Map(tour.scenes.map(s=>[s.id,s])));
   const choices=useMemo(()=>roomChoices(tour.scenes,current.floor),[tour.scenes,current.floor]);
@@ -135,18 +140,20 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
   },[]);
   useEffect(()=>{document.title=`${tour.title} — ${tour.branding?.name||"IMO 3D"}`;},[tour]);
   useEffect(()=>{panelRef.current=panel;measureRef.current=measure;pointsRef.current=points;engine.current?.invalidate();},[panel,measure,points]);
-  async function navigate(target:Scene,walk=true) {
+  async function navigate(target:Scene,walk=true,entry=false) {
     const viewer=engine.current;if(!viewer||!initialized.current)return;
-    if(!navigating.current&&target.id===currentRef.current.id)return;
-    pendingNavigation.current={target,walk};
+    if(!navigating.current&&target.id===currentRef.current.id){const view=entry?sceneEntryView(target):undefined;if(view){viewer.stopLook();Object.assign(viewer,view);viewer.invalidate();}return;}
+    pendingNavigation.current={target,walk,entry};
     if(navigating.current){viewer.cancelPendingLoad();return;}
     navigating.current=true;setSelectedMeasurement(null);setError("");setMeasure(false);measureRef.current=false;setPoints([]);setFloorRays([]);photoCalibration.current=null;setNotice("");
     try{
       while(pendingNavigation.current&&mounted.current){
         const request=pendingNavigation.current;pendingNavigation.current=null;
-        const source=currentRef.current;if(source.id===request.target.id)continue;
+        const source=currentRef.current;if(source.id===request.target.id){const view=request.entry?sceneEntryView(request.target):undefined;if(view){viewer.stopLook();Object.assign(viewer,view);viewer.invalidate();}continue;}
         const scene=request.target,transition=navigationTransition(source,scene,viewer.yaw,tour.spatialSource,request.walk?"step":"direct");
-          const moved=await viewer.move(scene,transition.animation,transition.arrivalYaw,transition.bearings);if(!moved)continue;
+          const view=request.entry?sceneEntryView(scene):undefined;
+          const moved=await viewer.move(scene,transition.animation,view?.yaw??transition.arrivalYaw,transition.bearings);if(!moved)continue;
+          if(view){viewer.stopLook();Object.assign(viewer,view);viewer.invalidate();}
           currentRef.current=scene;setCurrent(scene);setFloor(scene.floor);setPosition(scene.position);
           viewer.prefetch(navigationPrefetch(tour.scenes,scene,viewer.yaw));
       }
@@ -176,7 +183,7 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
       };
       resize=new ResizeObserver(([entry])=>{const {width,height}=entry.contentRect;instance?.resize(width,height);setMeasurementViewport({width,height});});resize.observe(el);
       instance.resize(el.clientWidth,el.clientHeight);await instance.move(currentRef.current,false);
-      if(!cancelled){if(tour.initialView&&!initialSceneId){instance.yaw=radians(tour.initialView.yaw);instance.pitch=radians(tour.initialView.pitch);instance.invalidate();}initialized.current=true;setReady(true);setBusy(false);instance.prefetch(navigationPrefetch(tour.scenes,currentRef.current,instance.yaw));}
+      if(!cancelled){const entry=sceneEntryView(currentRef.current);if(entry){Object.assign(instance,entry);instance.invalidate();}else if(tour.initialView&&!initialSceneId){instance.yaw=radians(tour.initialView.yaw);instance.pitch=radians(tour.initialView.pitch);instance.invalidate();}initialized.current=true;setReady(true);setBusy(false);instance.prefetch(navigationPrefetch(tour.scenes,currentRef.current,instance.yaw));}
     }).catch(e=>{if(!cancelled){setError(e instanceof Error?e.message:"الجهاز لا يدعم عرض 360");setBusy(false);}});
     let down:{x:number;y:number;time:number;dragged:boolean}|null=null;
     const pointers=new Map<number,{x:number;y:number}>(),heldKeys=new Set<string>();let lastPinch=0;
@@ -265,7 +272,7 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
     return()=>{cancelled=true;mounted.current=false;initialized.current=false;pendingNavigation.current=null;cancelAnimationFrame(inputFrame);resize?.disconnect();instance?.dispose();engine.current=null;el.removeEventListener("pointerdown",pointerDown);el.removeEventListener("pointermove",pointerMove);el.removeEventListener("pointerup",pointerUp);el.removeEventListener("pointercancel",pointerCancel);el.removeEventListener("pointerleave",pointerLeave);el.removeEventListener("wheel",wheel);window.removeEventListener("keydown",keyDown);window.removeEventListener("keyup",keyUp);window.removeEventListener("blur",clearKeys);document.removeEventListener("visibilitychange",clearKeys);};
   },[tour,initialSceneId]);
   useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>setNotice(""),5000);return()=>clearTimeout(timer);},[notice]);
-  const chooseRoom=(target:Scene)=>{void navigate(target,false);openPanel(null);};
+  const chooseRoom=(target:Scene)=>{void navigate(target,false,true);openPanel(null);};
   const plan=tour.plans.find(p=>p.floor===floor);
   const branding=tour.branding,accent=branding?.accent||"#24b18b";
   const Wordmark=embedded?"div":"a";
@@ -280,7 +287,7 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
       <div className="imo-view-title"><span>{tour.title}</span></div>
       <button className="imo-glass imo-icon" title={fullscreen?"الخروج من ملء الشاشة":"ملء الشاشة"} aria-label={fullscreen?"الخروج من ملء الشاشة":"ملء الشاشة"} onClick={toggleFullscreen}><Icon name="expand"/></button>
     </header>
-    {!measure&&panel!=="map"&&(mobile?mobileMapVisible:mapVisible)&&<aside className="imo-under-logo-map"><ViewerFloorPlan onIntent={warmTarget} scenes={tour.scenes} yaw={yaw} key={`${tour.id}/${current.floor}`} tourId={tour.id} floor={current.floor} compact current={current.id} sceneIds={tour.scenes.filter(s=>s.floor===current.floor).map(s=>s.id)} onSelect={id=>{const target=scenesById.current.get(id);if(target)void navigate(target,false);}} onExpand={()=>{setFloor(current.floor);openPanel("map");}}/></aside>}
+    {!measure&&panel!=="map"&&(mobile?mobileMapVisible:mapVisible)&&<aside className="imo-under-logo-map"><ViewerFloorPlan cache={planCache} onIntent={warmTarget} scenes={tour.scenes} yaw={yaw} key={`${tour.id}/${current.floor}`} tourId={tour.id} floor={current.floor} compact current={current.id} sceneIds={tour.scenes.filter(s=>s.floor===current.floor).map(s=>s.id)} onSelect={id=>{const target=scenesById.current.get(id);if(target)void navigate(target,false);}} onExpand={()=>{setFloor(current.floor);openPanel("map");}}/><UnitSummary tour={tour} onOpen={()=>openPanel("info")}/></aside>}
     {busy&&<div className={`imo-view-loading ${ready?"delayed":""}`} role="status"><span className="imo-spinner"/> جارٍ تحميل المشهد</div>}
     {error&&<div className="imo-view-error" role="alert"><p>{error}</p><button onClick={()=>window.location.reload()} className="imo-button primary">إعادة المحاولة</button></div>}
     {notice&&<div className="imo-notice" role="status">{notice}</div>}
@@ -314,15 +321,14 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
       <button className="imo-interest" onClick={()=>openPanel("lead")}>سجّل اهتمامك <Icon name="arrow" size={19}/></button>
     </footer>
     <nav className="imo-mobile-dock" aria-label="أدوات الجولة">
-      <button className="imo-glass" aria-label="اختيار غرفة" aria-haspopup="dialog" aria-expanded={panel==="rooms"} onClick={()=>openPanel("rooms")}><Icon name="grid"/><span>الغرف</span></button>
-      <button className="imo-glass" aria-label="عرض مخطط الشقة" aria-haspopup="dialog" aria-expanded={panel==="map"} onClick={()=>{setFloor(current.floor);openPanel("map");}}><Icon name="map"/><span>المخطط</span></button>
+      <button className="imo-glass" aria-label="اختيار غرفة" aria-haspopup="dialog" aria-expanded={panel==="rooms"} onClick={()=>openPanel("rooms")}><Icon name="rooms"/><span>الغرف</span></button>
       <button className={`imo-glass ${measure?"active":""}`} aria-label="قياس على الصورة" aria-pressed={measure} onClick={toggleMeasurement}><Icon name="measure"/><span>قياس</span></button>
       <button className="imo-glass" aria-label="خيارات الجولة" aria-haspopup="dialog" aria-expanded={panel==="options"} onClick={()=>openPanel("options")}><Icon name="settings"/><span>الخيارات</span></button>
     </nav>
     <div className="imo-view-help">اسحب لاستكشاف المكان <span>·</span> اضغط للانتقال <span>·</span> WASD</div>
     {panel==="options"&&<Dialog title="خيارات الجولة" className="imo-view-options" onClose={()=>openPanel(null)}>
       <div className="imo-option-icons">
-        <button title="الغرف" aria-label="اختيار غرفة" onClick={()=>openPanel("rooms")}><Icon name="grid"/><span>الغرف</span></button>
+        <button title="الغرف" aria-label="اختيار غرفة" onClick={()=>openPanel("rooms")}><Icon name="rooms"/><span>الغرف</span></button>
         <button title="تكبير المخطط" aria-label="تكبير المخطط" onClick={()=>{setFloor(current.floor);openPanel("map");}}><Icon name="map"/><span>المخطط</span></button>
         <button title="إظهار أو إخفاء المخطط" aria-label={(mobile?mobileMapVisible:mapVisible)?"إخفاء المخطط المصغّر":"إظهار المخطط المصغّر"} aria-pressed={mobile?mobileMapVisible:mapVisible} onClick={()=>{setMinimapVisible(!(mobile?mobileMapVisible:mapVisible));openPanel(null);}}><Icon name="eye"/><span>إظهار / إخفاء</span></button>
         <button title="تفاصيل الوحدة" aria-label="تفاصيل الوحدة" onClick={()=>openPanel("info")}><Icon name="info"/><span>الوحدة</span></button>
@@ -332,15 +338,19 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
       </div>
     </Dialog>}
     {panel==="rooms"&&<Dialog title="الغرف" className="imo-rooms-dialog" onClose={()=>openPanel(null)}><div className="imo-room-titles">{choices.map(choice=><button key={choice.id} onPointerEnter={()=>warmTarget(choice.scene.id)} onFocus={()=>warmTarget(choice.scene.id)} onClick={()=>chooseRoom(choice.scene)}>{choice.name}</button>)}</div></Dialog>}
-    {panel==="map"&&<Dialog title="مخطط الشقة" wide className="imo-map-dialog" onClose={()=>openPanel(null)}>{tour.plans.length>1&&<div className="imo-floor-tabs">{tour.plans.map(p=><button key={p.floor} className={p.floor===floor?"selected":""} onClick={()=>setFloor(p.floor)}>{p.label}</button>)}</div>}<ViewerFloorPlan onIntent={warmTarget} scenes={tour.scenes} yaw={yaw} key={`${tour.id}/${floor}`} tourId={tour.id} floor={floor} current={current.id} sceneIds={tour.scenes.filter(s=>s.floor===floor).map(s=>s.id)} onSelect={id=>{const target=scenesById.current.get(id);if(target){void navigate(target,false);openPanel(null);}}} hasInteractivePlan={hasReviewedArchitecture(plan)}>{plan?<InteractiveFloorPlan tourTitle={tour.title} brandingName={branding?.name} mode={mapMode} onModeChange={setMapMode} spatialScale={tour.spatialScale} onMeasure={toggleMeasurement} plan={plan} scenes={tour.scenes} current={current.id} yaw={yaw} position={current.floor===floor?position??undefined:undefined} onSelect={id=>{const next=scenesById.current.get(id);if(next){void navigate(next,false);openPanel(null);}}}/>:<p role="status">لا يوجد مخطط جاهز لهذا الدور بعد.</p>}{hasReviewedArchitecture(plan)&&<p className="imo-muted">اختر موقعًا من المخطط للانتقال إليه.</p>}</ViewerFloorPlan></Dialog>}
+    {panel==="map"&&<Dialog title="مخطط الشقة" wide className="imo-map-dialog" onClose={()=>openPanel(null)}>{tour.plans.length>1&&<div className="imo-floor-tabs">{tour.plans.map(p=><button key={p.floor} className={p.floor===floor?"selected":""} onClick={()=>setFloor(p.floor)}>{p.label}</button>)}</div>}<ViewerFloorPlan cache={planCache} onIntent={warmTarget} scenes={tour.scenes} yaw={yaw} key={`${tour.id}/${floor}`} tourId={tour.id} floor={floor} current={current.id} sceneIds={tour.scenes.filter(s=>s.floor===floor).map(s=>s.id)} onSelect={id=>{const target=scenesById.current.get(id);if(target){void navigate(target,false);openPanel(null);}}} hasInteractivePlan={hasReviewedArchitecture(plan)}>{plan?<InteractiveFloorPlan tourTitle={tour.title} brandingName={branding?.name} mode={mapMode} onModeChange={setMapMode} spatialScale={tour.spatialScale} onMeasure={toggleMeasurement} plan={plan} scenes={tour.scenes} current={current.id} yaw={yaw} position={current.floor===floor?position??undefined:undefined} onSelect={id=>{const next=scenesById.current.get(id);if(next){void navigate(next,false);openPanel(null);}}}/>:<p role="status">لا يوجد مخطط جاهز لهذا الدور بعد.</p>}{hasReviewedArchitecture(plan)&&<p className="imo-muted">اختر موقعًا من المخطط للانتقال إليه.</p>}</ViewerFloorPlan></Dialog>}
     {(panel==="info"||panel==="lead")&&<Dialog title={panel==="lead"?"سجّل اهتمامك":"تفاصيل الوحدة"} onClose={()=>openPanel(null)}><UnitCard tour={tour} lead={panel==="lead"} onLead={()=>openPanel("lead")}/></Dialog>}
   </div>;
+}
+function UnitSummary({tour,onOpen}:{tour:Tour;onOpen:()=>void}){
+ const u=tour.unit;
+ return <button type="button" className="imo-unit-summary" onClick={onOpen} aria-label="تفاصيل الوحدة"><span className="imo-unit-summary-title">تفاصيل الوحدة <Icon name="info" size={14}/></span><span className="imo-unit-summary-stats">{u.area!==null&&<span title="المساحة"><Icon name="area" size={18}/><b>{number(u.area)}</b><small>م²</small></span>}{u.bedrooms!==null&&<span title="غرف النوم"><Icon name="bed" size={18}/><b>{u.bedrooms}</b><small>غرف</small></span>}{u.bathrooms!==null&&<span title="الحمامات"><Icon name="bath" size={18}/><b>{u.bathrooms}</b><small>حمام</small></span>}</span>{u.price!==null&&<strong className="imo-unit-summary-price">{number(u.price)} <small>ر.س</small></strong>}</button>;
 }
 function UnitCard({tour,lead,onLead}:{tour:Tour;lead:boolean;onLead:()=>void}) {
   const [down,setDown]=useState(20),[rate,setRate]=useState(6),[years,setYears]=useState(20),[status,setStatus]=useState("");
   const [sending,setSending]=useState(false),[success,setSuccess]=useState(false);
   const u=tour.unit;
-  return <div className="imo-unit-card"><span className="imo-eyebrow">{u.code||tour.title}</span><h3>{u.price!==null?<>{number(u.price)} <small>ر.س</small></>:"السعر عند الطلب"}</h3>
+  return <div className="imo-unit-card"><span className="imo-eyebrow">{u.code||tour.title}</span>{u.price!==null&&<h3>{number(u.price)} <small>ر.س</small></h3>}
     <div className="imo-unit-stats"><span><b>{u.area===null?"—":number(u.area)}</b> م²</span><span><b>{u.bedrooms??"—"}</b> غرف نوم</span><span><b>{u.bathrooms??"—"}</b> دورات مياه</span></div>
     {lead?(success?<div className="imo-success"><Icon name="check" size={32}/><h3>تم تسجيل اهتمامك</h3><p>حُفظ طلبك لهذه الوحدة لدى إدارة المشروع.</p></div>:<form onSubmit={async e=>{e.preventDefault();setSending(true);setStatus("");const form=new FormData(e.currentTarget);try{await api("leads",{method:"POST",body:JSON.stringify({tourId:tour.id,name:form.get("name"),phone:form.get("phone"),note:form.get("note"),website:form.get("website"),consent:form.get("consent")==="on"})});setSuccess(true);}catch(e){setStatus(e instanceof Error?e.message:"تعذر إرسال الطلب");}finally{setSending(false);}}} className="imo-form">
       <label>الاسم<input name="name" required minLength={2} maxLength={100} autoComplete="name"/></label>

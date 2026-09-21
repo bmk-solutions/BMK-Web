@@ -440,3 +440,13 @@ for(const newFloor of [0,1])test(`actual Sharp finalization commits spatial data
  const response=await cloudRoute(req(`tours/${tour.id}/images-finalize`,{method:'POST',body:JSON.stringify({uploadId,revision:tour.revision})},true));assert.equal(response.status,201);assert.equal(calls.filter(call=>call.url.pathname.endsWith('/imo3d_commit_upload_v2')).length,1);assert.ok(!calls.some(call=>call.url.pathname.endsWith('/imo3d_save_tour')));
 });
 
+
+
+test('cloud room entry view preserves geometry and uses optimistic revision checks',()=>{
+ const tour=syntheticTour(),before=JSON.stringify(tour),view={yaw:-75,pitch:10,fov:65};
+ const next=applyMetadata(tour,tourMetadataSchema.parse({revision:tour.revision,entryView:{sceneId:tour.scenes[1].id,view}}));
+ assert.deepEqual(next.scenes[1].entryView,view);assert.deepEqual(next.plans,tour.plans);assert.equal(JSON.stringify(tour),before);
+ assert.throws(()=>applyMetadata(next,{revision:next.revision+1,entryView:{sceneId:tour.scenes[0].id,view}}),/تغيّرت/);
+ assert.throws(()=>applyMetadata(next,{revision:next.revision,entryView:{sceneId:'foreign',view}}),/غير موجودة/);
+ assert.equal(applyMetadata(next,{revision:next.revision,entryView:{sceneId:tour.scenes[1].id,view:null}}).scenes[1].entryView,undefined);
+});

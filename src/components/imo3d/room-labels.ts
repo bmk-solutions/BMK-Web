@@ -16,7 +16,7 @@ export function roomChoices(scenes:Scene[],floor:number,kind?:RoomKind):RoomChoi
     if(kind!==undefined&&functionKind!==kind)return[];
     const score=(scene:Scene)=>scene.roomSemantic?.observedKind===functionKind&&functionKind!=="unknown"?scene.roomSemantic.observedConfidence??0:0;
     // Sort a copy, preserving original scene order on ties and for legacy tours.
-    const representative=[...members].sort((a,b)=>score(b)-score(a))[0];
+    const representative=members.find(scene=>scene.entryView)??[...members].sort((a,b)=>score(b)-score(a))[0];
     const named=members.find(scene=>scene.roomSemantic?.nameSource==="user")??members[0];
     return [{id,name:captureLabel(named,scenes),scene:representative,count:members.length,kind:functionKind,
       needsReview:kinds.size>1||members.some(scene=>scene.roomSemantic?.needsReview??false)}];

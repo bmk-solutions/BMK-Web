@@ -1,3 +1,4 @@
+import {constrainedView} from '@/lib/imo3d/view-presentation';
 import * as THREE from "three";
 import {PanoramaBlobCache} from './PanoramaBlobCache';
 import type { Plan, Point, Scene } from "@/lib/imo3d/model";
@@ -123,7 +124,7 @@ export class PanoramaEngine {
 
   addLook(deltaYaw: number, deltaPitch: number) {
     this.lookRemaining.yaw += deltaYaw;
-    this.lookRemaining.pitch = Math.max(-1.4,Math.min(1.4,this.pitch+this.lookRemaining.pitch+deltaPitch))-this.pitch;
+    this.lookRemaining.pitch = constrainedView(this.pitch+this.lookRemaining.pitch+deltaPitch,this.fov).pitch-this.pitch;
     this.dirty = true;
   }
 
@@ -582,7 +583,7 @@ export class PanoramaEngine {
       this.lookRemaining.yaw*=1-lookWeight; this.lookRemaining.pitch*=1-lookWeight;
       this.dirty=true;
     }
-    this.pitch=Math.max(-1.4,Math.min(1.4,this.pitch)); this.fov=Math.max(40,Math.min(95,this.fov));
+    this.pitch=constrainedView(this.pitch,this.fov).pitch; this.fov=Math.max(40,Math.min(95,this.fov));
     const view=`${this.yaw},${this.pitch},${this.fov}`;
     if (!this.dirty && !this.tween && view===this.lastView) return;
     this.lastView=view; this.dirty=false;

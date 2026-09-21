@@ -7,6 +7,7 @@ import { cancelJob } from "./processing-jobs";
 import { floorPlanProjection } from "../../components/imo3d/floorplan-geometry";
 import {markRoomNameAsUser,reconcileRoomMembership,renameSemanticRoom} from "./room-semantics";
 import {pruneUnreferencedSurfaceAssets} from "./surface-model-cleanup";
+import {applyEntryView} from "./view-presentation";
 
 const floorMessage = "اختر رقم دور صحيحًا من −10 إلى 200.";
 export const uploadFloorSchema = z.preprocess(value => {
@@ -18,6 +19,7 @@ export const tourMetadataSchema = z.object({
   revision: z.number().int().nonnegative(), title: z.string().trim().min(2).max(120).optional(),
   published: z.boolean().optional(), unit: unitSchema.optional(),
   measurementHeightMeters:z.number().finite().min(.15).max(10).nullable().optional(),
+  entryView:z.object({sceneId:z.string().min(1).max(80),view:sceneSchema.shape.entryView.unwrap().nullable()}).optional(),
   scenes: z.array(sceneSchema.pick({ id: true, name: true, room: true, floor: true })).max(500).optional(),
   roomRenames:z.array(z.object({groupId:z.string().min(1).max(160),name:z.string().trim().min(1).max(100)})).max(500).refine(values=>new Set(values.map(value=>value.groupId)).size===values.length,"الغرفة مكررة في طلب التسمية.").optional(),
 });
@@ -108,6 +110,7 @@ export function saveTourMetadata(database: DatabaseSync, tourId: string, input: 
       throw new FloorAssignmentError(400, "قائمة اللقطات غير مطابقة.");
     }
     let nextScenes = current.scenes.map(scene => {const next={...scene,...changes.get(scene.id)};return next.room!==scene.room?markRoomNameAsUser(next):next;});
+    if(input.entryView){try{nextScenes=applyEntryView({...current,scenes:nextScenes},input.entryView);}catch(error){throw new FloorAssignmentError(400,error instanceof Error?error.message:"تعذر حفظ جهة العرض.");}}
     for(const rename of input.roomRenames??[]){try{nextScenes=renameSemanticRoom(nextScenes,rename.groupId,rename.name);}catch(error){throw new FloorAssignmentError(400,error instanceof Error?error.message:"تعذر تعديل اسم الغرفة.");}}
     const floorChanged = nextScenes.some((scene, index) => scene.floor !== current.scenes[index].floor);
     const published = input.published ?? current.published;

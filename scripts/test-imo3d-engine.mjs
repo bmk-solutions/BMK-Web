@@ -38,6 +38,7 @@ function harness({reduced=false,coarse=false,plans=[],maxTextureSize=8192,device
     const result={exports:{}};
     const code=ts.transpileModule(readFileSync(file,"utf8"),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText;
     const localRequire=name=>name==="three"?{...THREE,WebGLRenderer:FakeRenderer}:
+      name==="@/lib/imo3d/view-presentation"?load("src/lib/imo3d/view-presentation.ts"):
       name==="./PanoramaMotion"?load("src/components/imo3d/PanoramaMotion.ts"):
       name==="../../lib/imo3d/display-depth.ts"?load("src/lib/imo3d/display-depth.ts"):
       name==="./PanoramaQuality"?load("src/components/imo3d/PanoramaQuality.ts"):
@@ -754,4 +755,11 @@ test("mobile bitmap arrival uses bounded 3K decode and counts in-flight neighbou
  const h=harness({bitmap:true,coarse:true});try{h.canvas.clientWidth=390;h.canvas.clientHeight=844;const a=scene("mobile-ready-a"),b=scene("mobile-ready-b",2);await initial(h,a);await h.success(a.image,4096,2048);assert.equal(h.engine.cache.get(a.id).bytes,3072*1536*4);
  const moving=h.engine.move(b);await h.settle();const decode=h.bitmapRequests.find(r=>r.url===b.image);assert.equal(decode.options.resizeWidth,3072);assert.ok(h.engine.cachedBytes()+h.engine.reservedBytes()<=h.engine.memoryBudget);assert.equal(h.engine.tween,null);await h.success(b.image,4096,2048);await h.finish();assert.equal(await moving,true);assert.equal(h.canvas.dataset.textureWidth,"3072");assert.ok(h.engine.cachedBytes()<=h.engine.memoryBudget);
  }finally{h.engine.dispose();}
+});
+
+
+test('panorama viewport cannot reveal the tripod when dragging or zooming out',async()=>{
+ const h=harness();
+ try{for(const fov of [40,74,95]){h.engine.fov=fov;h.engine.pitch=-Math.PI/2;h.engine.addLook(0,-10);await h.finish();assert.ok(h.engine.pitch*180/Math.PI-h.engine.fov/2>=-65-1e-8);}}
+ finally{h.engine.dispose();}
 });

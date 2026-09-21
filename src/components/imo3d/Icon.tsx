@@ -1,5 +1,11 @@
 export function Icon({name,size=21}:{name:string;size?:number}) {
   const paths:Record<string,React.ReactNode>={
+    "open-plan":<path d="M7 17 19 5M8 5h11v11"/>,
+    bed:<><path d="M3 19V9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10M3 16h18M3 12h18M7 7V4h10v3M12 7v5"/></>,
+    bath:<><path d="M3 12h18l-1 5a3 3 0 0 1-3 2H7a3 3 0 0 1-3-2ZM6 12V5a2 2 0 0 1 4 0M6 19v2m12-2v2"/></>,
+    area:<><rect x="4" y="4" width="16" height="16" rx="2"/><path d="m8 16 8-8M8 12v4h4m0-8h4v4"/></>,
+    rooms:<><path d="M4 21V3h16v18M8 21V6l8-2v17M2 21h20M12 12v2"/></>,
+
     "rotate-left":<><path d="M3 10a9 9 0 1 1 2 9M3 4v6h6"/></>,
     "rotate-right":<><path d="M21 10a9 9 0 1 0-2 9m2-15v6h-6"/></>,
     compass:<><circle cx="12" cy="12" r="9"/><path d="m15 9-2 4-4 2 2-4Z"/></>,
@@ -23,5 +29,5 @@ export function Icon({name,size=21}:{name:string;size?:number}) {
     trash:<><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/></>,
     settings:<><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="10" cy="18" r="2"/></>,
   };
-  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]??paths.info}</svg>;
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]??paths.info}</svg>;
 }

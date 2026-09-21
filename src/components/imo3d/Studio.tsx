@@ -28,7 +28,7 @@ import {SemanticRoomsEditor} from "./SemanticRoomsEditor";
 import {ProjectUsageDialog} from "./ProjectUsageDialog";
 import {LeadInbox} from "./LeadInbox";
 import {unnamedRoom} from "./room-labels";
-import {processingActive,type ProcessingJob} from "@/lib/imo3d/processing-model";
+import {parseProcessingJob,processingActive,type ProcessingJob} from "@/lib/imo3d/processing-model";
 import "./studio-workflows.css";
 import "./liquid-glass.css";
 
@@ -113,7 +113,7 @@ function Editor({initial,onChange,onBack,onError,onNotice,onBlockedChange,onSett
       let delay=8000;
       try{
         const version=jobVersion.current;
-        const next=await api<ProcessingJob|null>(`tours/${initial.id}/processing`,{signal:abort.signal});
+        const next=parseProcessingJob(await api<unknown>(`tours/${initial.id}/processing`,{signal:abort.signal}));
         if(version!==jobVersion.current){if(!stopped)timer=setTimeout(()=>void poll(),1500);return;}
         if(stopped)return;jobRef.current=next;setJob(next);setJobLoading(false);setJobError("");
         if(processingActive(next))delay=1500;
@@ -144,7 +144,7 @@ function Editor({initial,onChange,onBack,onError,onNotice,onBlockedChange,onSett
     if(active.current)accept(updated);return updated;
   };
   const edit=(value:Tour)=>{if(workingRef.current)return;tourRef.current=value;dirtyRef.current=true;setTour(value);setDirty(true);setFloorDirty(value.scenes.some(scene=>scene.floor!==baseline.current.scenes.find(item=>item.id===scene.id)?.floor));};
-  const setProcessing=(next:ProcessingJob|null)=>{jobVersion.current++;jobRef.current=next;setJob(next);setJobLoading(false);};
+  const setProcessing=(value:unknown)=>{const next=parseProcessingJob(value);jobVersion.current++;jobRef.current=next;setJob(next);setJobLoading(false);};
   const startProcessing=async(value=tourRef.current)=>{
     if(value.scenes.length<2||value.scenes.length>300)throw Error("تحتاج المعالجة التلقائية إلى صورتين متداخلتين على الأقل، وبحد أقصى 300 صورة في الجولة.");
     const next=await api<ProcessingJob>(`tours/${value.id}/processing`,{method:"POST"});

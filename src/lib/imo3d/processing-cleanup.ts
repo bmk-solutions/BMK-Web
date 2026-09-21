@@ -166,12 +166,12 @@ async function cleanupPass(dataDirectory: string, jobIds: readonly string[]): Pr
   return result;
 }
 
-export async function cleanupProcessingArtifacts(dataDirectory: string, jobIds: readonly string[]): Promise<CleanupResult> {
+async function cleanupWithRetry(dataDirectory: string, jobIds: readonly string[]): Promise<CleanupResult> {
   const result = await cleanupPass(dataDirectory, jobIds);
   // Windows can report EPERM while a concurrent cleaner still holds a directory
   // handle. Retry the entire validated pass, never an unchecked deletion path.
   for (let attempt = 0; attempt < 2; attempt++) {
-    const retryIds = result.failed.filter(item => ["EPERM", "EBUSY", "ENOTEMPTY"].includes(item.code)).map(item => item.jobId);
+    const retryIds = result.failed.filter(item => ["EPERM", "EBUSY", "EBADF", "ENOTEMPTY"].includes(item.code)).map(item => item.jobId);
     if (!retryIds.length) break;
     await delay(25 * (attempt + 1));
     const repeated = await cleanupPass(dataDirectory, retryIds), ids = new Set(retryIds);
@@ -181,4 +181,19 @@ export async function cleanupProcessingArtifacts(dataDirectory: string, jobIds: 
     result.skipped.push(...repeated.skipped);
   }
   return result;
+}
+
+// API cancellation and a worker finalizer can request the same cleanup at once.
+// Share each in-flight job operation without weakening any path checks.
+const pendingCleanup = new Map<string,Promise<CleanupResult>>();
+export async function cleanupProcessingArtifacts(dataDirectory:string,jobIds:readonly string[]):Promise<CleanupResult>{
+ const result:CleanupResult={removed:[],missing:[],skipped:[],failed:[]};
+ const root=path.resolve(dataDirectory),keyRoot=process.platform==='win32'?root.toLowerCase():root;
+ for(const id of new Set(jobIds)){
+  const key=JSON.stringify([keyRoot,id]);let task=pendingCleanup.get(key);
+  if(!task){task=cleanupWithRetry(dataDirectory,[id]);pendingCleanup.set(key,task);}
+  try{const next=await task;result.removed.push(...next.removed);result.missing.push(...next.missing);result.skipped.push(...next.skipped);result.failed.push(...next.failed);}
+  finally{if(pendingCleanup.get(key)===task)pendingCleanup.delete(key);}
+ }
+ return result;
 }

@@ -1,3 +1,4 @@
+import {parseProcessingJob} from '../src/lib/imo3d/processing-model';
 import {test,beforeEach,afterEach} from 'node:test';
 import assert from 'node:assert/strict';
 import {createHmac,createHash} from 'node:crypto';
@@ -474,4 +475,33 @@ test('hotspot uploads reject disallowed formats and oversized images before sign
  const tour=syntheticTour();mock=call=>{if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);throw Error('Unexpected storage write');};
  for(const input of [{action:'init',mime:'image/svg+xml',size:200},{action:'init',mime:'image/png',size:11_000_000},{action:'init',mime:'video/mp4',size:60_000_000}])assert.ok((await cloudRoute(req(`tours/${tour.id}/hotspot-media`,{method:'POST',body:JSON.stringify(input)},true))).status>=400);
  assert.equal(calls.filter(c=>c.method!=='GET').length,0);
+});
+
+
+for(const initialStatus of ['queued','running','cancelled','completed',null])test(`processing cancellation returns a renderable latest job for ${initialStatus ?? 'no prior job'}`,async()=>{
+ const tour=syntheticTour();const before=JSON.stringify(tour);
+ let row=initialStatus?{id:'cancel-test',tour_id:tour.id,status:initialStatus,progress:35,stage:'Processing',created_at:'2026-01-01',updated_at:'2026-01-01',error:null,warnings:[],result:null,input_hash:'private-hash',lease_owner:'private-worker',lease_until:0}:null;
+ mock=call=>{
+  if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);
+  assert.ok(call.url.pathname.endsWith('/imo3d_processing_jobs'));
+  assert.equal(call.url.searchParams.get('tour_id'),'eq.'+tour.id);
+  if(call.method==='PATCH'){
+   assert.equal(call.url.searchParams.get('status'),'in.(queued,running)');assert.equal(call.body?.cancel_requested,true);
+   if(row&&['queued','running'].includes(row.status)){row={...row,status:'cancelled',stage:String(call.body!.stage)};return result([row]);}return result([]);
+  }
+  assert.equal(call.method,'GET');assert.equal(call.url.searchParams.get('limit'),'1');return result(row?[row]:[]);
+ };
+ for(let repeat=0;repeat<2;repeat++){
+  const response=await cloudRoute(req(`tours/${tour.id}/processing-cancel`,{method:'POST'},true));assert.equal(response.status,200);
+  const body=await response.json(),job=parseProcessingJob(body);
+  assert.equal(job?.status??null,initialStatus===null?null:initialStatus==='completed'?'completed':'cancelled');
+  if(job){assert.equal(job.warnings.length,0);assert.equal(body.lease_owner,undefined);assert.equal(body.input_hash,undefined);assert.equal(job.tourId,tour.id);}
+ }
+ assert.equal(JSON.stringify(tour),before);assert.equal(calls.filter(c=>c.method==='PATCH').length,2);
+});
+
+test('processing responses reject old cancellation counts before reaching render state',()=>{
+ for(const value of [0,1,2,undefined,{}, {status:'cancelled'}, {id:'x',warnings:null}])assert.throws(()=>parseProcessingJob(value),/تعذر قراءة حالة/);
+ assert.equal(parseProcessingJob(null),null);
+ const job=parseProcessingJob({id:'a',tourId:'b',status:'cancelled',progress:35,stage:'Cancelled',createdAt:'2026-01-01',updatedAt:'2026-01-01',error:null});assert.deepEqual(job?.warnings,[]);
 });

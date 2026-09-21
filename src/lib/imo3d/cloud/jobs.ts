@@ -15,7 +15,13 @@ const planResult=z.object({source:z.string().optional(),floors:z.array(floor),li
 const processingResult=z.object({registered:z.number(),total:z.number(),links:z.number(),components:z.number(),scale:z.enum(["relative","metric"]),boundaryPhotos:z.number().optional(),recognizedPhotos:z.number().optional(),rooms:z.number().optional(),jointDepthPhotos:z.number().optional(),jointPoints:z.number().optional()});
 export function publicProcessingJob(row:CloudJob|null){if(!row)return null;const result=processingResult.safeParse(row.result);return{id:row.id,tourId:row.tour_id,status:row.status,progress:row.progress,stage:row.stage,createdAt:row.created_at,updatedAt:row.updated_at,error:row.error,warnings:row.warnings??[],...(result.success?{result:result.data}:{})};}
 export async function cloudProcessing(request:Request,tour:Tour,action:string){
- if(action==="processing-cancel"&&request.method==="POST"){const rows=await cloudQuery("processing_jobs",`tour_id=eq.${eq(tour.id)}&status=in.(queued,running)`,"PATCH",{status:"cancelled",cancel_requested:true,stage:"أُلغيت المعالجة",updated_at:new Date().toISOString()});return json(rows.length);}
+ if(action==="processing-cancel"&&request.method==="POST"){
+  await cloudQuery("processing_jobs",`tour_id=eq.${eq(tour.id)}&status=in.(queued,running)`,"PATCH",{status:"cancelled",cancel_requested:true,stage:"أُلغيت المعالجة",updated_at:new Date().toISOString()});
+  // Match GET and the local cancel route, including repeat clicks or a worker
+  // finishing first. A row count is not a renderable ProcessingJob.
+  const rows=await cloudQuery<CloudJob[]>("processing_jobs",`tour_id=eq.${eq(tour.id)}&order=created_at.desc,id.desc&limit=1`);
+  return json(publicProcessingJob(rows[0]??null));
+ }
  if(action!=="processing")return null;
  if(request.method==="POST"){
   if(tour.scenes.length<2||tour.scenes.length>300)return fail("ارفع من صورتين إلى 300 صورة متداخلة للمعالجة التلقائية.",422);

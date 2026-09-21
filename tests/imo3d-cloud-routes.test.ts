@@ -16,7 +16,8 @@ import {PanoramaBlobCache} from '../src/components/imo3d/PanoramaBlobCache';
 import {cloudSignedDownloads} from '../src/lib/imo3d/cloud/client';
 import {chatgptOAuth,chatgptResource,signedValue,authorization,digest,chatgptConnection} from '../src/lib/imo3d/cloud/chatgpt-auth';
 import {chatgptMCP,callChatGPTTool,chatgptDrafts} from '../src/lib/imo3d/cloud/chatgpt-mcp';
-import {subscriptionChildEnvironment,validateSubscriptionAnalysis,validateImageReview} from '../src/lib/imo3d/subscription-plan-worker';
+import {subscriptionChildEnvironment,validateSubscriptionAnalysis,validateImageReview,mergeSubscriptionReview} from '../src/lib/imo3d/subscription-plan-worker';
+import {planCheckpointDirectory,readPlanCheckpoint,savePlanCheckpoint,preparePlanPhotos} from '../src/lib/imo3d/plan-checkpoints';
 import {labeledPlanSVG} from '../src/lib/imo3d/plan-labels';
 const origin='https://imo3d.example',secret='synthetic-test-secret-is-at-least-32-characters',fetchOriginal=globalThis.fetch,envOriginal={...process.env};
 test('cloud measurement scale is capture-scoped, revision safe and does not promote inferred geometry',()=>{
@@ -114,11 +115,41 @@ test('photo and furnished-label contracts reject omitted sources and wrong room 
  assert.equal(validateSubscriptionAnalysis({floors:[floor]},scenes).floors.length,1);
  assert.throws(()=>validateSubscriptionAnalysis({floors:[{...floor,evidence:floor.evidence.slice(0,1)}]},scenes),/COVERAGE/);
  assert.throws(()=>validateSubscriptionAnalysis({floors:[{...floor,geometryBasis:'topology-only'}]},scenes),/GEOMETRY_UNRESOLVED/);
+ const {evidence,...geometry}=floor,corrected={...evidence[0],visibleEvidence:['Two sofas; same room seen from another angle']};
+ const review={floors:[{...geometry,evidenceCorrections:[corrected]}]};
+ const merged=mergeSubscriptionReview({floors:[floor]},review,scenes);
+ assert.deepEqual(merged.floors[0].evidence,[corrected,evidence[1]]);
+ assert.deepEqual(floor.evidence,evidence,'review must not mutate checkpoint');
+ assert.throws(()=>mergeSubscriptionReview({floors:[floor]},{floors:[{...geometry,evidenceCorrections:[corrected,corrected]}]},scenes),/COVERAGE/);
+ assert.throws(()=>mergeSubscriptionReview({floors:[floor]},{floors:[{...geometry,evidenceCorrections:[{...corrected,sceneId:'other-tour'}]}]},scenes),/COVERAGE/);
+ assert.throws(()=>mergeSubscriptionReview({floors:[floor]},{floors:[{...geometry,evidenceCorrections:[],audit:{...audit,reviewedSceneIds:['s1']}}]},scenes),/COVERAGE/);
+ assert.throws(()=>mergeSubscriptionReview({floors:[floor]},{floors:[{...geometry,geometryBasis:'topology-only',evidenceCorrections:[]}]},scenes),/GEOMETRY_UNRESOLVED/);
  const image={imagePath:'generated.png',labels:[{roomId:'r',name:'صالة',x:.5,y:.5}],baseImageHasNoText:true,navigation:null,reviewNotes:'Reviewed photo furniture',audit};
  assert.equal(validateImageReview(image,['r'],['s1','s2']).labels.length,1);
  assert.throws(()=>validateImageReview(image,['different'],['s1','s2']),/COVERAGE/);
  assert.throws(()=>validateImageReview({...image,baseImageHasNoText:false},['r'],['s1','s2']));
  assert.match(labeledPlanSVG(Buffer.from('x'),500,500,[{roomId:'r',name:'<script>&',x:.5,y:.5}]),/&lt;script&gt;&amp;/);
+});
+test('plan retries reuse validated checkpoints only for the exact tour and image fingerprint',async()=>{
+ const root=path.resolve('work/plan-checkpoint-tests/'+Date.now()),directory=planCheckpointDirectory(root,'tour-a','photos-v1');
+ const validate=(value:unknown)=>{if((value as {covered?:number}).covered!==100)throw Error('incomplete');return value;};
+ assert.equal(await readPlanCheckpoint(directory,'analysis',validate),null);
+ await savePlanCheckpoint(directory,'analysis',{covered:100});
+ assert.deepEqual(await readPlanCheckpoint(directory,'analysis',validate),{covered:100});
+ assert.equal(await readPlanCheckpoint(planCheckpointDirectory(root,'tour-b','photos-v1'),'analysis',validate),null);
+ assert.equal(await readPlanCheckpoint(planCheckpointDirectory(root,'tour-a','photos-v2'),'analysis',validate),null);
+ await savePlanCheckpoint(directory,'analysis',{covered:99});
+ assert.equal(await readPlanCheckpoint(directory,'analysis',validate),null);
+});
+test('100 plan photos prepare with bounded concurrency and stable scene order',async()=>{
+ let active=0,peak=0;const scenes=Array.from({length:100},(_,i)=>i);
+ const result=await preparePlanPhotos(scenes,async(item,index)=>{active++;peak=Math.max(peak,active);await new Promise(resolve=>setTimeout(resolve,index%3));active--;return 'scene-'+item;},3);
+ assert.equal(peak,3);assert.equal(active,0);assert.deepEqual(result,scenes.map(i=>'scene-'+i));
+});
+test('photo preparation drains in-flight work on failure without starting the remaining batch',async()=>{
+ let active=0,started=0;
+ await assert.rejects(preparePlanPhotos(Array.from({length:100},(_,i)=>i),async(item)=>{started++;active++;try{if(item===1)throw Error('download failed');await new Promise(resolve=>setTimeout(resolve,5));return item;}finally{active--;}}),/download failed/);
+ assert.equal(active,0);assert.ok(started<=3);
 });
 test('room name edits save a new draft, preserve the base image and prevent editing stale or legacy raster labels',async()=>{
  const tour=syntheticTour(),id='00000000-0000-4000-8000-000000000001',url=origin+'/api/imo3d-chatgpt/drafts?tourId='+tour.id+'&id='+id;

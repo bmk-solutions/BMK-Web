@@ -7,16 +7,24 @@ import {ChatGPTDrafts} from './ChatGPTDrafts';
 type Status={configured:boolean;provider?:string;workerOnline?:boolean;job:AIPlanJob|null;stale:boolean};
 export function AIPlanPanel({tourId,sceneCount,disabled}:{tourId:string;sceneCount:number;disabled:boolean}){
  const [status,setStatus]=useState<Status|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
+ const [now,setNow]=useState(()=>Date.now());
  const url=`/api/imo3d/tours/${tourId}/ai-plan`;
- useEffect(()=>{let stopped=false;const controller=new AbortController();const update=async()=>{try{const response=await fetch(url,{signal:controller.signal});const data=await response.json();if(!response.ok)throw Error(data.error);if(!stopped)setStatus(data);}catch(error){if(!stopped)setError(error instanceof Error?error.message:'تعذر قراءة حالة المخطط.');}};void update();const timer=setInterval(()=>void update(),4000);return()=>{stopped=true;controller.abort();clearInterval(timer);};},[url]);
+ useEffect(()=>{let stopped=false,polling=false;const controller=new AbortController();const update=async()=>{if(polling)return;polling=true;try{const response=await fetch(url,{signal:controller.signal});const data=await response.json();if(!response.ok)throw Error(data.error);if(!stopped){setStatus(data);setNow(Date.now());}}catch(error){if(!stopped)setError(error instanceof Error?error.message:'تعذر قراءة حالة المخطط.');}finally{polling=false;}};void update();const timer=setInterval(()=>void update(),4000);return()=>{stopped=true;controller.abort();clearInterval(timer);};},[url]);
  const run=async(method:'POST'|'DELETE')=>{setBusy(true);setError('');try{const response=await fetch(url,{method});const data=await response.json();if(!response.ok)throw Error(data.error);setStatus(data);}catch(error){setError(error instanceof Error?error.message:'تعذر بدء التحليل.');}finally{setBusy(false);}};
  const job=status?.job,active=job?.status==='queued'||job?.status==='running';
+ const elapsedMinutes=job?Math.max(0,Math.floor((now-Date.parse(job.createdAt))/60000)):0;
  return <section className="imo-form" style={{padding:20,border:'1px solid #dce6e0',borderRadius:16,marginBottom:20}}>
   <div><h3>مخطط 2D من تحليل الصور</h3><p>تحليل كل لقطة، دمج الغرف حسب الدور، ثم مراجعة بصرية للمسودة. النتائج تقديرية وتحتاج مراجعة؛ لا تتحول إلى قياسات أو مخطط منشور تلقائيًا.</p></div>
   {status?.provider==='chatgpt-subscription-local'?<p role="status">{status.workerOnline?'عامل ChatGPT متصل. تُحلل صور هذه الجولة ويُنشأ مخطط مفروش خاص بها؛ يمكنك تعديل أسماء الغرف قبل النشر.':'عامل ChatGPT غير متصل. شغّل عامل المخططات على جهازك لتفعيل زر التحليل.'} أبقِ الجهاز متصلًا أثناء العمل. تُستخدم حدود اشتراكك.</p>:status&&!status.configured&&<p role="status">التوليد التلقائي غير مهيّأ على هذه النسخة.</p>}
   {status?.configured&&status.provider!=='chatgpt-subscription-local'&&<p>يستخدم هذا المسار حساب API المهيّأ على الخادم.</p>}
   <div className="imo-dialog-actions"><button type="button" className="imo-button primary" disabled={disabled||busy||active||!status?.configured||sceneCount<2||sceneCount>100} onClick={()=>void run('POST')}>{active?'جارٍ إنشاء المسودة…':'تحليل الصور وإنشاء مخطط'}</button>{active&&<button type="button" className="imo-button secondary" disabled={busy} onClick={()=>void run('DELETE')}>إيقاف المعالجة</button>}</div>
-  {active&&<div role="status"><p>{job.stage}</p><progress aria-label="معالجة المخطط"/></div>}
+  {active&&<div role="status" style={{padding:16,borderRadius:12,background:'#eef6f2',display:'grid',gap:10}}>
+   <strong>{job.stage}</strong>
+   <span>{Number.isFinite(elapsedMinutes)&&elapsedMinutes>0?`مضى ${elapsedMinutes} دقيقة على طلب المخطط`:'بدأ طلب المخطط للتو'}</span>
+   <p style={{margin:0}}>صور الجولة محفوظة. إنشاء المخطط عملية منفصلة عن رفع الصور؛ يمكنك معاينة الجولة أثناء تجهيز المسودة.</p>
+   <a className="imo-button secondary" href={`/imo3d/t/${tourId}`} target="_blank" rel="noreferrer">معاينة الجولة الآن</a>
+   <small>تحليل الصور ← مراجعة توزيع الغرف ← رسم المخطط المفروش. لا تنشر المسودة إلا بعد مراجعتها.</small>
+  </div>}
   {(error||job?.error)&&<p role="alert" className="imo-error">{error||job?.error}</p>}
   {status?.stale&&<p>تغيرت صور الجولة أو أدوارها. أعد التوليد للحصول على مسودة للصور الحالية.</p>}
   <ChatGPTDrafts tourId={tourId}/>

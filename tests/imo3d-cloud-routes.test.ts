@@ -450,3 +450,28 @@ test('cloud room entry view preserves geometry and uses optimistic revision chec
  assert.throws(()=>applyMetadata(next,{revision:next.revision,entryView:{sceneId:'foreign',view}}),/غير موجودة/);
  assert.equal(applyMetadata(next,{revision:next.revision,entryView:{sceneId:tour.scenes[1].id,view:null}}).scenes[1].entryView,undefined);
 });
+
+
+test('photo edit draft metadata and assets remain private until a draft is applied',async()=>{
+ const tour=syntheticTour();tour.published=true;const assetId='00000000-0000-4000-8000-000000000009';
+ tour.photoEdits=[{id:assetId,sceneId:tour.scenes[0].id,source:tour.scenes[0].image,prompt:'Private edit prompt',yaw:0,pitch:0,fov:50,status:'draft',createdAt:'2020-01-01',updatedAt:'2020-01-01'}];
+ mock=call=>{if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);if(call.url.pathname.endsWith('/imo3d_project_branding'))return result([]);if(call.url.pathname.endsWith('/imo3d_assets'))return result([{id:assetId,tour_id:tour.id,file:'retouch-draft.webp',storage_key:'retouch/test.webp',mime:'image/webp'}]);if(call.url.pathname.includes('/object/sign/'))return result({signedURL:'/object/sign/imo3d-private/retouch/test.webp?token=synthetic'});throw Error('Unexpected '+call.url.pathname);};
+ const publicBody=await (await cloudRoute(req('tours/'+tour.id))).json();assert.equal(publicBody.photoEdits,undefined);
+ assert.equal((await cloudRoute(req('assets/'+assetId))).status,404);assert.equal(calls.filter(c=>c.method==='POST').length,0);
+ tour.scenes[0].presentation={image:'/api/imo3d/assets/'+assetId,preview:'/preview',thumbnail:'/thumb',width:4096,height:2048};
+ assert.equal((await cloudRoute(req('assets/'+assetId))).status,307);
+});
+test('photo editing requires admin, optimistic revision and never mutates source assets',async()=>{
+ const tour=syntheticTour();tour.published=true;
+ mock=call=>{if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);if(call.url.pathname.endsWith('/imo3d_save_tour')){const next=call.body!.p_tour as typeof tour;assert.deepEqual(next.scenes,tour.scenes);assert.equal(next.photoEdits![0].status,'queued');assert.equal(call.body!.p_expected_revision,tour.revision);return result({...next,revision:tour.revision+1});}throw Error('Unexpected '+call.url.pathname);};
+ const input={revision:tour.revision,action:'create',sceneId:tour.scenes[0].id,prompt:'Remove the camera',yaw:0,pitch:-90,fov:85};
+ assert.equal((await cloudRoute(req(`tours/${tour.id}/photo-edits`,{method:'POST',body:JSON.stringify(input)}))).status,401);
+ assert.equal((await cloudRoute(req(`tours/${tour.id}/photo-edits`,{method:'POST',body:JSON.stringify({...input,revision:99})},true))).status,409);
+ assert.equal((await cloudRoute(req(`tours/${tour.id}/photo-edits`,{method:'POST',body:JSON.stringify(input)},true))).status,200);
+ assert.equal(calls.filter(c=>c.method!=='GET').length,1);
+});
+test('hotspot uploads reject disallowed formats and oversized images before signing',async()=>{
+ const tour=syntheticTour();mock=call=>{if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);throw Error('Unexpected storage write');};
+ for(const input of [{action:'init',mime:'image/svg+xml',size:200},{action:'init',mime:'image/png',size:11_000_000},{action:'init',mime:'video/mp4',size:60_000_000}])assert.ok((await cloudRoute(req(`tours/${tour.id}/hotspot-media`,{method:'POST',body:JSON.stringify(input)},true))).status>=400);
+ assert.equal(calls.filter(c=>c.method!=='GET').length,0);
+});

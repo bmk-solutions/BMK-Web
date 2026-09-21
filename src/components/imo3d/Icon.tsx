@@ -1,5 +1,8 @@
 export function Icon({name,size=21}:{name:string;size?:number}) {
   const paths:Record<string,React.ReactNode>={
+    pin:<><path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 1 1 14 0Z"/><circle cx="12" cy="10" r="2"/></>,
+    image:<><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="2"/><path d="m3 18 6-6 4 4 3-3 5 5"/></>,
+    audio:<><path d="M4 10v4h4l5 4V6l-5 4ZM17 8a6 6 0 0 1 0 8M20 5a10 10 0 0 1 0 14"/></>,
     "open-plan":<path d="M7 17 19 5M8 5h11v11"/>,
     bed:<><path d="M3 19V9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10M3 16h18M3 12h18M7 7V4h10v3M12 7v5"/></>,
     bath:<><path d="M3 12h18l-1 5a3 3 0 0 1-3 2H7a3 3 0 0 1-3-2ZM6 12V5a2 2 0 0 1 4 0M6 19v2m12-2v2"/></>,

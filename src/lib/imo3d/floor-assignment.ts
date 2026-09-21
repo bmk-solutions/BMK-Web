@@ -1,3 +1,4 @@
+import {hotspotsSchema,validateHotspots} from "./hotspots";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { sceneSchema, unitSchema, type Plan, type Scene, type Tour } from "./model";
@@ -16,6 +17,7 @@ export const uploadFloorSchema = z.preprocess(value => {
 }, z.number({ error: floorMessage }).int(floorMessage).min(-10, floorMessage).max(200, floorMessage));
 
 export const tourMetadataSchema = z.object({
+  hotspots:hotspotsSchema.optional(),
   revision: z.number().int().nonnegative(), title: z.string().trim().min(2).max(120).optional(),
   published: z.boolean().optional(), unit: unitSchema.optional(),
   measurementHeightMeters:z.number().finite().min(.15).max(10).nullable().optional(),
@@ -115,8 +117,9 @@ export function saveTourMetadata(database: DatabaseSync, tourId: string, input: 
     const floorChanged = nextScenes.some((scene, index) => scene.floor !== current.scenes[index].floor);
     const published = input.published ?? current.published;
     if (published && !nextScenes.length) throw new FloorAssignmentError(400, "أضف لقطات قبل إتاحة الجولة.");
+    const hotspotChanges=input.hotspots===undefined?{}:{hotspots:validateHotspots(current,input.hotspots)};
     const next = {
-      ...current, title: input.title ?? current.title, unit: input.unit ?? current.unit, published,
+      ...current, ...hotspotChanges, title: input.title ?? current.title, unit: input.unit ?? current.unit, published,
       ...(input.measurementHeightMeters===undefined?{}:{measurementScale:input.measurementHeightMeters===null?undefined:{heightMeters:input.measurementHeightMeters,source:"operator_measured" as const,sceneIds:current.scenes.map(scene=>scene.id)}}),
       ...applySceneFloorAssignments(current, nextScenes), revision: current.revision + 1, updatedAt: new Date().toISOString(),
     };

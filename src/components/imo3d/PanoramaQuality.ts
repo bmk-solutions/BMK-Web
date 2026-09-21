@@ -1,3 +1,4 @@
+import {presentationScene} from "@/lib/imo3d/photo-edits";
 import type { Scene } from "@/lib/imo3d/model";
 
 export type PanoramaQuality = "preview" | "image" | "detail";
@@ -17,6 +18,7 @@ export function desiredPanoramaWidth(width: number, height: number, verticalFov:
 
 /** Never request the private original or a texture the current device cannot hold. */
 export function panoramaQualityCandidate(scene: Scene, quality: PanoramaQuality, failed: ReadonlySet<string>, policy: PanoramaDisplayPolicy, desiredWidth: number) {
+  scene=presentationScene(scene);
   const detail = scene.detail;
   if (quality !== "detail" && detail && policy.detailAllowed && desiredWidth > 4096 * 1.1 && detail.width > 4096 &&
     detail.width <= policy.maxTextureSize && detail.height <= policy.maxTextureSize && !failed.has(detail.image)) {
@@ -33,6 +35,7 @@ export function panoramaQualityCandidate(scene: Scene, quality: PanoramaQuality,
 
 /** Arrival quality must fit beside the still-visible source, not replace it early. */
 export function panoramaArrivalCandidate(scene:Scene,policy:PanoramaDisplayPolicy,desiredWidth:number,availableBytes:number,canResize:boolean){
+  scene=presentationScene(scene);
   const preview={url:scene.preview,quality:"preview" as const,width:2048,bytes:2048*1024*4};
   if(desiredWidth<=2048*1.1||scene.image===scene.preview)return preview;
   for(const width of [4096,3072]){

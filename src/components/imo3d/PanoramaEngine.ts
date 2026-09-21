@@ -1,3 +1,4 @@
+import {presentationScene} from "@/lib/imo3d/photo-edits";
 import {constrainedView} from '@/lib/imo3d/view-presentation';
 import * as THREE from "three";
 import {PanoramaBlobCache} from './PanoramaBlobCache';
@@ -83,6 +84,7 @@ export class PanoramaEngine {
   private cursorInputKey = "";
   yaw = 0;
   pitch = 0;
+  allowNadir = false;
   fov = 74;
   busy = false;
   onLoading?: (loading: boolean) => void;
@@ -124,7 +126,7 @@ export class PanoramaEngine {
 
   addLook(deltaYaw: number, deltaPitch: number) {
     this.lookRemaining.yaw += deltaYaw;
-    this.lookRemaining.pitch = constrainedView(this.pitch+this.lookRemaining.pitch+deltaPitch,this.fov).pitch-this.pitch;
+    this.lookRemaining.pitch = (this.allowNadir?Math.max(-Math.PI/2+.001,Math.min(Math.PI/2-.001,this.pitch+this.lookRemaining.pitch+deltaPitch)):constrainedView(this.pitch+this.lookRemaining.pitch+deltaPitch,this.fov).pitch)-this.pitch;
     this.dirty = true;
   }
 
@@ -263,6 +265,7 @@ export class PanoramaEngine {
   }
 
   private load(scene: Scene): Promise<Entry> {
+    scene=presentationScene(scene);
     const desired=desiredPanoramaWidth(this.canvas.clientWidth,this.canvas.clientHeight,this.fov,this.pixelRatio);
     const arrival=this.current!==null&&scene.id!==this.current.id;
     const pinnedBytes=[...this.cache.entries()].filter(([id])=>this.protectedIds().has(id)).reduce((sum,[,entry])=>sum+entry.bytes+entry.geometryBytes,0);
@@ -583,7 +586,7 @@ export class PanoramaEngine {
       this.lookRemaining.yaw*=1-lookWeight; this.lookRemaining.pitch*=1-lookWeight;
       this.dirty=true;
     }
-    this.pitch=constrainedView(this.pitch,this.fov).pitch; this.fov=Math.max(40,Math.min(95,this.fov));
+    this.pitch=this.allowNadir?Math.max(-Math.PI/2+.001,Math.min(Math.PI/2-.001,this.pitch)):constrainedView(this.pitch,this.fov).pitch; this.fov=Math.max(40,Math.min(95,this.fov));
     const view=`${this.yaw},${this.pitch},${this.fov}`;
     if (!this.dirty && !this.tween && view===this.lastView) return;
     this.lastView=view; this.dirty=false;

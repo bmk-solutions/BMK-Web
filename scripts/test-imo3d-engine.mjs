@@ -38,6 +38,7 @@ function harness({reduced=false,coarse=false,plans=[],maxTextureSize=8192,device
     const result={exports:{}};
     const code=ts.transpileModule(readFileSync(file,"utf8"),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText;
     const localRequire=name=>name==="three"?{...THREE,WebGLRenderer:FakeRenderer}:
+      name==="@/lib/imo3d/photo-edits"?load("src/lib/imo3d/photo-edits.ts"):
       name==="@/lib/imo3d/view-presentation"?load("src/lib/imo3d/view-presentation.ts"):
       name==="./PanoramaMotion"?load("src/components/imo3d/PanoramaMotion.ts"):
       name==="../../lib/imo3d/display-depth.ts"?load("src/lib/imo3d/display-depth.ts"):

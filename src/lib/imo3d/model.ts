@@ -37,6 +37,7 @@ export const roomSemanticSchema=z.object({
 });
 export type RoomSemantic=z.infer<typeof roomSemanticSchema>;
 export const sceneSchema = z.object({
+  presentation:z.object({image:localAsset,preview:localAsset,thumbnail:localAsset,width:z.number().int().positive(),height:z.number().int().positive()}).optional(),
   id: z.string().regex(/^[\w-]+$/).max(80), name: z.string().trim().min(1).max(100),
   room: z.string().trim().min(1).max(100), floor: z.number().int().min(-10).max(200),
   roomSemantic:roomSemanticSchema.optional(),
@@ -80,6 +81,8 @@ export type Plan = {
   texturedMesh?:TexturedMesh;
 };
 export type Tour = {
+  photoEdits?:import("./photo-edits").PhotoEdit[];
+  hotspots?:import("./hotspots").Hotspot[];
   id: string; title: string; projectId: string; published: boolean; revision: number;
   scenes: Scene[]; plans: Plan[]; updatedAt: string; createdAt: string;
   initialView?: { yaw: number; pitch: number };

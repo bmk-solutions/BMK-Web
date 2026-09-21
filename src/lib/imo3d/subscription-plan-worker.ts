@@ -1,6 +1,6 @@
 import {spawn} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
-import {mkdir,readFile,writeFile,realpath,lstat} from 'node:fs/promises';
+import {mkdir,readFile,writeFile,realpath,lstat,readdir,stat} from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import {setTimeout as delay} from 'node:timers/promises';
@@ -43,27 +43,38 @@ export function subscriptionChildEnvironment(source:NodeJS.ProcessEnv):NodeJS.Pr
  const allowed=new Set(['path','pathext','systemroot','windir','comspec','userprofile','homedrive','homepath','home','codex_home','xdg_config_home','xdg_data_home','xdg_cache_home','lang','lc_all','temp','tmp','tmpdir','localappdata','appdata','programfiles','programfiles(x86)','os','processor_architecture','number_of_processors']);
  return {NODE_ENV:'production' as const,...Object.fromEntries(Object.entries(source).filter(([name,value])=>allowed.has(name.toLowerCase())&&value!==undefined))};
 }
-async function execute(directory:string,prompt:string,schema:z.ZodType,output:string,signal:AbortSignal,images:string[]=[]){
+async function codexExecutable(){
+ if(process.env.IMO3D_CODEX_BIN)return process.env.IMO3D_CODEX_BIN;
+ if(process.platform==='win32'&&process.env.LOCALAPPDATA){
+  const bin=path.join(process.env.LOCALAPPDATA,'OpenAI','Codex','bin');
+  const dirs=await readdir(bin,{withFileTypes:true}).catch(()=>[]);
+  const choices=await Promise.all(dirs.filter(d=>d.isDirectory()).map(async d=>{const file=path.join(bin,d.name,'codex.exe');return{file,modified:await stat(file).then(s=>s.mtimeMs,()=>0)};}));
+  const latest=choices.filter(c=>c.modified).sort((a,b)=>b.modified-a.modified)[0];if(latest)return latest.file;
+ }
+ return 'codex';
+}
+export async function execute(directory:string,prompt:string,schema:z.ZodType,output:string,signal:AbortSignal,images:string[]=[]){
  const schemaFile=path.join(directory,output+'.schema.json'),outputFile=path.join(directory,output+'.json');
  await writeFile(schemaFile,JSON.stringify(z.toJSONSchema(schema)));
  await writeFile(path.join(directory,output+'.prompt.txt'),prompt);
  const log=path.join(directory,output+'.events.jsonl');
+ const executable=await codexExecutable();
  const args=['exec','--ignore-user-config','--ephemeral','--disable','apps','--disable','plugins','--disable','in_app_browser','--model','gpt-6-astra','--config','model_reasoning_effort="xhigh"','--sandbox','read-only','--skip-git-repo-check','--cd',directory,...images.flatMap(file=>['--image',file]),'--json','--output-schema',schemaFile,'--output-last-message',outputFile,'-'];
  await new Promise<void>((resolve,reject)=>{
-  const child=spawn(process.env.IMO3D_CODEX_BIN||'codex',args,{cwd:directory,windowsHide:true,env:subscriptionChildEnvironment(process.env),stdio:['pipe','pipe','pipe']});
+  const child=spawn(executable,args,{cwd:directory,windowsHide:true,env:subscriptionChildEnvironment(process.env),stdio:['pipe','pipe','pipe']});
   const chunks:Buffer[]=[];let bytes=0;
   const kill=()=>{if(process.platform==='win32'&&child.pid)spawn('taskkill',['/PID',String(child.pid),'/T','/F'],{windowsHide:true,stdio:'ignore'});else child.kill('SIGTERM');};
   signal.addEventListener('abort',kill,{once:true});
   const collect=(data:Buffer)=>{bytes+=data.length;if(bytes<12_000_000)chunks.push(data);};
   child.stdout.on('data',collect);child.stderr.on('data',collect);
   child.once('error',reject);
-  child.once('close',code=>{signal.removeEventListener('abort',kill);void writeFile(log,Buffer.concat(chunks)).then(()=>{if(signal.aborted)reject(Error('CANCELLED'));else if(code!==0)reject(Error('CODEX_EXEC_FAILED'));else resolve();},reject);});
+  child.once('close',code=>{signal.removeEventListener('abort',kill);void writeFile(log,Buffer.concat(chunks)).then(()=>{if(signal.aborted)reject(Error('CANCELLED'));else if(code!==0)reject(Error('CODEX_EXEC_FAILED_'+code));else resolve();},reject);});
   child.stdin.end(prompt);
   if(signal.aborted)kill();
  });
  return JSON.parse(await readFile(outputFile,'utf8')) as unknown;
 }
-async function ping(){
+export async function ping(){
  const rows=await cloudQuery('plan_workers','id=eq.subscription','PATCH',{seen_at:new Date().toISOString()});
  if(!rows.length)try{await cloudQuery('plan_workers','','POST',{id:'subscription',seen_at:new Date().toISOString()});}catch{await cloudQuery('plan_workers','id=eq.subscription','PATCH',{seen_at:new Date().toISOString()});}
 }
@@ -72,6 +83,7 @@ export async function runSubscriptionWorker(root:string,once=false){
  root=await realpath(root);const worker=randomUUID();
  do{
   await ping();
+  if(await (await import("./photo-edit-worker")).runNextPhotoEdit(root,worker)){if(once)return;continue;}
   const job=await cloudRpc<SubscriptionJob|null>('claim_subscription_plan',{p_worker:worker});
   if(!job){if(once)return;await delay(10000);continue;}
   const controller=new AbortController(),deadline=setTimeout(()=>controller.abort(),2*60*60*1000);

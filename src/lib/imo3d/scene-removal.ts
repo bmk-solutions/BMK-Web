@@ -32,5 +32,5 @@ export function removeTourScene(tour: Tour, sceneId: string): Tour | null {
   // Recalculate numeric warnings while preserving unrelated source-quality notes.
   const previousCalculated = new Set(quality(tour.scenes).warnings);
   if (scenes.length) resultQuality.warnings = [...new Set([...resultQuality.warnings, ...tour.quality.warnings.filter(warning => !previousCalculated.has(warning))])];
-  return { ...tour, scenes, plans, published: scenes.length ? tour.published : false, quality: resultQuality };
+  return { ...tour, ...(tour.photoEdits?{photoEdits:tour.photoEdits.filter(j=>j.sceneId!==sceneId)}:{}), ...(tour.hotspots?{hotspots:tour.hotspots.filter(h=>h.sceneId!==sceneId&&h.targetSceneId!==sceneId)}:{}), scenes, plans, published: scenes.length ? tour.published : false, quality: resultQuality };
 }

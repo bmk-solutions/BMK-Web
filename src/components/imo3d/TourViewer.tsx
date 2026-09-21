@@ -1,5 +1,5 @@
 "use client";
-import {useEffect,useMemo,useRef,useState,type CSSProperties} from "react";
+import {useCallback,useEffect,useMemo,useRef,useState,type CSSProperties} from "react";
 import type {Point,Scene,Tour} from "@/lib/imo3d/model";
 import {layoutMeasurementLabels} from "@/lib/imo3d/measurement-projection";
 import {estimatedMeasurementPoint,recordedMeasurementHeight,DEFAULT_CAPTURE_HEIGHT_METERS} from "@/lib/imo3d/estimated-measurement";
@@ -16,6 +16,7 @@ import {InteractiveFloorPlan} from "./InteractiveFloorPlan";
 import {createViewerPlanCache} from "./viewer-plan-cache";
 import {sceneEntryView} from "@/lib/imo3d/view-presentation";
 import {ViewerFloorPlan} from "./ViewerFloorPlan";
+import {HotspotOverlay} from "./HotspotOverlay";
 import {Icon} from "./Icon";
 import {calibratePanoramaHeight,projectPanoramaFloor,projectPanoramaMeasurement,type PanoramaMeasurementRay,type PanoramaMeasurementCalibration} from "@/lib/imo3d/panorama-measurement";
 import {formatMeasurement,type MeasurementUnit} from "@/lib/imo3d/measurement-units";
@@ -42,6 +43,9 @@ export default function TourViewer({id,embedded=false,initialSceneId}:{id:string
 function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean;initialSceneId?:string}) {
   const [planCache]=useState(createViewerPlanCache);
   useEffect(()=>()=>planCache.dispose(),[planCache]);
+  const [hotspotsVisible,setHotspotsVisible]=useState(true);
+  const hotspotModal=useRef(false);
+  const onHotspotModal=useCallback((open:boolean)=>{hotspotModal.current=open;},[]);
   const [measurementUnit,setMeasurementUnit]=useState<MeasurementUnit>("m");
   const [measurementsVisible,setMeasurementsVisible]=useState(true);
   const [selectedMeasurement,setSelectedMeasurement]=useState<string|null>(null);
@@ -91,6 +95,7 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
   const pendingNavigation=useRef<{target:Scene;walk:boolean;entry:boolean}|null>(null);
   const navigationRef=useRef<(scene:Scene,walk?:boolean)=>Promise<void>>(async()=>{});
   const scenesById=useRef(new Map(tour.scenes.map(s=>[s.id,s])));
+  const visibleHotspots=useMemo(()=>(tour.hotspots??[]).filter(h=>h.sceneId===current.id&&h.visible),[tour.hotspots,current.id]);
   const choices=useMemo(()=>roomChoices(tour.scenes,current.floor),[tour.scenes,current.floor]);
   const categories=useMemo(()=>roomFunctionCategories(tour.scenes,current.floor),[tour.scenes,current.floor]);
   const currentPlan=tour.plans.find(p=>p.floor===current.floor);
@@ -202,7 +207,7 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
         if(!lastPointer)instance.clearNavigationCursor();
         el.dataset.cursor=shown?"surface-measure":"measure";el.dataset.destinationId="";return;
       }
-      if(down?.dragged||pointers.size||panelRef.current||measureRef.current||navigating.current||!initialized.current){instance.clearNavigationCursor();el.dataset.cursor=down?.dragged?"drag":measureRef.current?"measure":"look";el.dataset.destinationId="";return;}
+      if(down?.dragged||pointers.size||panelRef.current||hotspotModal.current||measureRef.current||navigating.current||!initialized.current){instance.clearNavigationCursor();el.dataset.cursor=down?.dragged?"drag":measureRef.current?"measure":"look";el.dataset.destinationId="";return;}
       const target=lastPointer?destinationAt(lastPointer.x,lastPointer.y):null;
       const now=performance.now();
       if(now-lastPrefetch>300){
@@ -227,7 +232,7 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
     const pointerUp=(e:PointerEvent)=>{pointers.delete(e.pointerId);if(!down||!instance)return;
       if(pointers.size){const remaining=[...pointers.values()][0];down={x:remaining.x,y:remaining.y,time:performance.now(),dragged:true};return;}
       const click=!down.dragged&&performance.now()-down.time<650;down=null;
-      if(!click||panelRef.current)return;
+      if(!click||panelRef.current||hotspotModal.current)return;
       const rect=el.getBoundingClientRect(),ray=instance.rayAt((e.clientX-rect.left)/rect.width*2-1,1-(e.clientY-rect.top)/rect.height*2);
       if(measureRef.current){
         setMeasurementsVisible(true);
@@ -260,9 +265,9 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
     const pointerCancel=(e:PointerEvent)=>{pointers.delete(e.pointerId);down=null;updateCursor();};
     const pointerLeave=()=>{if(!pointers.size){lastPointer=null;updateCursor();}};
     const wheel=(e:WheelEvent)=>{e.preventDefault();if(instance)instance.fov+=e.deltaY*0.025;};
-    const moveHeld=()=>{if(panelRef.current||measureRef.current){heldKeys.clear();return;}if(!instance||navigating.current||!initialized.current)return;const heading=heldHeading(heldKeys,instance.yaw);if(heading===null)return;const target=pickNavigationDirection(tour.scenes,currentRef.current.id,heading);if(target)void navigationRef.current(target);};
+    const moveHeld=()=>{if(panelRef.current||hotspotModal.current||measureRef.current){heldKeys.clear();return;}if(!instance||navigating.current||!initialized.current)return;const heading=heldHeading(heldKeys,instance.yaw);if(heading===null)return;const target=pickNavigationDirection(tour.scenes,currentRef.current.id,heading);if(target)void navigationRef.current(target);};
     const keyDown=(e:KeyboardEvent)=>{
-      if(panelRef.current||!instance||e.ctrlKey||e.metaKey||e.altKey||(e.target instanceof HTMLElement&&(/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)||e.target.isContentEditable)))return;
+      if(panelRef.current||hotspotModal.current||!instance||e.ctrlKey||e.metaKey||e.altKey||(e.target instanceof HTMLElement&&(/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)||e.target.isContentEditable)))return;
       if(!isMovementCode(e.code))return;e.preventDefault();heldKeys.add(e.code);if(!e.repeat)moveHeld();
     };
     const keyUp=(e:KeyboardEvent)=>{heldKeys.delete(e.code);};
@@ -281,6 +286,7 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
   return <div className={`imo-shell imo-viewer${controlsHidden?" imo-viewer--controls-hidden":""}`} ref={container} data-mobile-map={mobileMapVisible?"shown":"hidden"} style={{"--imo-accent":accent,"--imo-accent-ink":accentInk} as CSSProperties}>
     <canvas ref={canvas} className="imo-canvas" tabIndex={0} aria-label="الجولة الداخلية 360؛ اسحب للنظر، واضغط للانتقال، أو استخدم مفاتيح WASD والأسهم"/>
     <div className="imo-vignette"/>
+    {hotspotsVisible&&!measure&&!panel&&<HotspotOverlay key={current.id} rows={visibleHotspots} scene={current} engine={engine} onModal={onHotspotModal} onNavigate={id=>{const target=scenesById.current.get(id);if(target)void navigate(target,false);}}/>}
     <button type="button" className="imo-glass imo-controls-toggle" aria-label={controlsHidden?"إظهار أدوات الجولة":"إخفاء أدوات الجولة"} aria-pressed={controlsHidden} onClick={()=>{openPanel(null);setControlsHidden(value=>!value);}}><Icon name={controlsHidden?"settings":"eye"}/><span>{controlsHidden?"إظهار الأدوات":"إخفاء الأدوات"}</span></button>
     <header className="imo-view-header">
       <Wordmark href={embedded?undefined:"/imo3d"} className={`imo-wordmark${branding?.logo||branding?.name!==undefined&&branding.name!=="IMO 3D"?" imo-custom-brand":""}`} aria-label={`${branding?.name||"IMO 3D"}${embedded?"":" — الاستوديو"}`}>{branding?.logo&&<BrandLogo className="imo-brand-logo" src={branding.logo} clean={branding.logoStyle!=="original"} tone="light"/>}{branding?.name&&branding.name!=="IMO 3D"?<span>{branding.name}</span>:!branding?.logo&&<span>IMO<span className="imo-logo-dot"/>3D</span>}{!branding?.logo&&(!branding?.name||branding.name==="IMO 3D")&&<small>BY BMK SOLUTIONS</small>}</Wordmark>
@@ -328,6 +334,7 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
     <div className="imo-view-help">اسحب لاستكشاف المكان <span>·</span> اضغط للانتقال <span>·</span> WASD</div>
     {panel==="options"&&<Dialog title="خيارات الجولة" className="imo-view-options" onClose={()=>openPanel(null)}>
       <div className="imo-option-icons">
+        <button aria-pressed={hotspotsVisible} onClick={()=>{setHotspotsVisible(v=>!v);openPanel(null);}}><Icon name="pin"/><span>{hotspotsVisible?"إخفاء الهوت سبوت":"إظهار الهوت سبوت"}</span></button>
         <button title="الغرف" aria-label="اختيار غرفة" onClick={()=>openPanel("rooms")}><Icon name="rooms"/><span>الغرف</span></button>
         <button title="تكبير المخطط" aria-label="تكبير المخطط" onClick={()=>{setFloor(current.floor);openPanel("map");}}><Icon name="map"/><span>المخطط</span></button>
         <button title="إظهار أو إخفاء المخطط" aria-label={(mobile?mobileMapVisible:mapVisible)?"إخفاء المخطط المصغّر":"إظهار المخطط المصغّر"} aria-pressed={mobile?mobileMapVisible:mapVisible} onClick={()=>{setMinimapVisible(!(mobile?mobileMapVisible:mapVisible));openPanel(null);}}><Icon name="eye"/><span>إظهار / إخفاء</span></button>

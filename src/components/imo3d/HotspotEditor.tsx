@@ -1,0 +1,33 @@
+"use client";
+import {useState} from 'react';
+import type {Tour} from '@/lib/imo3d/model';
+import {hotspotKinds,hotspotSchema,type Hotspot} from '@/lib/imo3d/hotspots';
+import {PanoramaPlacement} from './PanoramaPlacement';
+import {api} from './client';
+import {Icon} from './Icon';
+export function HotspotEditor({tour,disabled,onSave}:{tour:Tour;disabled:boolean;onSave:(rows:Hotspot[])=>Promise<void>}){
+ const [sceneId,setSceneId]=useState(tour.scenes[0]?.id??''),[draft,setDraft]=useState<Hotspot|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
+ const scene=tour.scenes.find(s=>s.id===sceneId)??tour.scenes[0],rows=tour.hotspots??[];
+ const run=async(next:Hotspot[])=>{setBusy(true);setError('');try{await onSave(next);setDraft(null);}catch(e){setError(e instanceof Error?e.message:'تعذر حفظ النقطة.');}finally{setBusy(false);}};
+ if(!scene)return <p>أضف صور الجولة أولًا.</p>;
+ const locked=disabled||busy;
+ const upload=async(file:File)=>{if(!draft)return;const snapshot=draft;setBusy(true);setError('');try{const init=await api<{upload:{url:string};permit:string}>(`tours/${tour.id}/hotspot-media`,{method:'POST',body:JSON.stringify({action:'init',mime:file.type,size:file.size})});const response=await fetch(init.upload.url,{method:'PUT',headers:{'Content-Type':file.type},body:file,credentials:'omit'});if(!response.ok)throw Error('تعذر رفع الملف.');const result=await api<{url:string}>(`tours/${tour.id}/hotspot-media`,{method:'POST',body:JSON.stringify({action:'finalize',permit:init.permit})});setDraft({...snapshot,url:result.url});}catch(e){setError(e instanceof Error?e.message:'تعذر رفع الملف.');}finally{setBusy(false);}};
+ return <section className="imo-hotspot-editor"><h3>الهوت سبوت — محتوى داخل الجولة</h3><p className="imo-muted">اختر الصورة ونوع المحتوى، ثم اضغط داخل المعاينة لتحديد مكانه. السحب يغيّر اتجاه النظر.</p>
+ <label className="imo-form">الصورة<select disabled={locked} value={scene.id} onChange={e=>{setSceneId(e.target.value);setDraft(null);}}>{tour.scenes.map((s,i)=><option key={s.id} value={s.id}>{i+1} — {s.name} · {s.room}</option>)}</select></label>
+ <div className="imo-hotspot-types">{Object.entries(hotspotKinds).map(([kind,label])=><button type="button" className={draft?.kind===kind?'selected':''} disabled={locked} key={kind} onClick={()=>{setError('');setDraft({id:crypto.randomUUID(),sceneId:scene.id,kind:kind as Hotspot['kind'],title:label,body:'',url:'',link:'',yaw:0,pitch:0,targetSceneId:'',color:'#24b18b',width:20,height:15,visible:true,price:'',scale:1,stem:0});}}><Icon name={kind==='point'?'compass':kind==='text'?'info':kind==='audio'?'audio':kind==='image'?'image':kind==='video'||kind==='screen'?'play':'link'} size={18}/>{label}</button>)}</div>
+ <PanoramaPlacement scene={scene} yaw={draft?.yaw} pitch={draft?.pitch} disabled={locked} onPick={draft?(yaw,pitch)=>setDraft({...draft,yaw,pitch}):undefined}/>
+ {draft&&<form className="imo-form imo-hotspot-form" onSubmit={e=>{e.preventDefault();const parsed=hotspotSchema.safeParse(draft);if(!parsed.success){setError(parsed.error.issues[0].message);return;}void run([...rows.filter(h=>h.id!==draft.id),parsed.data]);}}>
+ <label>العنوان<input required maxLength={120} value={draft.title} onChange={e=>setDraft({...draft,title:e.target.value})}/></label><label>الوصف<textarea maxLength={4000} value={draft.body} onChange={e=>setDraft({...draft,body:e.target.value})}/></label>
+ {!['text','point','area'].includes(draft.kind)&&<label>{['link','space'].includes(draft.kind)?'رابط الوجهة':'رابط ملف المحتوى HTTPS'}<input type="text" dir="ltr" value={draft.url} onChange={e=>setDraft({...draft,url:e.target.value})} placeholder="https://…"/></label>}
+ {!['text','point','area','link','space'].includes(draft.kind)&&<label>رفع ملف من الجهاز<input type="file" disabled={locked} accept={['video','screen'].includes(draft.kind)?'video/mp4':draft.kind==='audio'?'audio/mpeg,audio/wav':'image/jpeg,image/png,image/webp'} onChange={e=>{const file=e.target.files?.[0];if(file)void upload(file);e.target.value='';}}/><small>{busy?'جارٍ الرفع…':'صور حتى 10 ميغابايت، فيديو وصوت حتى 50 ميغابايت.'}</small></label>}
+ {['product','staging','image'].includes(draft.kind)&&<label>رابط إضافي (اختياري)<input type="url" dir="ltr" value={draft.link} onChange={e=>setDraft({...draft,link:e.target.value})}/></label>}
+ {draft.kind==='product'&&<label>السعر (اختياري)<input value={draft.price} maxLength={100} onChange={e=>setDraft({...draft,price:e.target.value})}/></label>}
+ {draft.kind==='point'&&<label>الانتقال إلى<select required value={draft.targetSceneId} onChange={e=>setDraft({...draft,targetSceneId:e.target.value})}><option value="">اختر لقطة</option>{tour.scenes.filter(s=>s.id!==scene.id).map((s,i)=><option key={s.id} value={s.id}>{i+1} — {s.name}</option>)}</select></label>}
+ <div className="imo-two-cols"><label>لون العلامة<input type="color" value={draft.color} onChange={e=>setDraft({...draft,color:e.target.value})}/></label><label>الظهور<select value={String(draft.visible)} onChange={e=>setDraft({...draft,visible:e.target.value==='true'})}><option value="true">ظاهر للزائر</option><option value="false">مخفي</option></select></label></div>
+ <div className="imo-two-cols"><label>حجم العلامة<input type="range" min={.75} max={2} step={.05} value={draft.scale??1} onChange={e=>setDraft({...draft,scale:Number(e.target.value)})}/></label><label>طول ساق العلامة<input type="range" min={0} max={80} value={draft.stem??0} onChange={e=>setDraft({...draft,stem:Number(e.target.value)})}/></label></div>
+ {['area','screen'].includes(draft.kind)&&<div className="imo-two-cols"><label>اتساع المنطقة<input type="range" min={3} max={80} value={draft.width} onChange={e=>setDraft({...draft,width:Number(e.target.value)})}/></label><label>ارتفاع المنطقة<input type="range" min={3} max={80} value={draft.height} onChange={e=>setDraft({...draft,height:Number(e.target.value)})}/></label></div>}
+ <div className="imo-dialog-actions"><button disabled={locked} className="imo-button primary">حفظ الهوت سبوت</button><button type="button" className="imo-button secondary" onClick={()=>setDraft(null)}>إلغاء</button></div></form>}
+ {error&&<p className="imo-error" role="alert">{error}</p>}
+ <div className="imo-hotspot-list">{rows.filter(h=>h.sceneId===scene.id).map(h=><article key={h.id}><div><strong>{h.title}</strong><small>{hotspotKinds[h.kind]} · {h.visible?'ظاهر':'مخفي'}</small></div><button aria-label={`تعديل ${h.title}`} disabled={locked} onClick={()=>setDraft({...h})}>تعديل</button><button aria-label={`حذف ${h.title}`} disabled={locked} onClick={()=>void run(rows.filter(r=>r.id!==h.id))}><Icon name="trash"/></button></article>)}</div>
+ </section>;
+}

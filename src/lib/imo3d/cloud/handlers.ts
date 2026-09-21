@@ -1,3 +1,6 @@
+import {presentationScene} from '../photo-edits';
+import {hotspotMedia} from "./hotspot-media";
+import {cloudPhotoEdits} from "./photo-edits";
 import {randomUUID} from "node:crypto";
 import {tourMedia} from './media';
 import {z} from "zod";
@@ -19,7 +22,7 @@ import {removeTourScene} from "../scene-removal";
 import {mergeTourSpatial} from "../tour-merge";
 import {currentSurfaceModel,surfaceModelMime} from "../surface-model";
 import {currentTexturedMesh,meshModelMime,maxMeshBytes} from "../mesh-model";
-const tourSummary=(tour:Tour)=>({...tour,scenes:tour.scenes.map(({depth,displayDepth,...scene})=>{void depth;void displayDepth;return scene;})});
+const tourSummary=(tour:Tour)=>{const {photoEdits,...safe}=tour;void photoEdits;return({...safe,scenes:tour.scenes.map(({depth,displayDepth,...scene})=>{void depth;void displayDepth;return scene;})});};
 const revisionBody=z.object({revision:z.number().int().nonnegative()}).strict();
 const pair=z.object({revision:z.number().int().nonnegative(),fromId:z.string().regex(/^[\w-]{1,80}$/),toId:z.string().regex(/^[\w-]{1,80}$/)});
 async function handle(request:Request){
@@ -51,13 +54,16 @@ async function handle(request:Request){
   const tour=await getTour(asset.tour_id);if(!tour||(!tour.published&&!access.allowed(tour.projectId))||access.integration&&!access.allowed(tour.projectId))return fail("الملف غير موجود.",404);
   if(asset.mime===surfaceModelMime&&!tour.plans.some(plan=>currentSurfaceModel(plan,tour.scenes)?.url===`/api/imo3d/assets/${id}`))return fail("النموذج لم يعد يطابق صور الجولة.",404);
   if(asset.mime===meshModelMime){const mesh=tour.plans.map(plan=>currentTexturedMesh(plan,tour.scenes)).find(model=>model?.url===`/api/imo3d/assets/${id}`);if(!mesh||asset.byte_size!==mesh.byteLength||asset.byte_size>maxMeshBytes)return fail("النموذج لم يعد يطابق صور الجولة وحدودها.",404);}
+  if(!access.sessionAdmin&&tour.scenes.some(s=>s.presentation&&[s.image,s.preview,s.thumbnail,s.detail?.image].includes(`/api/imo3d/assets/${id}`)))return fail("الملف غير متاح.",404);
+  if(asset.file?.startsWith("retouch-")&&!access.sessionAdmin&&!tour.scenes.some(s=>s.presentation&&Object.values(s.presentation).includes(`/api/imo3d/assets/${id}`)))return fail("الملف غير موجود.",404);
   return signedRedirect(await cloudSignedDownload(asset.storage_key));
  }
  if(resource==="tours"&&id&&method==="GET"&&(segments.length===2||segments.length===3&&action==='media')){
   const tour=await getTour(id);if(!tour||!access.allowed(tour.projectId)&&(!tour.published||!!access.integration))return fail("الجولة غير متاحة.",404);
   if(action==='media')return json(await tourMedia(tour));
   const [branding,media]=await Promise.all([getBranding(tour.projectId),new URL(request.url).searchParams.get('media')==='1'?tourMedia(tour).catch(()=>undefined):undefined]);
-  return json({...tour,branding,...(media?{media}:{})});
+  const {photoEdits,...publicTour}=tour;
+  return json({...publicTour,scenes:access.sessionAdmin?tour.scenes:tour.scenes.map(presentationScene),...(access.sessionAdmin?{photoEdits}:{}),branding,...(media?{media}:{})});
  }
  if(resource==="tours"&&id&&action==="ai-plan"){
   if(last&&last!=="image")return fail("المسار غير موجود.",404);
@@ -105,6 +111,8 @@ async function handle(request:Request){
   const{revision}=revisionBody.parse(await readJSON(request,2000));requireRevision(tour,revision);const next=removeTourScene(tour,last);if(!next)return fail("اللقطة غير موجودة.",404);
   const saved=await cloudRpc<Tour>("delete_scene",{p_tour_id:id,p_scene_id:last,p_expected_revision:revision,p_tour:next});return json({...saved,branding:await getBranding(saved.projectId)});
  }
+ if(action==="hotspot-media"&&!last){if(!access.sessionAdmin)return fail("دخول الإدارة مطلوب.",401);return hotspotMedia(request,tour);}
+ if(action==="photo-edits"&&!last){if(!access.sessionAdmin)return fail("دخول الإدارة مطلوب.",401);return cloudPhotoEdits(request,tour);}
  if(last)return fail("المسار غير موجود.",404);
  if(action==="images"||action==="images-init"||action==="images-finalize"){if(method!=="POST")return fail("العملية غير متاحة.",405);return handleCloudUpload(request,tour);}
  if(action==="processing"||action==="processing-cancel")return(await cloudProcessing(request,tour,action))??fail("العملية غير متاحة.",405);
@@ -126,7 +134,7 @@ async function handle(request:Request){
   const scenes=tour.scenes.map(scene=>{const camera=bundle.cameras.find(camera=>normalize(camera.file)===normalize(scene.sourceName));return camera?{...scene,position:camera.position,yaw:camera.yaw,floor:camera.floor,room:camera.room||scene.room,depth:camera.depth}:scene;});return json(await saveTour({...tour,...mergeTourSpatial(tour,scenes),spatialSource:"calibrated",spatialScale:"metric"},tour.revision));
  }
  if(action==="rebuild"&&method==="POST"){if(!tour.scenes.some(scene=>scene.depth))return fail("يلزم استيراد بيانات العمق لإعادة الربط وتوليد حدود الشقة. مواقع الصور وحدها لا تثبت الجدران.",422);return json(await saveTour({...tour,...mergeTourSpatial(tour,tour.scenes)},tour.revision));}
- if(!action&&method==="PATCH"){const input=tourMetadataSchema.parse(await readJSON(request,4_000_000));return json(await saveTour(applyMetadata(tour,input),input.revision));}
+ if(!action&&method==="PATCH"){const input=tourMetadataSchema.parse(await readJSON(request,4_000_000));if(input.hotspots){for(const url of new Set(input.hotspots.flatMap(h=>[h.url,h.link]).filter(u=>u.startsWith('/api/imo3d/assets/')))){const a=await getAsset(url.split('/').pop()!);if(!a||a.tour_id!==tour.id)return fail('الملف ليس تابعًا لهذه الجولة.',400);}}return json(await saveTour(applyMetadata(tour,input),input.revision));}
  if(!action&&method==="DELETE"){const{revision}=revisionBody.parse(await readJSON(request,2000));requireRevision(tour,revision);await deleteTour(id,revision);return json({ok:true});}
  return fail("العملية غير متاحة.",405);
 }

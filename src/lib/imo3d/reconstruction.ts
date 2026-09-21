@@ -100,7 +100,7 @@ export async function runPanoramaReconstruction(options: ReconstructionOptions):
   await mkdir(options.outputDir, { recursive: true });
   const input = path.join(options.outputDir, "input.json");
   const output = path.join(options.outputDir, "result.json");
-  await writeFile(input, JSON.stringify({ scenes, outputDir: options.outputDir,roomProfiles:options.roomProfiles,roomObservations:options.roomObservations }), "utf8");
+  await writeFile(input, JSON.stringify({ scenes, outputDir: options.outputDir,featureCacheDir:path.join(process.cwd(),"work/reconstruction-feature-cache"),roomProfiles:options.roomProfiles,roomObservations:options.roomObservations }), "utf8");
   await new Promise<void>((resolve, reject) => {
     const child = spawn(python, [path.join(process.cwd(), "scripts/imo3d-reconstruction.py"), "--input", input, "--output", output], {
       cwd: process.cwd(), windowsHide: true, stdio: ["ignore", "pipe", "pipe"],

@@ -24,7 +24,12 @@ export type PanoramaCeilingCalibration = {
   /** Metres above the lens, established at the selected wall/ceiling junction. */
   ceilingOffsetMeters: number;
 };
-export type PanoramaMeasurementCalibration = PanoramaFloorCalibration | PanoramaWallCalibration | PanoramaCeilingCalibration;
+export type PanoramaVerticalCalibration = {
+  sceneId: string; heightMeters: number; source: "vertical_height";
+  /** Bottom point must be on the floor, directly below the upper point. */
+  base?: PanoramaMeasurementRay;
+};
+export type PanoramaMeasurementCalibration = PanoramaFloorCalibration | PanoramaWallCalibration | PanoramaCeilingCalibration | PanoramaVerticalCalibration;
 
 const minimumDownwardPitch = 5 * Math.PI / 180;
 const validHeight = (height: number) => Number.isFinite(height) && height >= .15 && height <= 10;
@@ -118,6 +123,16 @@ export function calibratePanoramaCeiling(sceneId: string, junction: PanoramaMeas
 /** Intersections apply only to the explicitly calibrated floor or wall plane. */
 export function projectPanoramaMeasurement(ray: PanoramaMeasurementRay, calibration: PanoramaMeasurementCalibration): Point | null {
   if (!validHeight(calibration.heightMeters)) return null;
+  if (calibration.source === "vertical_height") {
+    if (!calibration.base) return projectPanoramaFloor(ray, calibration.heightMeters);
+    const base = projectPanoramaFloor(calibration.base, calibration.heightMeters);
+    const angle = Math.atan2(Math.sin(ray.yaw-calibration.base.yaw), Math.cos(ray.yaw-calibration.base.yaw));
+    if (!base || !Number.isFinite(ray.yaw) || !Number.isFinite(ray.pitch) || Math.abs(ray.pitch) >= Math.PI/2-.02 || Math.abs(angle)>3*Math.PI/180 || ray.pitch<calibration.base.pitch-.001) return null;
+    const radius=Math.hypot(base.x,base.z), y=radius*Math.tan(ray.pitch);
+    if(radius<.1)return null;
+    if (!Number.isFinite(y) || y+calibration.heightMeters>30) return null;
+    return {x:base.x,y,z:base.z};
+  }
   if (calibration.source === "ceiling_height") return projectPanoramaCeiling(ray, calibration.ceilingOffsetMeters);
   if (calibration.source !== "wall_reference" && calibration.source !== "wall_height") return projectPanoramaFloor(ray, calibration.heightMeters);
   if (!Number.isFinite(ray.yaw) || !Number.isFinite(ray.pitch) || Math.abs(ray.pitch) > Math.PI / 2) return null;

@@ -138,3 +138,22 @@ test("existing known-reference wall calibration also supports ceiling plane deri
   close(ceiling.ceilingOffsetMeters,1.4);
   close(measurePanoramaPlane("photo",ray3d(-1,1.4,-3),ray3d(1,1.4,-3),ceiling)!,2);
 });
+
+
+test("vertical door height spans the horizon using the floor base, with no depth map",()=>{
+ for(const yaw of [0,1.2,Math.PI-.01,-Math.PI+.01]){
+  const base={yaw,pitch:Math.atan2(-1.27,2.4)},top={yaw:yaw+Math.PI*2,pitch:Math.atan2(2.1-1.27,2.4)};
+  const calibration={sceneId:"door",source:"vertical_height" as const,heightMeters:1.27,base};
+  close(measurePanoramaPlane("door",base,top,calibration)!,2.1);
+  assert.equal(measurePanoramaPlane("other",base,top,calibration),null);
+  assert.equal(projectPanoramaMeasurement({...top,yaw:yaw+.2},calibration),null);
+  assert.equal(projectPanoramaMeasurement({...base,pitch:base.pitch-.1},calibration),null);
+  assert.equal(projectPanoramaMeasurement({yaw,pitch:Math.PI/2},calibration),null);
+ }
+});
+test("vertical measurement requires a valid floor base and can measure below-horizon tops",()=>{
+ const base={yaw:0,pitch:Math.atan2(-1.27,3)};
+ close(measurePanoramaPlane("s",base,{yaw:0,pitch:Math.atan2(.8-1.27,3)},{sceneId:"s",heightMeters:1.27,source:"vertical_height",base})!,.8);
+ assert.equal(projectPanoramaMeasurement({yaw:0,pitch:.2},{sceneId:"s",heightMeters:1.27,source:"vertical_height"}),null);
+ assert.equal(projectPanoramaMeasurement({yaw:0,pitch:.2},{sceneId:"s",heightMeters:1.27,source:"vertical_height",base:{yaw:0,pitch:0}}),null);
+});

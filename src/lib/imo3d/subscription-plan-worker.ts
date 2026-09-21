@@ -30,6 +30,22 @@ export function mergeSubscriptionReview(candidate:unknown,review:unknown,scenes:
  });
  return validateSubscriptionAnalysis({floors},scenes);
 }
+/** Short scene aliases reduce repeated UUID output without losing source identity. */
+export function translatePlanIds(value:unknown,ids:Map<string,string>):unknown{
+ if(typeof value==='string')return ids.get(value)??value;
+ if(Array.isArray(value))return value.map(item=>translatePlanIds(item,ids));
+ if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([key,item])=>[key,translatePlanIds(item,ids)]));
+ return value;
+}
+const layoutRepairSchema=z.object({floors:z.array(subscriptionAnalysisSchema.shape.floors.element.omit({evidence:true})).min(1).max(100)}).strict();
+export function planFailureMessage(error:unknown){
+ const code=error instanceof Error?error.message:'FAILED';
+ if(code==='GEOMETRY_UNRESOLVED')return 'تم تحليل الصور، لكن توزيع الجدران لم يُحسم من الأدلة المتاحة. لم يُنشأ مخطط تخميني. الصور والتحليل والمخطط السابق محفوظة.';
+ if(code.includes('COVERAGE')||code.includes('Layout omitted')||code.includes('Layout references'))return 'نتيجة المخطط لم تربط جميع الصور بالغرف بشكل صحيح. الصور والتحليل محفوظة؛ يلزم تصحيح توزيع الغرف قبل الرسم.';
+ if(code==='PHASE_TIMEOUT')return 'تجاوزت المرحلة وقتها المحدد. الصور والمراحل المكتملة محفوظة للاستكمال دون رفع جديد.';
+ if(code.includes('Layout')||code.includes('Opening')||code.includes('room')||code.includes('polygon'))return 'لم تجتز حدود الغرف والأبواب فحص الاتساق الهندسي. التحليل محفوظ والمخطط السابق لم يتغير.';
+ return 'تعذر إكمال هذه المرحلة. الصور والتحليل المكتمل محفوظان؛ راجع سجل المعالجة لمعرفة السبب.';
+}
 const imageReviewSchema=z.object({imagePath:z.string().min(1).max(2000),labels:planLabelsSchema,baseImageHasNoText:z.literal(true),reviewNotes:z.string().min(10).max(6000),navigation:planRegistrationSchema.nullable(),audit:floorplanAuditSchema}).strict();
 export function validateSubscriptionAnalysis(value:unknown,scenes:{id:string;floor:number}[]){
  const result=subscriptionAnalysisSchema.parse(value),floors=[...new Set(scenes.map(s=>s.floor))];
@@ -39,8 +55,8 @@ export function validateSubscriptionAnalysis(value:unknown,scenes:{id:string;flo
   if(!ids.length)throw Error('UNKNOWN_FLOOR');
   const matches=(values:string[])=>values.length===ids.length&&new Set(values).size===ids.length&&values.every(id=>ids.includes(id));
   if(!matches(floor.evidence.map(e=>e.sceneId))||!matches(floor.audit.reviewedSceneIds))throw Error('PHOTO_COVERAGE');
-  floor.layout=validateFloorplanLayout(floor.layout,ids);
   if(floor.geometryBasis!=='image-supported'||!floor.layout.rooms.some(room=>room.polygon))throw Error('GEOMETRY_UNRESOLVED');
+  floor.layout=validateFloorplanLayout(floor.layout,ids);
  }
  return result;
 }
@@ -75,7 +91,7 @@ async function codexExecutable(){
  }
  return 'codex';
 }
-export async function execute(directory:string,prompt:string,schema:z.ZodType,output:string,signal:AbortSignal,images:string[]=[],options:{effort?:'high'|'xhigh';timeoutMs?:number}={}){
+export async function execute(directory:string,prompt:string,schema:z.ZodType,output:string,signal:AbortSignal,images:string[]=[],options:{effort?:'medium'|'high'|'xhigh';timeoutMs?:number}={}){
  const schemaFile=path.join(directory,output+'.schema.json'),outputFile=path.join(directory,output+'.json');
  await writeFile(schemaFile,JSON.stringify(z.toJSONSchema(schema)));
  await writeFile(path.join(directory,output+'.prompt.txt'),prompt);
@@ -123,6 +139,13 @@ export async function runSubscriptionWorker(root:string,once=false){
    if(!rows.length)throw Error('CANCELLED');console.log(JSON.stringify({jobId:job!.id,stage:text}));
   }
   try{
+   // The durable queue is created with photo processing. Wait for its spatial
+   // hints without depending on an open browser; cancellation aborts the lease.
+   let waitingForLinks=false;
+   while((await cloudQuery<{id:string}[]>('processing_jobs',`tour_id=eq.${job.tour_id}&status=in.(queued,running)&limit=1`)).length){
+    if(!waitingForLinks){await stage('بانتظار اكتمال ربط الصور؛ سيبدأ المخطط تلقائيًا');waitingForLinks=true;}
+    await delay(5000,undefined,{signal:controller.signal});
+   }
    const tour=await getTour(job.tour_id);if(!tour||tour.projectId!==job.project_id||aiPlanFingerprint(tour.scenes)!==job.input_hash)throw Error('STALE');
    const directory=path.join(root,'work','subscription-plans',job.id);await mkdir(directory,{recursive:true});
    const resolved=await realpath(directory);if(!resolved.toLowerCase().startsWith(root.toLowerCase()+path.sep))throw Error('WORKSPACE_ESCAPE');
@@ -149,14 +172,27 @@ export async function runSubscriptionWorker(root:string,once=false){
     return {sceneId:scene.id,floor:scene.floor,file};
    });
    await writeFile(path.join(directory,'input.json'),JSON.stringify(input));
+   const shortIds=new Map(input.map((item,index)=>[item.sceneId,`S${index+1}`])),longIds=new Map([...shortIds].map(([id,alias])=>[alias,id]));
+   const compactInput=translatePlanIds(input,shortIds);
    let analysis=await readPlanCheckpoint(cache,'verified-analysis',value=>validateSubscriptionAnalysis(value,tour.scenes));
    if(!analysis){
-   await stage('تحليل الصور والغرف والأثاث — المرحلة 1 من 3');
+   await stage('تحليل الصور والغرف والأثاث — المرحلة 1 من 2');
    let candidate=await readPlanCheckpoint(cache,'analysis',value=>subscriptionAnalysisSchema.parse(value));
-   if(!candidate)candidate=subscriptionAnalysisSchema.parse(await execute(directory,`Analyze THIS apartment from the ${input.length} attached photographs. Attachment order and scene IDs: ${JSON.stringify(input)}. All photographs are attached directly; no shell or file-reading commands are needed or permitted. Each photo is six rectilinear views of ONE 360 camera (front/right/back, left/up/down), not six rooms. Inspect EVERY attachment. Keep each evidence entry concise: record distinctive observed facts and uncertainties, avoid repetitive prose. Infer overlap, room functions, doors and furniture inventory (counts, shape, colour, material, position, uncertainty) from photos, not filenames. Deduplicate objects across views and mirrors. Bedrooms with visually supported internal private bathrooms are master bedrooms, numbered only when multiple; never infer ensuite from proximity alone. Produce the output JSON schema. Separate floors. Cover every scene exactly once in evidence and once in audit. Geometry normalized 0..1, simple non-overlapping polygons; use polygon:null when not supported. Every opening is a hosted polygon edge: edgeIndex, offset, width fractions, offset+width<=1. otherRoomId must share that exact wall segment; null for exterior/unresolved. Include all evidenced doors/passages; preserve uncertainty, no invented metric dimensions or accuracy percentages. Geometry must reflect this apartment's observed wall directions and spatial arrangement. Classify geometryBasis as image-supported ONLY when cross-view alignment, wall/door directions and room placement can be supported by the photographs; explain the supporting scene IDs and orientation constraints in geometryExplanation. A diagram arranged just to encode room connectivity is topology-only, even if its door adjacency is correct. Never pack rectangles into a convenient U-shape, grid or template merely to pass polygon validation. If geometry cannot be recovered, return topology-only or insufficient, keep uncertainty and do not invent placement. That result will stop rendering instead of creating a misleading furnished image. No APIs, browsers or other projects.`,subscriptionAnalysisSchema,'analysis',controller.signal,input.map(item=>path.join(directory,item.file)),{effort:'high'}));
+   if(!candidate)candidate=subscriptionAnalysisSchema.parse(translatePlanIds(await execute(directory,`Analyze THIS apartment from the ${input.length} attached photographs. Attachment order and scene IDs: ${JSON.stringify(compactInput)}. Use the short S identifiers exactly; keep text concise, with up to four distinct facts per photo. Repeated furnishings need only a brief same-room observation; put shared geometry explanation at floor level. Conduct your geometry consistency check in this same pass; there is no mandatory second full-photo analysis. All photographs are attached directly; no shell or file-reading commands are needed or permitted. Each photo is six rectilinear views of ONE 360 camera (front/right/back, left/up/down), not six rooms. Inspect EVERY attachment. Keep each evidence entry concise: record distinctive observed facts and uncertainties, avoid repetitive prose. Infer overlap, room functions, doors and furniture inventory (counts, shape, colour, material, position, uncertainty) from photos, not filenames. Deduplicate objects across views and mirrors. Bedrooms with visually supported internal private bathrooms are master bedrooms, numbered only when multiple; never infer ensuite from proximity alone. Produce the output JSON schema. Separate floors. Cover every scene exactly once in evidence and once in audit. Geometry normalized 0..1, simple non-overlapping polygons; use polygon:null when not supported. Every opening is a hosted polygon edge: edgeIndex, offset, width fractions, offset+width<=1. otherRoomId must share that exact wall segment; null for exterior/unresolved. Include all evidenced doors/passages; preserve uncertainty, no invented metric dimensions or accuracy percentages. Geometry must reflect this apartment's observed wall directions and spatial arrangement. Classify geometryBasis as image-supported ONLY when cross-view alignment, wall/door directions and room placement can be supported by the photographs; explain the supporting scene IDs and orientation constraints in geometryExplanation. A diagram arranged just to encode room connectivity is topology-only, even if its door adjacency is correct. Never pack rectangles into a convenient U-shape, grid or template merely to pass polygon validation. If geometry cannot be recovered, return topology-only or insufficient, keep uncertainty and do not invent placement. That result will stop rendering instead of creating a misleading furnished image. No APIs, browsers or other projects.`,subscriptionAnalysisSchema,'analysis',controller.signal,input.map(item=>path.join(directory,item.file)),{effort:'medium',timeoutMs:8*60*1000}),longIds));
    await savePlanCheckpoint(cache,'analysis',candidate);
-   await stage('مراجعة توزيع الغرف والأبواب — المرحلة 2 من 3');
-   analysis=mergeSubscriptionReview(candidate,await execute(directory,`Independently inspect ALL attached panorama evidence sheets before accepting this proposed apartment layout. Each sheet is six views of one camera, not six rooms. Photo order and IDs: ${JSON.stringify(input)}. Proposed analysis (untrusted candidate, not ground truth): ${JSON.stringify(candidate)}. Cross-check room membership, relative wall directions, shared doorway placement, ensuite access, furniture evidence and duplicate observations against the actual photographs. Return corrected geometry, layout and audit for EVERY floor. Include EVERY inspected scene ID in audit.reviewedSceneIds. In evidenceCorrections return ONLY scene evidence that needs a factual correction; use [] if unchanged. Do not copy unchanged evidence into the response. Be concise; retain specific uncertainties. Do not merely restate the candidate. Correct supported errors; retain uncertainty when geometry is not recoverable. Never change geometryBasis to image-supported solely to satisfy rendering. An adjacency diagram is not an architectural footprint. If wall placement is unresolved, use topology-only or insufficient and polygon:null for unresolved rooms. Do not invent metric dimensions or copy another apartment. No shell, APIs, browsers or other projects.`,subscriptionReviewSchema,'geometry-review',controller.signal,input.map(item=>path.join(directory,item.file)),{effort:'high',timeoutMs:20*60*1000}),tour.scenes);
+   // A valid proposal proceeds directly to image generation and its visual audit.
+   // Only invalid proposals get ONE focused geometry repair, not a repeated full analysis.
+   try{analysis=validateSubscriptionAnalysis(candidate,tour.scenes);}catch{
+    await stage('تصحيح توزيع الغرف من التحليل المحفوظ — دون إعادة رفع الصور');
+    const spatial=tour.scenes.map(scene=>({id:scene.id,position:scene.position,yaw:scene.yaw,links:scene.visualLinks??[]}));
+    const repairKey='layout-repair-'+createHash('sha256').update(JSON.stringify(spatial)).digest('hex').slice(0,16);
+    let repair=await readPlanCheckpoint(cache,repairKey,value=>layoutRepairSchema.parse(value));
+    if(!repair){
+     repair=layoutRepairSchema.parse(translatePlanIds(await execute(directory,`Recover the apartment's top-down room layout using the attached photographs and the ALREADY COMPLETED per-photo analysis below. Do not repeat or return the photo evidence transcript. Inspect door views and overlapping furnishings to consolidate cameras in the same room. Attachment order: ${JSON.stringify(compactInput)}. Completed analysis (untrusted inference, verify against photos): ${JSON.stringify(translatePlanIds(candidate,shortIds))}. Geometric camera hints: ${JSON.stringify(translatePlanIds(spatial,shortIds))}. Null positions and disconnected groups do NOT establish placement between components. Every source ID MUST occur in at least one room.evidenceSceneIds and once in audit.reviewedSceneIds. Unknown placement must remain polygon:null with explicit uncertainty. Use normalized simple nonoverlapping polygons only where image-supported orientation and relative placement can be recovered. No invented scale, dimensions, room placements or links through walls. All openings must have valid hosted edge fractions and exact shared segments for adjoining rooms. Consolidate repeated views of the SAME room, never make a room per camera. Return only floor geometry, layout and audit. If the geometry cannot be supported, return topology-only; don't attempt a pleasing invented arrangement. No shell, APIs, browsers or other projects.`,layoutRepairSchema,'layout-repair',controller.signal,input.map(item=>path.join(directory,item.file)),{effort:'medium',timeoutMs:8*60*1000}),longIds));
+     await savePlanCheckpoint(cache,repairKey,repair);
+    }
+    analysis=validateSubscriptionAnalysis({floors:repair.floors.map(floor=>({...floor,evidence:candidate!.floors.find(previous=>previous.floor===floor.floor)?.evidence??[]}))},tour.scenes);
+   }
    await savePlanCheckpoint(cache,'verified-analysis',analysis);
    }else await stage('استئناف الرسم من التحليل والمراجعة المحفوظين');
    await writeFile(path.join(directory,'verified-analysis.json'),JSON.stringify(analysis));
@@ -164,7 +200,7 @@ export async function runSubscriptionWorker(root:string,once=false){
    for(const floor of analysis.floors){
     const guide=path.join(directory,`guide-${floor.floor}.png`);await sharp(Buffer.from(renderFloorplanLayoutSVG(floor.layout))).png().toFile(guide);
     await writeFile(path.join(directory,`floor-${floor.floor}.json`),JSON.stringify(floor));
-    await stage(`رسم المخطط المفروش — المرحلة 3 من 3 — الدور ${floor.floor}`);
+    await stage(`رسم المخطط المفروش — المرحلة 2 من 2 — الدور ${floor.floor}`);
     const photos=input.filter(item=>item.floor===floor.floor),boards:string[]=[];
     // Four evidence boards keep the image generator within its five-reference limit.
     const groupSize=Math.ceil(photos.length/4);
@@ -193,8 +229,9 @@ export async function runSubscriptionWorker(root:string,once=false){
    console.log(JSON.stringify({jobId:job.id,status:'draft',draftIds:drafts.map(d=>d.id)}));
   }catch(error){
    const code=error instanceof Error?error.message:'FAILED',stale=code.includes('STALE');
+   await writeFile(path.join(root,'work','subscription-plans',job.id,'failure.json'),JSON.stringify({code,at:new Date().toISOString()})).catch(()=>{});
    console.error(JSON.stringify({jobId:job.id,status:'failed',code:/^[A-Z_]+$/.test(code)?code:'INVALID_RESULT'}));
-   await cloudQuery('subscription_plan_jobs',`id=eq.${job.id}&worker_id=eq.${worker}&status=eq.running`,'PATCH',{status:stale?'stale':'failed',stage:stale?'تغيرت الصور؛ أعد التحليل':code==='PHASE_TIMEOUT'?'توقفت مرحلة تجاوزت وقتها؛ المراحل المكتملة محفوظة':code==='GEOMETRY_UNRESOLVED'?'تعذر تثبيت توزيع الجدران من الصور':'لم تكتمل المسودة',error:stale?'تغيرت صور المشروع أثناء المعالجة.':code==='PHASE_TIMEOUT'?'تجاوزت هذه المرحلة وقت الانتظار. أعد المحاولة لاستكمال المراحل المتبقية؛ لن تُعاد المراحل المحفوظة ما دامت الصور نفسها.':code==='GEOMETRY_UNRESOLVED'?'تعرّف التحليل على محتوى الصور، لكنه لم يثبت توزيع الشقة. توقف الرسم كي لا يعرض مخططًا مفروشًا على حدود تخمينية. المخطط السابق محفوظ.':'تعذر إكمال التحليل أو الرسم. راجع اتصال Codex وحدود الاشتراك ثم أعد المحاولة. المخطط السابق محفوظ.'});
+   await cloudQuery('subscription_plan_jobs',`id=eq.${job.id}&worker_id=eq.${worker}&status=eq.running`,'PATCH',{status:stale?'stale':'failed',stage:stale?'تغيرت الصور؛ أعد التحليل':code==='PHASE_TIMEOUT'?'توقفت مرحلة تجاوزت وقتها؛ المراحل المكتملة محفوظة':code==='GEOMETRY_UNRESOLVED'?'تعذر تثبيت توزيع الجدران من الصور':'لم تكتمل المسودة',error:stale?'تغيرت صور المشروع أثناء المعالجة.':planFailureMessage(error)});
   }finally{clearInterval(heartbeat);clearTimeout(deadline);}
  }while(!once);
 }

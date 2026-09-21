@@ -1,6 +1,6 @@
 import {createHash,randomUUID} from 'node:crypto';
 import {isDeepStrictEqual} from 'node:util';
-import {mkdir,readFile,realpath,writeFile} from 'node:fs/promises';
+import {mkdir,readFile,realpath,writeFile,rename} from 'node:fs/promises';
 import {DatabaseSync} from 'node:sqlite';
 import {spawn} from 'node:child_process';
 import path from 'node:path';
@@ -192,12 +192,26 @@ export async function processCloudJob({root,transport,job,owner,signal,executeLo
     const row=tourRows[0],tour=row?.payload;
     if(!tour||tour.id!==job.tour_id||tour.projectId!==row.project_id||tour.revision!==row.revision||imageFingerprint(tour.scenes)!==job.input_hash)throw Error('STALE_PROCESSING_INPUT');
     const input=buildLocalInputPlan(tour,assets,originals);directory=await createJobWorkspace(root,job.id);
-    let completed=0;
-    for(const record of input.downloads){
-      controller.signal.throwIfAborted();const bytes=await transport.download(record.storage_key,{signal:controller.signal});verifyDownloadedObject(bytes,record);
-      await writeFile(path.join(directory,'assets',record.file),bytes,{flag:'wx'});completed++;
-      progress={value:Math.min(2,2*completed/input.downloads.length),stage:`تنزيل صور المعالجة المحلية · ${completed}/${input.downloads.length}`};
-    }
+    let completed=0,nextDownload=0,downloadError;
+    const cache=path.join(root,'work','cloud-input-cache',assertId(tour.id));await mkdir(cache,{recursive:true});
+    await Promise.all(Array.from({length:Math.min(3,input.downloads.length)},async()=>{
+      while(!downloadError){
+        const index=nextDownload++;if(index>=input.downloads.length)return;const record=input.downloads[index];
+        try{
+          controller.signal.throwIfAborted();
+          const cached=/^[a-f0-9]{64}$/i.test(record.sha256??'')?path.join(cache,record.sha256.toLowerCase()):null;
+          let bytes=cached?await readFile(cached).catch(()=>null):null;
+          if(bytes)try{verifyDownloadedObject(bytes,record);}catch{bytes=null;}
+          if(!bytes){
+            bytes=await transport.download(record.storage_key,{signal:controller.signal});verifyDownloadedObject(bytes,record);
+            if(cached){const temporary=cached+'.'+randomUUID()+'.tmp';await writeFile(temporary,bytes);await rename(temporary,cached);}
+          }
+          controller.signal.throwIfAborted();await writeFile(path.join(directory,'assets',record.file),bytes,{flag:'wx'});completed++;
+          progress={value:Math.min(2,2*completed/input.downloads.length),stage:`تجهيز صور المعالجة المحلية · ${completed}/${input.downloads.length}`};
+        }catch(error){downloadError=error;}
+      }
+    }));
+    if(downloadError)throw downloadError;
     seedLocalMirror(directory,input,job);
     const local=await executeLocal({root,directory,job,signal:controller.signal,onProgress:(value,stage)=>{progress={value,stage:safeWorkerMessage(stage)};}});
     controller.signal.throwIfAborted();

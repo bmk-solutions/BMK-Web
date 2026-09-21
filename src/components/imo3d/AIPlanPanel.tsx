@@ -5,7 +5,7 @@ import {useEffect,useState} from "react";
 import type {AIPlanJob} from "@/lib/imo3d/ai-plan-jobs";
 import {ChatGPTDrafts} from './ChatGPTDrafts';
 type Status={configured:boolean;provider?:string;workerOnline?:boolean;job:AIPlanJob|null;stale:boolean};
-export function AIPlanPanel({tourId,sceneCount,disabled}:{tourId:string;sceneCount:number;disabled:boolean}){
+export function AIPlanPanel({tourId,sceneCount,disabled,compact=false,onOpenPlan}:{tourId:string;sceneCount:number;disabled:boolean;compact?:boolean;onOpenPlan?:()=>void}){
  const [status,setStatus]=useState<Status|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
  const [now,setNow]=useState(()=>Date.now());
  const url=`/api/imo3d/tours/${tourId}/ai-plan`;
@@ -13,8 +13,10 @@ export function AIPlanPanel({tourId,sceneCount,disabled}:{tourId:string;sceneCou
  const run=async(method:'POST'|'DELETE')=>{setBusy(true);setError('');try{const response=await fetch(url,{method});const data=await response.json();if(!response.ok)throw Error(data.error);setStatus(data);}catch(error){setError(error instanceof Error?error.message:'تعذر بدء التحليل.');}finally{setBusy(false);}};
  const job=status?.job,active=job?.status==='queued'||job?.status==='running';
  const elapsedMinutes=job?Math.max(0,Math.floor((now-Date.parse(job.createdAt))/60000)):0;
+ if(compact)return <section className="imo-processing-card" aria-label="حالة المخطط التلقائي"><div className="imo-processing-heading"><div><strong>{active?job.stage:job?.status==='draft'?'مسودة المخطط جاهزة للمراجعة':'المخطط التلقائي'}</strong><small>{sceneCount>100?'توليد المخطط يدعم حتى 100 لقطة لكل جولة. يمكنك توزيع الصور على جولات داخل المشروع.':active?'تستمر المعالجة على جهازك حتى بعد مغادرة الصفحة.':'يبدأ بعد اكتمال رفع الصور وربطها؛ يمكنك تعديل النتيجة يدويًا.'}</small></div><button type="button" className="imo-button secondary" onClick={onOpenPlan}>المخطط والتعديل</button></div>{(error||job?.error)&&<p role="alert" className="imo-error">{error||job?.error}</p>}{active&&<button type="button" className="imo-button secondary" disabled={busy} onClick={()=>void run('DELETE')}>إيقاف المخطط</button>}</section>;
  return <section className="imo-form" style={{padding:20,border:'1px solid #dce6e0',borderRadius:16,marginBottom:20}}>
-  <div><h3>مخطط 2D من تحليل الصور</h3><p>تحليل كل لقطة، دمج الغرف حسب الدور، ثم مراجعة بصرية للمسودة. النتائج تقديرية وتحتاج مراجعة؛ لا تتحول إلى قياسات أو مخطط منشور تلقائيًا.</p></div>
+  <div><h3>مخطط 2D من تحليل الصور</h3><p>يبدأ تلقائيًا بعد رفع الصور وربطها: تحليل اللقطات، دمج الغرف حسب الدور، ثم رسم المسودة ومراجعتها. النتائج تقديرية وتحتاج مراجعة؛ لا تتحول إلى قياسات أو مخطط منشور تلقائيًا.</p></div>
+  {sceneCount>100&&<p>توليد المخطط يدعم حتى 100 لقطة لكل جولة؛ الربط المكاني يدعم حتى 300. يمكنك إنشاء عدة جولات داخل المشروع.</p>}
   {status?.provider==='chatgpt-subscription-local'?<p role="status">{status.workerOnline?'عامل ChatGPT متصل. تُحلل صور هذه الجولة ويُنشأ مخطط مفروش خاص بها؛ يمكنك تعديل أسماء الغرف قبل النشر.':'عامل ChatGPT غير متصل. شغّل عامل المخططات على جهازك لتفعيل زر التحليل.'} أبقِ الجهاز متصلًا أثناء العمل. تُستخدم حدود اشتراكك.</p>:status&&!status.configured&&<p role="status">التوليد التلقائي غير مهيّأ على هذه النسخة.</p>}
   {status?.configured&&status.provider!=='chatgpt-subscription-local'&&<p>يستخدم هذا المسار حساب API المهيّأ على الخادم.</p>}
   <div className="imo-dialog-actions"><button type="button" className="imo-button primary" disabled={disabled||busy||active||!status?.configured||sceneCount<2||sceneCount>100} onClick={()=>void run('POST')}>{active?'جارٍ إنشاء المسودة…':'تحليل الصور وإنشاء مخطط'}</button>{active&&<button type="button" className="imo-button secondary" disabled={busy} onClick={()=>void run('DELETE')}>إيقاف المعالجة</button>}</div>
@@ -23,7 +25,7 @@ export function AIPlanPanel({tourId,sceneCount,disabled}:{tourId:string;sceneCou
    <span>{Number.isFinite(elapsedMinutes)&&elapsedMinutes>0?`مضى ${elapsedMinutes} دقيقة على طلب المخطط`:'بدأ طلب المخطط للتو'}</span>
    <p style={{margin:0}}>صور الجولة محفوظة. إنشاء المخطط عملية منفصلة عن رفع الصور؛ يمكنك معاينة الجولة أثناء تجهيز المسودة.</p>
    <a className="imo-button secondary" href={`/imo3d/t/${tourId}`} target="_blank" rel="noreferrer">معاينة الجولة الآن</a>
-   <small>تحليل الصور ← مراجعة توزيع الغرف ← رسم المخطط المفروش. لا تنشر المسودة إلا بعد مراجعتها.</small>
+   <small>تحليل الصور وتوزيع الغرف ← رسم المخطط ومراجعته. لا تنشر المسودة إلا بعد مراجعتها.</small>
   </div>}
   {(error||job?.error)&&<p role="alert" className="imo-error">{error||job?.error}</p>}
   {status?.stale&&<p>تغيرت صور الجولة أو أدوارها. أعد التوليد للحصول على مسودة للصور الحالية.</p>}

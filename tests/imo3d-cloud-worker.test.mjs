@@ -167,3 +167,12 @@ test('cancelling the subprocess changes only its isolated queue and waits for ex
   const db=new DatabaseSync(path.join(directory,'imo3d.sqlite'),{readOnly:true});
   try{assert.equal(db.prepare('SELECT status FROM processing_jobs').get().status,'cancelled');}finally{db.close();}
 });
+
+test('processing reuses verified tour-scoped photo cache and recovers corrupted cache',async()=>{
+ const data=fixture(),root=await workspace();let downloaded=0;
+ const execute=async()=>{const run=harness(data),download=run.transport.download;run.transport.download=async(...args)=>{downloaded++;return download(...args);};return processCloudJob({root,transport:run.transport,job:data.job,owner,signal:new AbortController().signal,executeLocal:run.executeLocal});};
+ assert.equal((await execute()).status,'committed');assert.equal(downloaded,2);
+ assert.equal((await execute()).status,'committed');assert.equal(downloaded,2);
+ await writeFile(path.join(root,'work','cloud-input-cache',data.tour.id,data.assets[0].sha256),'corrupt');
+ assert.equal((await execute()).status,'committed');assert.equal(downloaded,3);
+});

@@ -16,7 +16,7 @@ import {PanoramaBlobCache} from '../src/components/imo3d/PanoramaBlobCache';
 import {cloudSignedDownloads} from '../src/lib/imo3d/cloud/client';
 import {chatgptOAuth,chatgptResource,signedValue,authorization,digest,chatgptConnection} from '../src/lib/imo3d/cloud/chatgpt-auth';
 import {chatgptMCP,callChatGPTTool,chatgptDrafts} from '../src/lib/imo3d/cloud/chatgpt-mcp';
-import {subscriptionChildEnvironment,validateSubscriptionAnalysis,validateImageReview,mergeSubscriptionReview} from '../src/lib/imo3d/subscription-plan-worker';
+import {translatePlanIds,planFailureMessage,subscriptionChildEnvironment,validateSubscriptionAnalysis,validateImageReview,mergeSubscriptionReview} from '../src/lib/imo3d/subscription-plan-worker';
 import {planCheckpointDirectory,readPlanCheckpoint,savePlanCheckpoint,preparePlanPhotos} from '../src/lib/imo3d/plan-checkpoints';
 import {labeledPlanSVG} from '../src/lib/imo3d/plan-labels';
 const origin='https://imo3d.example',secret='synthetic-test-secret-is-at-least-32-characters',fetchOriginal=globalThis.fetch,envOriginal={...process.env};
@@ -514,13 +514,10 @@ for(const initialStatus of ['queued','running','cancelled','completed',null])tes
  let row=initialStatus?{id:'cancel-test',tour_id:tour.id,status:initialStatus,progress:35,stage:'Processing',created_at:'2026-01-01',updated_at:'2026-01-01',error:null,warnings:[],result:null,input_hash:'private-hash',lease_owner:'private-worker',lease_until:0}:null;
  mock=call=>{
   if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);
-  assert.ok(call.url.pathname.endsWith('/imo3d_processing_jobs'));
-  assert.equal(call.url.searchParams.get('tour_id'),'eq.'+tour.id);
-  if(call.method==='PATCH'){
-   assert.equal(call.url.searchParams.get('status'),'in.(queued,running)');assert.equal(call.body?.cancel_requested,true);
-   if(row&&['queued','running'].includes(row.status)){row={...row,status:'cancelled',stage:String(call.body!.stage)};return result([row]);}return result([]);
-  }
-  assert.equal(call.method,'GET');assert.equal(call.url.searchParams.get('limit'),'1');return result(row?[row]:[]);
+  assert.ok(call.url.pathname.endsWith('/rpc/imo3d_cancel_tour_workflow'));
+  assert.equal(call.method,'POST');assert.equal(call.body?.p_tour_id,tour.id);
+  if(row&&['queued','running'].includes(row.status))row={...row,status:'cancelled',stage:'أُلغيت المعالجة'};
+  return result(row);
  };
  for(let repeat=0;repeat<2;repeat++){
   const response=await cloudRoute(req(`tours/${tour.id}/processing-cancel`,{method:'POST'},true));assert.equal(response.status,200);
@@ -528,11 +525,33 @@ for(const initialStatus of ['queued','running','cancelled','completed',null])tes
   assert.equal(job?.status??null,initialStatus===null?null:initialStatus==='completed'?'completed':'cancelled');
   if(job){assert.equal(job.warnings.length,0);assert.equal(body.lease_owner,undefined);assert.equal(body.input_hash,undefined);assert.equal(job.tourId,tour.id);}
  }
- assert.equal(JSON.stringify(tour),before);assert.equal(calls.filter(c=>c.method==='PATCH').length,2);
+ assert.equal(JSON.stringify(tour),before);assert.equal(calls.filter(c=>c.url.pathname.endsWith('/rpc/imo3d_cancel_tour_workflow')).length,2);
 });
 
 test('processing responses reject old cancellation counts before reaching render state',()=>{
  for(const value of [0,1,2,undefined,{}, {status:'cancelled'}, {id:'x',warnings:null}])assert.throws(()=>parseProcessingJob(value),/تعذر قراءة حالة/);
  assert.equal(parseProcessingJob(null),null);
  const job=parseProcessingJob({id:'a',tourId:'b',status:'cancelled',progress:35,stage:'Cancelled',createdAt:'2026-01-01',updatedAt:'2026-01-01',error:null});assert.deepEqual(job?.warnings,[]);
+});
+
+
+test('compact scene aliases round-trip without altering descriptive text or hiding layout failures',()=>{
+ const value={id:'a-long-scene-id',floor:0,evidenceSceneIds:['a-long-scene-id'],notes:'Door by a-long-scene-id'};
+ const short=new Map([['a-long-scene-id','S1']]),long=new Map([['S1','a-long-scene-id']]);
+ assert.deepEqual(translatePlanIds(translatePlanIds(value,short),long),value);
+ assert.equal((translatePlanIds(value,short) as typeof value).notes,value.notes);
+ assert.ok(!planFailureMessage(Error('Layout omitted scene evidence.')).includes('اشتراك'));
+ assert.ok(planFailureMessage(Error('GEOMETRY_UNRESOLVED')).includes('توزيع الجدران'));
+});
+
+
+test('starting photo processing atomically requests automatic floorplan for the same snapshot',async()=>{
+ const tour=syntheticTour();mock=call=>{
+  if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);
+  assert.ok(call.url.pathname.endsWith('/rpc/imo3d_start_tour_workflow'));
+  assert.equal(call.body?.p_tour_id,tour.id);assert.ok(call.body?.p_input_hash);assert.ok(call.body?.p_plan_hash);
+  assert.equal((call.body?.p_scenes as unknown[]).length,tour.scenes.length);
+  return result({id:'automatic-job',tour_id:tour.id,status:'queued',stage:'Queued',progress:0,warnings:[],created_at:'2026-01-01',updated_at:'2026-01-01'});
+ };
+ const response=await cloudRoute(req(`tours/${tour.id}/processing`,{method:'POST'},true));assert.equal(response.status,202);assert.equal((await response.json()).id,'automatic-job');
 });

@@ -40,22 +40,32 @@ export async function uploadPanoramas(initial:Tour,files:File[],floor:number,opt
  const report=(stage:UploadProgress['stage'])=>options.onProgress?.({done,total:files.length,uploadedBytes:bytes.reduce((a,b)=>a+b,0),totalBytes,stage});
  const validate=(file:File)=>{if(file.size>100*1024*1024)throw Error('الحد الأقصى للصورة 100 MiB.');if(!['image/jpeg','image/png','image/webp'].includes(file.type))throw Error('اختر صورة JPG أو PNG أو WEBP.');};
  const save=(updated:Tour)=>{tour=updated;uploaded++;options.onSaved(updated);};
- for(let first=0;first<files.length;first+=mode.cloud?3:1){
-  if(options.isActive&&!options.isActive())break;
-  const batch=files.slice(first,first+(mode.cloud?3:1));
-  if(!mode.cloud){try{validate(batch[0]);const body=new FormData();body.set('file',batch[0]);body.set('floor',String(floor));save(await api<Tour>(`tours/${tour.id}/images`,{method:'POST',body}));bytes[first]=batch[0].size;}catch(error){failures.push({file:batch[0],message:errorMessage(error)});}done++;report('uploading');continue;}
-  // Complete reservations before any commit can change the expected revision.
-  const signed=await Promise.all(batch.map(async(file)=>{try{validate(file);return {session:await api<SignedPanoramaUpload>(`tours/${tour.id}/images-init`,{method:'POST',body:JSON.stringify({name:file.name,size:file.size,type:file.type,floor,revision:tour.revision})})};}catch(error){return {error:errorMessage(error)};}}));
-  // Capture failures immediately, including a later file failing while an earlier one uploads.
-  const transfers:Promise<{session?:SignedPanoramaUpload;error?:string}>[]=signed.map(async(item,index)=>{if(!item.session)return item;try{await uploadResumable(batch[index],item.session,fraction=>{bytes[first+index]=fraction*batch[index].size;report('uploading');});return item;}catch(error){return {error:errorMessage(error)};}});
-  for(let index=0;index<batch.length;index++){
-   const transfer=await transfers[index];
+ if(!mode.cloud){
+  for(let index=0;index<files.length;index++){
+   if(options.isActive&&!options.isActive())break;
+   const file=files[index];try{validate(file);const body=new FormData();body.set('file',file);body.set('floor',String(floor));save(await api<Tour>(`tours/${tour.id}/images`,{method:'POST',body}));bytes[index]=file.size;}catch(error){failures.push({file,message:errorMessage(error)});}done++;report('uploading');
+  }
+ }else{
+  type Transfer={session?:SignedPanoramaUpload;error?:string};
+  const transfers=new Map<number,Promise<Transfer>>();
+  // Reserve only while no commit is running. Transfer the next original while
+  // the previous images are being prepared; never wait for an entire batch.
+  const reserve=async(index:number)=>{
+   const file=files[index];let session:SignedPanoramaUpload;
+   try{validate(file);session=await api<SignedPanoramaUpload>(`tours/${tour.id}/images-init`,{method:'POST',body:JSON.stringify({name:file.name,size:file.size,type:file.type,floor,revision:tour.revision})});}
+   catch(error){transfers.set(index,Promise.resolve({error:errorMessage(error)}));return;}
+   transfers.set(index,uploadResumable(file,session,fraction=>{bytes[index]=fraction*file.size;report('uploading');}).then(()=>({session}),error=>({error:errorMessage(error)})));
+  };
+  if(!options.isActive||options.isActive())await Promise.all(files.slice(0,3).map((_,index)=>reserve(index)));
+  for(let index=0;transfers.has(index);index++){
+   const transfer=await transfers.get(index)!;transfers.delete(index);
    try{
     if(!transfer.session)throw Error(transfer.error);
     report('preparing');
     for(let attempt=0;;attempt++){try{save(await api<Tour>(`tours/${tour.id}/images-finalize`,{method:'POST',body:JSON.stringify({uploadId:transfer.session.uploadId,revision:tour.revision})}));break;}catch(error){if(attempt>=2)throw error;await delay(2000*(attempt+1));}}
-   }catch(error){failures.push({file:batch[index],message:errorMessage(error)});}
+   }catch(error){failures.push({file:files[index],message:errorMessage(error)});}
    done++;report('uploading');
+   if(index+3<files.length&&(!options.isActive||options.isActive()))await reserve(index+3);
   }
  }
  return {tour,uploaded,failures};

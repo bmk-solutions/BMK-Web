@@ -43,11 +43,14 @@ export async function handleCloudUpload(request:Request,tour:Tour):Promise<Respo
   let meta:sharp.Metadata;try{meta=await sharp(bytes,{limitInputPixels:MAX_PANORAMA_PIXELS,animated:false}).metadata();}catch{throw new CloudHTTPError('تعذر قراءة الصورة أو دقتها تتجاوز الحد الآمن.',422);}
   const problem=panoramaProblem(meta);if(problem)throw new CloudHTTPError(problem,422);
   const variants:Record<string,string>={},assets:Record<string,unknown>[]=[];let detail:Scene['detail'];
+  // Decode the large original once. Reuse a bounded 8K raster for all derivatives.
+  // The untouched original remains in private storage.
+  const raster=await sharp(bytes,{limitInputPixels:MAX_PANORAMA_PIXELS,animated:false}).rotate().resize({width:8192,withoutEnlargement:true}).removeAlpha().raw().toBuffer({resolveWithObject:true});
   // Encode one image at a time; overlap storage writes with the next encode.
   const writes:Promise<{error?:unknown}>[]=[];
   for(const [kind,width,quality] of [['image',4096,86],['preview',2048,78],['thumbnail',512,72],...(meta.width!>4096?[['detail',8192,94] as const]:[])] as const){
    const id=randomUUID(),key=`tours/${tour.id}/scenes/${session.scene_id}/${lease}/${id}.webp`;
-   const output=await sharp(bytes,{limitInputPixels:MAX_PANORAMA_PIXELS,animated:false}).rotate().resize({width,withoutEnlargement:true}).webp({quality}).toBuffer({resolveWithObject:true});
+   const output=await sharp(raster.data,{raw:{width:raster.info.width,height:raster.info.height,channels:raster.info.channels}}).resize({width,withoutEnlargement:true}).webp({quality}).toBuffer({resolveWithObject:true});
    writes.push(cloudUploadObject(key,output.data,'image/webp').then(()=>({}),error=>({error})));
    if(writes.length>=2){const previous=await writes.shift()!;if(previous.error)throw previous.error;}
    assets.push({id,file:`${id}.webp`,mime:'image/webp',storage_key:key,sha256:hash(output.data),byte_size:output.data.length});

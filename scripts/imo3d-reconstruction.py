@@ -17,6 +17,8 @@ import os
 from pathlib import Path
 import sys
 import time
+import uuid
+import zipfile
 
 if os.environ.get("IMO3D_CV_PATH"):
     sys.path.insert(0, os.environ["IMO3D_CV_PATH"])
@@ -148,8 +150,11 @@ def extract_features(path, cache_dir):
     fingerprint = hashlib.sha256(FEATURE_VERSION.encode() + encoded).hexdigest()
     cache = cache_dir / (fingerprint + ".npz")
     if cache.exists():
-        with np.load(cache, allow_pickle=False) as data:
-            return {key: data[key] for key in ("points", "bearings", "descriptors", "signature")}
+        try:
+            with np.load(cache, allow_pickle=False) as data:
+                return {key: data[key] for key in ("points", "bearings", "descriptors", "signature")}
+        except (OSError, ValueError, KeyError, EOFError, zipfile.BadZipFile):
+            pass  # Incomplete/corrupt cache is recomputed from the original.
     image = cv2.imdecode(np.frombuffer(encoded, dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
     if image is None:
         raise ValueError("تعذرت قراءة صورة البانوراما")
@@ -181,7 +186,9 @@ def extract_features(path, cache_dir):
     signature = (signature - signature.mean()) / max(1, signature.std())
     result = {"points": points, "bearings": pixel_bearings(points, width, height),
               "descriptors": descriptors.astype(np.float32), "signature": signature}
-    np.savez_compressed(cache, **result)
+    temporary = cache.with_name(fingerprint + "." + uuid.uuid4().hex + ".npz")
+    np.savez_compressed(temporary, **result)
+    temporary.replace(cache)
     return result
 
 
@@ -631,7 +638,7 @@ def reconstruct(payload):
                 profile_errors.append({"id": scene["id"], "error": str(error)})
     output = Path(payload["outputDir"]).resolve()
     output.mkdir(parents=True, exist_ok=True)
-    cache = output / "features"
+    cache = Path(payload.get("featureCacheDir") or output / "features")
     cache.mkdir(exist_ok=True)
     features = []
     for index, scene in enumerate(scenes):
@@ -648,6 +655,12 @@ def reconstruct(payload):
                          for j, other in enumerate(features) if j != i and scenes[i].get("floor", 0) == scenes[j].get("floor", 0)]
             for _, j in sorted(distances)[:18]:
                 chosen.add((min(i, j), max(i, j)))
+        # Whole-room appearance changes at doorways. Retain nearby capture-order
+        # pairs as retrieval candidates too; they still need the SAME geometric proof.
+        for i in range(len(scenes)):
+            for j in range(i + 1, min(i + 4, len(scenes))):
+                if scenes[i].get("floor", 0) == scenes[j].get("floor", 0):
+                    chosen.add((i, j))
         candidates = sorted(chosen)
     rng, pairs, rejected = np.random.default_rng(4729), [], {}
     for index, (i, j) in enumerate(candidates):
@@ -663,6 +676,39 @@ def reconstruct(payload):
             rejected[reason] = rejected.get(reason, 0) + 1
         if index % 5 == 0 or index == len(candidates) - 1:
             progress("matching", index + 1, len(candidates), acceptedPairs=len(pairs))
+    # A global appearance shortlist can strand a room whose doorway looks unlike
+    # its interior. Search between the resulting components explicitly, while
+    # retaining the same epipolar, parallax and gravity rejection thresholds.
+    initial_components = connected_components(len(scenes), pairs)
+    if len(initial_components) > 1 and len(scenes) > 80:
+        tried = set(candidates)
+        bridge_scores = {}
+        for ci, first_group in enumerate(initial_components):
+            for second_group in initial_components[ci + 1:]:
+                ranked = []
+                for i in first_group:
+                    for j in second_group:
+                        pair_key = (min(i, j), max(i, j))
+                        if pair_key in tried or scenes[i].get("floor", 0) != scenes[j].get("floor", 0):
+                            continue
+                        score = float(np.mean((features[i]["signature"] - features[j]["signature"]) ** 2))
+                        ranked.append((score, pair_key))
+                bridge_scores.update((pair_key, score) for score, pair_key in sorted(ranked)[:4])
+        bridges = sorted(sorted(bridge_scores, key=lambda pair: (bridge_scores[pair], pair))[:4 * len(scenes)])
+        for index, (i, j) in enumerate(sorted(bridges)):
+            pair, reason = match_pair(features[i], features[j], rng)
+            if pair:
+                pair.update(i=i, j=j, a=scenes[i]["id"], b=scenes[j]["id"])
+                if envelope_module and scenes[i]["id"] in envelopes and scenes[j]["id"] in envelopes:
+                    floor_evidence = envelope_module.infer_floor_baseline(pair, features[i], features[j], profiles.get(scenes[i]["id"]), profiles.get(scenes[j]["id"]))
+                    if floor_evidence:
+                        pair["_floorBaseline"] = floor_evidence
+                pairs.append(pair)
+            else:
+                rejected[reason] = rejected.get(reason, 0) + 1
+            if index % 5 == 0 or index == len(bridges)-1:
+                progress("matching", len(candidates)+index+1, len(candidates)+len(bridges), acceptedPairs=len(pairs))
+        candidates.extend(sorted(bridges))
     # Reject globally inconsistent edges before assigning component IDs. Otherwise
     # removal of one false loop can leave a disconnected map labelled connected.
     globally_consistent = []

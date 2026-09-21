@@ -1,5 +1,5 @@
 import {z} from "zod";
-import {changeSubscriptionPlan,subscriptionPlanStatus} from './subscription-plans';
+import {changeSubscriptionPlan,subscriptionPlanStatus,sceneSnapshot} from './subscription-plans';
 import type {Tour,Lead} from "../model";
 import type {CloudAccess} from "./auth";
 import type {CloudJob} from "./types";
@@ -16,16 +16,13 @@ const processingResult=z.object({registered:z.number(),total:z.number(),links:z.
 export function publicProcessingJob(row:CloudJob|null){if(!row)return null;const result=processingResult.safeParse(row.result);return{id:row.id,tourId:row.tour_id,status:row.status,progress:row.progress,stage:row.stage,createdAt:row.created_at,updatedAt:row.updated_at,error:row.error,warnings:row.warnings??[],...(result.success?{result:result.data}:{})};}
 export async function cloudProcessing(request:Request,tour:Tour,action:string){
  if(action==="processing-cancel"&&request.method==="POST"){
-  await cloudQuery("processing_jobs",`tour_id=eq.${eq(tour.id)}&status=in.(queued,running)`,"PATCH",{status:"cancelled",cancel_requested:true,stage:"أُلغيت المعالجة",updated_at:new Date().toISOString()});
-  // Match GET and the local cancel route, including repeat clicks or a worker
-  // finishing first. A row count is not a renderable ProcessingJob.
-  const rows=await cloudQuery<CloudJob[]>("processing_jobs",`tour_id=eq.${eq(tour.id)}&order=created_at.desc,id.desc&limit=1`);
-  return json(publicProcessingJob(rows[0]??null));
+  const row=await cloudRpc<CloudJob|null>("cancel_tour_workflow",{p_tour_id:tour.id});
+  return json(publicProcessingJob(row));
  }
  if(action!=="processing")return null;
  if(request.method==="POST"){
   if(tour.scenes.length<2||tour.scenes.length>300)return fail("ارفع من صورتين إلى 300 صورة متداخلة للمعالجة التلقائية.",422);
-  const row=await cloudRpc<CloudJob>("enqueue_job",{p_tour_id:tour.id,p_input_hash:imageFingerprint(tour.scenes)});return json(publicProcessingJob(row),202);
+  const row=await cloudRpc<CloudJob>("start_tour_workflow",{p_tour_id:tour.id,p_input_hash:imageFingerprint(tour.scenes),p_plan_hash:aiPlanFingerprint(tour.scenes),p_scenes:sceneSnapshot(tour)});return json(publicProcessingJob(row),202);
  }
  if(request.method==="GET"){const rows=await cloudQuery<CloudJob[]>("processing_jobs",`tour_id=eq.${eq(tour.id)}&order=created_at.desc,id.desc&limit=1`);return json(publicProcessingJob(rows[0]??null));}
  return fail("العملية غير متاحة.",405);

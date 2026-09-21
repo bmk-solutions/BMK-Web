@@ -11,6 +11,18 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 for part in reversed(["vlm-python-verified", "layout-python-verified", "room-vision-python-verified", "reconstruction-python-verified"]):
     sys.path.insert(0, str(ROOT / "work" / part))
+# Use the same configured scientific runtime as reconstruction. A stale bundled
+# scipy namespace can otherwise mask the working scipy.optimize installation.
+try:
+    runtime = json.loads((ROOT / "work" / "reconstruction-runtime.json").read_text(encoding="utf-8-sig"))
+except (OSError, ValueError):
+    runtime = {}
+cv_runtime = os.environ.get("IMO3D_CV_PATH") or runtime.get("cvPath")
+if cv_runtime and Path(cv_runtime).is_dir():
+    sys.path.insert(0, str(cv_runtime))
+gpu_runtime = ROOT / "work" / "gpu-python"
+if (gpu_runtime / ".imo3d-verified.json").is_file():
+    sys.path.insert(0, str(gpu_runtime))
 os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
 os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
@@ -217,8 +229,17 @@ class PhotoDepth:
         if hashlib.sha256((model_dir / "model.safetensors").read_bytes()).hexdigest() != MODEL_SHA256:
             raise ValueError("Local photo-depth model checksum mismatch")
         self.torch = torch
+        self.device = "cpu"
+        try:
+            if torch.cuda.is_available() and torch.cuda.mem_get_info()[0] >= 2 * 1024 ** 3:
+                torch.zeros(1, device="cuda").add_(1)
+                torch.cuda.synchronize()
+                self.device = "cuda"
+        except RuntimeError:
+            pass  # CPU remains available when the GPU cannot run real kernels.
         self.processor = AutoImageProcessor.from_pretrained(model_dir, local_files_only=True, trust_remote_code=False)
-        self.model = AutoModelForDepthEstimation.from_pretrained(model_dir, local_files_only=True, trust_remote_code=False).eval()
+        self.model = AutoModelForDepthEstimation.from_pretrained(model_dir, local_files_only=True, trust_remote_code=False).eval().to(self.device)
+        print(json.dumps({"event": "runtime", "stage": "photo_depth", "device": self.device}), flush=True)
 
     def infer(self, scene, profile, size=392):
         started = time.monotonic()
@@ -235,8 +256,9 @@ class PhotoDepth:
                 y = np.clip((.5 - latitude / math.pi) * h - .5, 0, h - 1).astype(np.float32)
                 view = cv2.remap(source, x, y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_WRAP)
                 with self.torch.inference_mode():
-                    prediction = self.model(**self.processor(images=Image.fromarray(view), return_tensors="pt")).predicted_depth
-                prediction = self.torch.nn.functional.interpolate(prediction[:, None], size=(size, size), mode="bicubic", align_corners=False)[0, 0].numpy()
+                    inputs = {key: value.to(self.device) for key, value in self.processor(images=Image.fromarray(view), return_tensors="pt").items()}
+                    prediction = self.model(**inputs).predicted_depth
+                prediction = self.torch.nn.functional.interpolate(prediction[:, None], size=(size, size), mode="bicubic", align_corners=False)[0, 0].cpu().numpy()
                 faces.append({"yaw": yaw, "pitch": pitch, "rays": rays, "norm": norm, "basis": basis, "prediction": prediction})
         anchor_faces(faces, np.asarray(profile, dtype=float))
         depth, confidence, diagnostics = blend_panorama(faces)

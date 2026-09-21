@@ -59,3 +59,30 @@ Acceptance: real local tour accepted a below-horizon base and above-horizon door
 
 
 Automatic workflow: `imo3d_start_tour_workflow` atomically queues spatial processing and a subscription floorplan for supported batches (2–100 floorplan photographs; spatial processing retains its 300-photo cap). The plan worker waits for active spatial work and then loads fresh camera hints. The admin status is visible outside the plan tab. `imo3d_cancel_tour_workflow` cancels both queues under the same tour lock and returns a renderable job, including repeated cancellation. Functions are service-role only. New migration was verified transactionally against a temporary tour; all fixture rows rolled back, source tour unchanged. Public sharing and acceptance of uncertain generated geometry remain explicit.
+
+## Depth runtime repair, September 21
+
+Real-model smoke tests exposed two runtime failures hidden behind partial job
+success: photo depth could not import `scipy.optimize`, and every joint-depth
+group failed because its selected `cv2` namespace lacked `remap`. Both scripts
+now honor the same configured scientific runtime as reconstruction. They use the
+already verified GPU runtime when available, probe real kernels and free memory,
+and retain CPU fallback. Joint inference falls back to CPU on GPU allocation
+failure. Geometry acceptance thresholds and metric classifications are unchanged.
+
+Verification on the affected tour, using local inputs without uploading again:
+
+- Photo depth: 100/100 inputs processed without errors, 168 seconds including
+  model startup (164.43 seconds summed inference). 85 passed the stricter renderer
+  coverage gate. Those 85 were added to the saved tour in revision 108; source
+  preview hashes were verified, active jobs checked under a tour lock, and all
+  non-depth scene fields preserved. This is not an end-to-end upload benchmark.
+- Joint depth: all 72 positioned cameras processed without runtime warnings in
+  263 seconds; 150,000 independently supported surface samples retained locally.
+  These estimates have not been accepted as architectural walls or metric depth.
+- Python geometry suites: 7 photo-depth, 14 joint-depth and 12 depth-architecture
+  tests passed. Production tour preview loads after the scoped depth update.
+
+The original automatic floorplan remains unresolved. Fixing these runtime failures
+does not certify full connectivity, furnished floorplan completion, or measurement
+accuracy. The retained geometric evidence must be evaluated separately.

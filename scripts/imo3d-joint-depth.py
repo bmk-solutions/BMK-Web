@@ -14,6 +14,14 @@ import zipfile
 ROOT=Path(__file__).resolve().parents[1]
 for name in ['reconstruction-python-verified','room-vision-python-verified','vlm-python-verified','layout-python-verified','joint-depth-python','da3-python']:
     sys.path.insert(0,str(ROOT/'work'/name))
+try:
+    runtime=json.loads((ROOT/'work/reconstruction-runtime.json').read_text(encoding='utf-8-sig'))
+except (OSError,ValueError):
+    runtime={}
+cv_runtime=os.environ.get('IMO3D_CV_PATH') or runtime.get('cvPath')
+if cv_runtime and Path(cv_runtime).is_dir():sys.path.insert(0,str(cv_runtime))
+gpu_runtime=ROOT/'work/gpu-python'
+if (gpu_runtime/'.imo3d-verified.json').is_file():sys.path.insert(0,str(gpu_runtime))
 os.environ['HF_HUB_OFFLINE']='1'
 os.environ['TRANSFORMERS_OFFLINE']='1'
 os.environ['HF_HUB_DISABLE_TELEMETRY']='1'
@@ -306,6 +314,14 @@ class Model:
                 if donor is None:raise ValueError('Missing local DA3 tensor: '+key)
                 weights[key]=weights[donor]
         self.net.load_state_dict(weights,strict=True)
+        self.device='cpu'
+        try:
+            if torch.cuda.is_available() and torch.cuda.mem_get_info()[0]>=4*1024**3:
+                torch.zeros(1,device='cuda').add_(1);torch.cuda.synchronize()
+                self.net.to('cuda');self.device='cuda'
+        except RuntimeError:
+            self.net.to('cpu');torch.cuda.empty_cache()
+        print(json.dumps({'event':'runtime','stage':'joint_depth','device':self.device}),flush=True)
 
     def run(self,views,retain_raw=False):
         torch=self.torch
@@ -315,7 +331,14 @@ class Model:
         median=max(.1,float(np.median(np.linalg.norm(np.linalg.inv(norm)[:,:3,3],axis=-1))))
         norm[:,:3,3]/=median
         with torch.inference_mode():
-            output=self.net(torch.from_numpy(images.transpose(0,3,1,2)[None]),torch.from_numpy(norm[None]),torch.from_numpy(np.repeat(make_intrinsics()[None,None],len(views),axis=1)),export_feat_layers=[],infer_gs=False)
+            inputs=[torch.from_numpy(value) for value in [images.transpose(0,3,1,2)[None],norm[None],np.repeat(make_intrinsics()[None,None],len(views),axis=1)]]
+            try:
+                output=self.net(*(value.to(self.device) for value in inputs),export_feat_layers=[],infer_gs=False)
+            except torch.cuda.OutOfMemoryError:
+                if self.device!='cuda':raise
+                self.device='cpu';self.net.to('cpu');torch.cuda.empty_cache()
+                output=self.net(*inputs,export_feat_layers=[],infer_gs=False)
+            output={key:value.cpu() if isinstance(value,torch.Tensor) else value for key,value in output.items()}
         scale,error=align_scale(ext,output['extrinsics'][0].numpy())
         for i,view in enumerate(views):
             view['depth']=output['depth'][0,i].numpy().copy()/scale

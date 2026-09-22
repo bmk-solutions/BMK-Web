@@ -131,6 +131,58 @@ class ReconstructionGeometry(unittest.TestCase):
         self.assertEqual(core.recovery_candidates(scenes, features, groups, set(), budget=0), [])
         self.assertLessEqual(len(core.recovery_candidates(scenes, features, groups, set())), 1200)
 
+    def test_dense_recovery_covers_unmatched_neighbours_and_remains_bounded(self):
+        scenes = [{"id": str(i), "floor": 0 if i < 99 else 1} for i in range(100)]
+        features = [{"signature": np.array([i])} for i in range(100)]
+        isolated = [7, 8, 59, 60, 78, 96, 99]
+        groups = [[i for i in range(100) if i not in isolated], *[[i] for i in isolated]]
+        pairs = core.dense_recovery_candidates(scenes, features, groups)
+        self.assertLessEqual(len(pairs), 32)
+        self.assertEqual(len(set(pairs)), len(pairs))
+        self.assertIn((95, 96), pairs)
+        self.assertIn((77, 78), pairs)
+        self.assertTrue(all(99 not in pair for pair in pairs))
+        self.assertEqual(core.dense_recovery_candidates(scenes, features, [list(range(100))]), [])
+
+    def test_dense_observations_obey_same_spherical_pose_and_outlier_rejections(self):
+        first, second, _, _ = observations(180)
+        indices = np.arange(len(first))
+        pair, reason = core.verify_correspondences(first, second, indices, indices, np.random.default_rng(4729))
+        self.assertIsNone(reason)
+        self.assertGreater(pair['inliers'], 170)
+        self.assertGreater(pair['parallaxDegrees'], .65)
+        rng = np.random.default_rng(532)
+        unrelated = rng.normal(size=second.shape)
+        unrelated /= np.linalg.norm(unrelated, axis=1, keepdims=True)
+        pair, reason = core.verify_correspondences(first, unrelated, indices, indices, np.random.default_rng(4729))
+        self.assertIsNone(pair)
+        self.assertEqual(reason, 'inconsistent_geometry')
+
+    def test_optional_dense_runtime_failure_keeps_existing_reconstruction_available(self):
+        class MissingRuntime:
+            returncode = 2
+            def poll(self): return self.returncode
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(core.subprocess, 'Popen', return_value=MissingRuntime()):
+                result, status = core.optional_dense_correspondences([{'id': 'a', 'path': '/a'}, {'id': 'b', 'path': '/b'}], [(0, 1)], directory)
+            self.assertEqual(result, [])
+            self.assertEqual(status, 'unavailable')
+
+    def test_optional_dense_timeout_terminates_and_reaps_subprocess(self):
+        class StalledRuntime:
+            returncode = None
+            reaped = False
+            def poll(self): return self.returncode
+            def kill(self): self.returncode = -9
+            def wait(self, timeout): self.reaped = True; return self.returncode
+        process = StalledRuntime()
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(core.subprocess, 'Popen', return_value=process):
+                result, status = core.optional_dense_correspondences([{'id': 'a', 'path': '/a'}, {'id': 'b', 'path': '/b'}], [(0, 1)], directory, timeout_seconds=-1)
+            self.assertEqual(result, [])
+            self.assertEqual(status, 'timeout')
+            self.assertTrue(process.reaped)
+
     def test_duplicate_panorama_does_not_create_fake_camera_translation(self):
         rng = np.random.default_rng(932)
         rays = rng.normal(size=(120, 3)); rays /= np.linalg.norm(rays, axis=1, keepdims=True)
@@ -213,6 +265,35 @@ class ReconstructionGeometry(unittest.TestCase):
         self.assertEqual(len(valid), 3)
         self.assertLess(error, .01)
         np.testing.assert_allclose(predicted, expected, atol=.002)
+
+    def test_unscaled_leaf_cannot_stick_on_reversed_bearing_after_anchored_solve(self):
+        # The median anchor is one unit, but the parent of the unscaled leaf is
+        # twelve units away. A linear bearing solve preserves the leaf's old
+        # x=2 coordinate, putting it exactly 180 degrees behind its parent.
+        # Angular residuals have zero derivative there. Measured anchors must
+        # remain unchanged while only the unresolved leaf degree is corrected.
+        for rotation in (0., .6, 1.8):
+            pairs = []
+            for i, j, vector, length in ((0, 1, [1., 0., 0.], 12.),
+                                          (0, 2, [0., 0., -1.], 1.),
+                                          (0, 3, [-1., 0., 0.], 1.),
+                                          (1, 4, [1., 0., 0.], None)):
+                horizontal = core.rotate_horizontal(np.array(vector), rotation)
+                pair = {'i': i, 'j': j, 'direction': np.array([horizontal[0], 0., horizontal[1]]),
+                        'yaw': 0., 'confidence': .9, 'inliers': 200-i-j, '_points': np.zeros((0, 3))}
+                if length is not None:
+                    pair['_floorBaseline'] = {'baseline': length, 'confidence': .9}
+                pairs.append(pair)
+            for ordered in (pairs, list(reversed(pairs))):
+                positions, _, rigid, error, valid, _ = core.solve_component([0, 1, 2, 3, 4], ordered)
+                self.assertFalse(rigid, 'leaf distance remains unobserved')
+                self.assertEqual(len(valid), 4)
+                self.assertLess(error, .01)
+                expected = np.array([core.rotate_horizontal(np.array(vector), rotation)
+                                     for vector in ([0., 0., 0.], [12., 0., 0.], [0., 0., -1.], [-1., 0., 0.])])
+                np.testing.assert_allclose(positions[:4], expected, atol=.002)
+                direction = core.rotate_horizontal(np.array([1., 0., 0.]), rotation)
+                self.assertGreater(np.dot(positions[4] - positions[1], direction), .02)
 
     def test_unanchored_track_group_retains_ratios_without_claiming_absolute_scale(self):
         tracks = np.arange(30)

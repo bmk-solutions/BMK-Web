@@ -17,6 +17,7 @@ import math
 import os
 from pathlib import Path
 import sys
+import subprocess
 import time
 import uuid
 import zipfile
@@ -284,9 +285,16 @@ def match_pair(first, second, rng):
     indices1 = np.asarray([m.queryIdx for m in matches])
     indices2 = np.asarray([m.trainIdx for m in matches])
     rays1, rays2 = first["bearings"][indices1], second["bearings"][indices2]
-    matrix, inliers = robust_essential(rays1, rays2, rng)
+    return verify_correspondences(rays1, rays2, indices1, indices2, rng)
+
+
+def verify_correspondences(rays1, rays2, indices1, indices2, rng, max_trials=700):
+    """Apply identical spherical pose criteria to sparse or dense observations."""
+    if len(rays1) < 32:
+        return None, "few_matches"
+    matrix, inliers = robust_essential(rays1, rays2, rng, max_trials=max_trials)
     count = int(inliers.sum())
-    if matrix is None or count < 28 or count / len(matches) < .22:
+    if matrix is None or count < 28 or count / len(rays1) < .22:
         return None, "inconsistent_geometry"
     recovered = recover_spherical_pose(matrix, rays1[inliers], rays2[inliers])
     if recovered is None:
@@ -311,9 +319,9 @@ def match_pair(first, second, rng):
     if sectors < 3:
         return None, "narrow_overlap"
     errors = epipolar_error(matrix, rays1[inliers], rays2[inliers])
-    confidence = min(.99, (.35 * min(1., count / 120) + .30 * min(1., count / len(matches) / .7)
+    confidence = min(.99, (.35 * min(1., count / 120) + .30 * min(1., count / len(rays1) / .7)
                             + .20 * chirality + .15 * min(1., sectors / 6)))
-    return {"matches": len(matches), "inliers": count, "confidence": round(confidence, 4),
+    return {"matches": len(rays1), "inliers": count, "confidence": round(confidence, 4),
             "parallaxDegrees": round(median_parallax, 3), "residualDegrees": round(float(np.degrees(np.median(errors))), 4),
             "yaw": float(yaw), "direction": direction, "tiltDegrees": round(tilt, 3),
             "_indices1": indices1[inliers][positive], "_indices2": indices2[inliers][positive],
@@ -375,6 +383,102 @@ def recovery_candidates(scenes, features, components, tried, budget=None):
                 priorities[key] = min(priorities.get(key, math.inf), rank + offset)
     limit = min(1800, 12 * len(scenes)) if budget is None else max(0, int(budget))
     return sorted(priorities, key=lambda key: (priorities[key], distances[key], key))[:limit]
+
+
+def dense_recovery_candidates(scenes, features, components, budget=32):
+    """Prioritize unmatched cameras fairly, then remaining component bridges."""
+    if len(components) <= 1 or budget <= 0:
+        return []
+    queues = []
+    for group in components:
+        if len(group) != 1:
+            continue
+        i = group[0]
+        others = [j for j in range(len(scenes)) if j != i and scenes[j].get("floor", 0) == scenes[i].get("floor", 0)]
+        nearby = sorted(others, key=lambda j: (abs(i - j), j))
+        similar = sorted(others, key=lambda j: (float(np.mean((features[i]["signature"] - features[j]["signature"]) ** 2)), j))
+        targets = nearby[:2] + similar[:2] + nearby[2:4] + similar[2:4]
+        queues.append([(min(i, j), max(i, j)) for j in targets])
+    result, seen = [], set()
+    for rank in range(8):
+        for queue in queues:
+            if rank >= len(queue) or queue[rank] in seen:
+                continue
+            seen.add(queue[rank])
+            result.append(queue[rank])
+            if len(result) >= min(32, budget):
+                return result
+    remaining = recovery_candidates(scenes, features, components, seen, budget=min(32, budget) - len(result))
+    return result + remaining
+
+
+def optional_dense_correspondences(scenes, candidates, output_dir, timeout_seconds=180):
+    """Run optional GPU dependencies in an isolated, cancellable subprocess.
+
+    Failure never replaces the existing sparse reconstruction. The heartbeat
+    lets the child release its GPU if a cancelled worker kills this process.
+    """
+    if not candidates:
+        return [], "not_needed"
+    directory = Path(output_dir) / "dense-recovery"
+    directory.mkdir(parents=True, exist_ok=True)
+    cache_dir = Path(__file__).resolve().parents[1] / "work" / "reconstruction-dense-cache"
+    input_file, output_file = directory / "input.json", directory / "result.json"
+    heartbeat = directory / "heartbeat"
+    heartbeat.write_text("active", encoding="utf-8")
+    input_file.write_text(json.dumps({"scenes": [{"id": scene["id"], "path": scene["path"]} for scene in scenes],
+                                      "pairs": [list(pair) for pair in candidates], "outputDir": str(directory.resolve()),
+                                      "cacheDir": str(cache_dir), "heartbeatFile": str(heartbeat.resolve())}), encoding="utf-8")
+    environment = {key: value for key, value in os.environ.items()
+                   if key not in {"SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "IMO3D_ADMIN_SECRET", "OPENAI_API_KEY"}}
+    environment.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1", HF_HUB_DISABLE_TELEMETRY="1", PYTHONUTF8="1")
+    process = None
+    try:
+        with (directory / "worker.log").open("w", encoding="utf-8") as log:
+            process = subprocess.Popen([sys.executable, str(Path(__file__).with_name("imo3d-dense-matching.py")),
+                                        "--input", str(input_file), "--output", str(output_file)],
+                                       stdout=log, stderr=log, env=environment,
+                                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            started = time.monotonic()
+            while process.poll() is None:
+                if time.monotonic() - started > timeout_seconds:
+                    process.kill()
+                    process.wait(timeout=10)
+                    return [], "timeout"
+                heartbeat.touch()
+                time.sleep(.5)
+            if process.returncode != 0 or not output_file.is_file() or output_file.stat().st_size > 1_000_000:
+                return [], "unavailable"
+        report = json.loads(output_file.read_text(encoding="utf-8"))
+        if report.get("status") != "ready" or Path(report.get("cacheDir", "")).resolve() != cache_dir.resolve():
+            return [], "unavailable"
+        requested = set(candidates)
+        results = []
+        for item in report.get("pairs", [])[:32]:
+            pair = (item.get("i"), item.get("j"))
+            name = item.get("cacheFile", "")
+            if pair not in requested or len(name) != 68 or not name.endswith(".npz") or any(char not in "0123456789abcdef" for char in name[:-4]):
+                continue
+            file = cache_dir / name
+            if file.is_symlink() or not file.is_file() or file.stat().st_size > 16_000_000:
+                continue
+            with np.load(file, allow_pickle=False) as data:
+                first, second, confidence = data["rays1"], data["rays2"], data["confidence"]
+                if first.ndim != 2 or first.shape[1:] != (3,) or second.shape != first.shape or confidence.shape != (len(first),) or len(first) > 20000:
+                    continue
+                if not all(np.all(np.isfinite(value)) for value in (first, second, confidence)):
+                    continue
+                if not all(np.all(np.abs(np.linalg.norm(value, axis=1) - 1) < .001) for value in (first, second)):
+                    continue
+                mask = (confidence >= .5) & (confidence <= 1)
+                results.append((pair[0], pair[1], first[mask], second[mask]))
+        return results, "ready"
+    except (OSError, ValueError, KeyError, TypeError, EOFError, zipfile.BadZipFile, subprocess.SubprocessError):
+        return [], "unavailable"
+    finally:
+        if process is not None and process.poll() is None:
+            process.kill()
+            process.wait(timeout=10)
 
 
 def rotate_horizontal(vector, yaw):
@@ -539,6 +643,39 @@ def vertical_surfaces(cloud, rng):
     return surfaces
 
 
+def forward_nullspace_initialization(positions, initial, nullspace, edges, indices, yaws):
+    """Correct reversed free baselines without changing any measured constraint.
+
+    Bearing least squares alone cannot distinguish a forward ray from its
+    opposite. A normalized angular residual also has zero gradient at exactly
+    180 degrees. Move only in the unresolved nullspace, retaining the original
+    diagram length prior; constrained baselines and shared-track ratios stay
+    intact and the graph remains explicitly topology-only.
+    """
+    values = positions.copy()
+    for _ in range(8):
+        changed = False
+        for pair in edges:
+            i, j = indices[pair['i']], indices[pair['j']]
+            direction = rotate_horizontal(pair['direction'], yaws[i])
+            direction /= max(1e-9, np.linalg.norm(direction))
+            gradient = np.zeros_like(values)
+            gradient[2*j:2*j+2], gradient[2*i:2*i+2] = direction, -direction
+            projection = float(gradient @ values)
+            if projection > .02:
+                continue
+            free = nullspace @ (nullspace.T @ gradient)
+            sensitivity = float(gradient @ free)
+            if sensitivity < 1e-8:
+                continue
+            target = max(.03, float(gradient @ initial.reshape(-1)))
+            values += free * ((target - projection) / sensitivity)
+            changed = True
+        if not changed:
+            break
+    return values
+
+
 def solve_component(nodes, pairs):
     """Robust gravity-aligned pose graph; the origin and one baseline fix gauge."""
     from scipy.optimize import least_squares
@@ -650,6 +787,7 @@ def solve_component(nodes, pairs):
         _, _, vt = np.linalg.svd(matrix, full_matrices=matrix.shape[0] < matrix.shape[1])
         nullspace = vt[int(rank):].T
         positions += nullspace @ (nullspace.T @ (initial.reshape(-1) - positions))
+        positions = forward_nullspace_initialization(positions, initial, nullspace, reliable, indices, yaws)
     diagram_reference = positions.copy()
     origin = initial[ai].copy()
     initial -= origin
@@ -884,6 +1022,40 @@ def reconstruct(payload):
                 progress("layout", 0, 1)
             components = connected_components(len(scenes), globally_consistent)
         candidates.extend(perspective_candidates)
+    dense_candidates = dense_recovery_candidates(scenes, features, components)
+    dense_observations, dense_status = optional_dense_correspondences(scenes, dense_candidates, output)
+    dense_pairs = []
+    for index, (i, j, rays1, rays2) in enumerate(dense_observations):
+        indices = np.arange(len(rays1), dtype=np.int64)
+        pair, reason = verify_correspondences(rays1, rays2, indices, indices,
+                                             np.random.default_rng(4729 + i * len(scenes) + j), max_trials=1500)
+        if pair:
+            pair.update(i=i, j=j, a=scenes[i]["id"], b=scenes[j]["id"])
+            if envelope_module and scenes[i]["id"] in envelopes and scenes[j]["id"] in envelopes:
+                floor_evidence = envelope_module.infer_floor_baseline(pair, {"bearings": rays1}, {"bearings": rays2}, profiles.get(scenes[i]["id"]), profiles.get(scenes[j]["id"]))
+                if floor_evidence:
+                    pair["_floorBaseline"] = floor_evidence
+            # Detector-free correspondences do not carry stable cross-pair
+            # landmark identities. Give each pair a disjoint namespace rather
+            # than pretending nearby pixels are the same physical feature.
+            offset = 10_000_000 + (i * len(scenes) + j) * 50_000
+            pair["_indices1"] = pair["_indices1"] + offset
+            pair["_indices2"] = pair["_indices2"] + offset
+            dense_pairs.append(pair)
+        else:
+            rejected[reason] = rejected.get(reason, 0) + 1
+        progress("matching", len(candidates) + index + 1, len(candidates) + len(dense_observations),
+                 acceptedPairs=len(pairs) + len(dense_pairs), recovery=True)
+    if dense_pairs:
+        pairs.extend(dense_pairs)
+        combined = globally_consistent + dense_pairs
+        globally_consistent = []
+        for nodes in connected_components(len(scenes), combined):
+            _, _, _, _, valid, _ = solve_component(nodes, combined)
+            globally_consistent.extend(valid)
+            progress("layout", 0, 1)
+        components = connected_components(len(scenes), globally_consistent)
+    candidates.extend((i, j) for i, j, _, _ in dense_observations)
     result_scenes, result_components, accepted = {}, [], []
     progress("layout", 0, len(components))
     for index, nodes in enumerate(components):
@@ -951,6 +1123,7 @@ def reconstruct(payload):
             "diagnostics": {"imageCount": len(scenes), "candidatePairs": len(candidates), "geometricPairs": len(pairs),
                             "recoveryCandidates": len(recovery), "recoveryPairs": recovered_pairs,
                             "perspectiveCandidates": len(perspective_candidates), "perspectivePairs": perspective_pairs,
+                            "denseCandidates": len(dense_candidates), "densePairs": len(dense_pairs), "denseStatus": dense_status,
                             "acceptedPairs": len(accepted), "features": [len(feature["points"]) for feature in features],
                             "roomEnvelopes": len(envelopes), "floorAnchoredPairs": sum(bool(pair.get("_floorBaseline")) for pair in accepted),
                             "profileErrors": profile_errors,

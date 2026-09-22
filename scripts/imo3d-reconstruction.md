@@ -49,6 +49,15 @@ This addresses perspective distortion near close objects without relaxing
 epipolar, parallax, gravity, or global pose checks. The two feature families use
 disjoint track indices; they must never accidentally share landmark identities.
 Both feature caches are content keyed and use distinct algorithm version keys.
+If cameras remain unmatched, an optional offline GPU helper searches at most 32
+additional pairs using indoor LoFTR correspondences from rectilinear faces. It
+uses an existing local checkpoint and never downloads a model during processing.
+Each candidate must still pass the same spherical geometry tests and global pose
+validation. Missing or busy GPU resources, missing model/runtime files, child
+failure or a 180-second timeout preserve the sparse result. A parent heartbeat
+stops orphan work after cancellation. See `imo3d-dense-matching.md` for the exact
+runtime and cache contract. Detector-free pair indices use disjoint namespaces;
+they cannot create unsupported shared-landmark scale constraints.
 The batch limit is 300 images. Progress reports `features`, `matching`, and
 `layout` with `completed` and `total` counts.
 

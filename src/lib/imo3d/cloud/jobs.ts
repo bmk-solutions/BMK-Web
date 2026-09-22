@@ -1,4 +1,5 @@
 import {z} from "zod";
+import {processingSourceSchema} from "../processing-model";
 import {changeSubscriptionPlan,subscriptionPlanStatus,sceneSnapshot} from './subscription-plans';
 import type {Tour,Lead} from "../model";
 import type {CloudAccess} from "./auth";
@@ -12,7 +13,7 @@ const point=z.object({x:z.number().finite().min(0).max(1),y:z.number().finite().
 const navigation=z.object({width:z.number().positive().max(20000),height:z.number().positive().max(20000),outline:z.array(point).min(3).max(200).optional(),source:z.literal("reviewed-photo-registration"),points:z.array(point.extend({sceneId:z.string()})).max(500)});
 const floor=z.object({floor:z.number(),sceneIds:z.array(z.string()),navigation:navigation.optional(),audit:z.object({verdict:z.string(),issues:z.array(z.string()),limitations:z.array(z.string())})});
 const planResult=z.object({source:z.string().optional(),floors:z.array(floor),limitations:z.array(z.string()),sceneCount:z.number()});
-const processingResult=z.object({registered:z.number(),total:z.number(),links:z.number(),components:z.number(),scale:z.enum(["relative","metric"]),boundaryPhotos:z.number().optional(),recognizedPhotos:z.number().optional(),rooms:z.number().optional(),jointDepthPhotos:z.number().optional(),jointPoints:z.number().optional()});
+const processingResult=z.object({registered:z.number(),total:z.number(),links:z.number(),components:z.number(),scale:z.enum(["relative","metric"]),analyzedPhotos:z.number().int().min(0).max(500).optional(),analyzedSceneIds:z.array(z.string().regex(/^[\w-]+$/).max(80)).max(500).optional(),analyzedSources:z.array(processingSourceSchema).max(500).optional(),positionedLocalPhotos:z.number().int().min(0).max(500).optional(),independentFrames:z.number().int().min(0).max(500).optional(),unmatchedPhotos:z.number().int().min(0).max(500).optional(),boundaryPhotos:z.number().optional(),recognizedPhotos:z.number().optional(),rooms:z.number().optional(),jointDepthPhotos:z.number().optional(),jointPoints:z.number().optional()});
 export function publicProcessingJob(row:CloudJob|null){if(!row)return null;const result=processingResult.safeParse(row.result);return{id:row.id,tourId:row.tour_id,status:row.status,progress:row.progress,stage:row.stage,createdAt:row.created_at,updatedAt:row.updated_at,error:row.error,warnings:row.warnings??[],...(result.success?{result:result.data}:{})};}
 export async function cloudProcessing(request:Request,tour:Tour,action:string){
  if(action==="processing-cancel"&&request.method==="POST"){

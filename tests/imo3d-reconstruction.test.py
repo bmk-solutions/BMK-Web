@@ -2,6 +2,7 @@
 import importlib.util
 import math
 from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -30,6 +31,31 @@ class ReconstructionGeometry(unittest.TestCase):
     def test_panorama_rays_follow_viewer_convention(self):
         rays = core.pixel_bearings(np.array([[100, 50], [150, 50], [0, 50], [100, 0]]), 200, 100)
         np.testing.assert_allclose(rays, [[0, 0, -1], [1, 0, 0], [0, 0, 1], [0, 1, 0]], atol=1e-12)
+
+    def test_rectilinear_faces_preserve_spherical_ray_orientation(self):
+        centre = [[511.5, 511.5]]
+        expected = [[0, 0, -1], [1, 0, 0], [0, 0, 1], [-1, 0, 0]]
+        for face in range(4):
+            ray = core.perspective_bearings(centre, 1024, face * math.pi / 2)
+            np.testing.assert_allclose(ray[0], expected[face], atol=1e-12)
+        rays = core.perspective_bearings([[511.5, 100], [511.5, 900], [0, 511.5]], 1024, 0)
+        self.assertGreater(rays[0, 1], 0)
+        self.assertLess(rays[1, 1], 0)
+        self.assertLess(rays[2, 0], 0)
+        np.testing.assert_allclose(np.linalg.norm(rays, axis=1), 1, atol=1e-12)
+
+    def test_rectified_features_do_not_invent_texture_and_reuse_content_cache(self):
+        import cv2
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            image = root / 'blank.png'
+            cv2.imwrite(str(image), np.ones((128, 256), dtype=np.uint8) * 100)
+            first = core.extract_perspective_features(image, root)
+            self.assertEqual(first['descriptors'].shape, (0, 128))
+            self.assertEqual(first['bearings'].shape, (0, 3))
+            with patch.object(cv2, 'imdecode', side_effect=AssertionError('cache should avoid decoding')):
+                second = core.extract_perspective_features(image, root)
+            np.testing.assert_array_equal(first['bearings'], second['bearings'])
 
     def test_spherical_pose_works_behind_camera(self):
         first, second, expected_rotation, expected_translation = observations()
@@ -80,6 +106,30 @@ class ReconstructionGeometry(unittest.TestCase):
 
     def test_components_do_not_invent_missing_connections(self):
         self.assertEqual(core.connected_components(5, [{"i": 0, "j": 2}, {"i": 1, "j": 3}]), [[0, 2], [1, 3], [4]])
+
+    def test_recovery_visits_stranded_cameras_without_retrying_or_crossing_floors(self):
+        scenes = [{"id": str(i), "floor": 1 if i == 9 else 0} for i in range(10)]
+        features = [{"signature": np.array([i / 10])} for i in range(10)]
+        groups = [list(range(6)), [6, 7], [8], [9]]
+        tried = {(0, 8), (6, 8)}
+        candidates = core.recovery_candidates(scenes, features, groups, tried, budget=100)
+        self.assertEqual(len(candidates), len(set(candidates)))
+        self.assertFalse(set(candidates) & tried)
+        self.assertTrue(all(9 not in pair for pair in candidates))
+        self.assertTrue(all(not (a < 6 and b < 6) and (a, b) != (6, 7) for a, b in candidates))
+        self.assertTrue(any(8 in pair for pair in candidates))
+        self.assertTrue(any(a < 6 <= b < 8 for a, b in candidates))
+        self.assertEqual(core.recovery_candidates(scenes, features, [list(range(10))], set()), [])
+
+    def test_recovery_budget_is_bounded_and_deterministic(self):
+        scenes = [{"id": str(i), "floor": 0} for i in range(100)]
+        features = [{"signature": np.array([0.])} for _ in scenes]
+        groups = [list(range(72)), list(range(72, 90)), [90, 91], *[[i] for i in range(92, 100)]]
+        first = core.recovery_candidates(scenes, features, groups, set(), budget=25)
+        self.assertEqual(len(first), 25)
+        self.assertEqual(first, core.recovery_candidates(scenes, features, groups, set(), budget=25))
+        self.assertEqual(core.recovery_candidates(scenes, features, groups, set(), budget=0), [])
+        self.assertLessEqual(len(core.recovery_candidates(scenes, features, groups, set())), 1200)
 
     def test_duplicate_panorama_does_not_create_fake_camera_translation(self):
         rng = np.random.default_rng(932)

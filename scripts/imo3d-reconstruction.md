@@ -24,7 +24,7 @@ remain in the private project data/work directories.
 
 ## Processing
 
-1. Normalize each 2:1 panorama to at most 2048 × 1024 pixels. Extract RootSIFT
+1. Normalize each 2:1 panorama to at most 4096 × 2048 pixels. Extract RootSIFT
    features from an overlapping longitude strip, preserving panorama seams.
 2. Match image descriptors, then reject candidates without a spherical essential
    matrix consensus. The essential matrix uses unit sphere rays; a pinhole
@@ -42,6 +42,13 @@ remain in the private project data/work directories.
 
 Up to 80 images use all same-floor image pairs. Larger batches retrieve a bounded
 set of candidate pairs first; acceptance still requires the same geometry checks.
+Disconnected batches then broaden candidate retrieval for each camera, rather
+than considering only a few pairs between entire components. A further bounded
+pass extracts RootSIFT from four rectilinear views of the original panoramas.
+This addresses perspective distortion near close objects without relaxing
+epipolar, parallax, gravity, or global pose checks. The two feature families use
+disjoint track indices; they must never accidentally share landmark identities.
+Both feature caches are content keyed and use distinct algorithm version keys.
 The batch limit is 300 images. Progress reports `features`, `matching`, and
 `layout` with `completed` and `total` counts.
 
@@ -56,6 +63,10 @@ The batch limit is 300 images. Progress reports `features`, `matching`, and
   unresolved; its drawing is an explicitly approximate connectivity diagram.
 - Components have independent coordinate systems. Do not overlap them on one
   architectural floor plan or silently add links between them.
+- `analyzedPhotos` counts inspected original images; `registered` counts photos
+  in the largest shared frame on each floor. `positionedLocalPhotos` includes
+  camera poses in independent frames. These counts are deliberately different:
+  inspecting 100 images does not by itself establish 100 compatible poses.
 - Surface candidates can include cabinets, glazing and furniture. They are not
   classified architectural walls and should appear as estimated surfaces if shown.
 - `partial` and `insufficient_overlap` are useful outcomes. More overlap at doors,

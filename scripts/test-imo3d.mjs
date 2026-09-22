@@ -11,7 +11,7 @@ testFiles.push('tests/imo3d-raster-navigation.test.ts');
 testFiles.push('tests/imo3d-private-example.test.ts','tests/imo3d-private-reference.test.ts');
 testFiles.push('tests/imo3d-measurement-projection.test.ts');
 testFiles.push('tests/imo3d-plan-registration.test.ts');
-testFiles.push('tests/imo3d-hotspots.test.ts');
+testFiles.push('tests/imo3d-hotspots.test.ts','tests/imo3d-processing-coverage.test.ts');
 const managementFiles=['developer-management','scene-removal','scene-deletion','private-asset-cleanup','project-management','processing-cleanup','connection-overrides','connection-editing','connection-storage','measurement'].map(name=>`src/lib/imo3d/${name}.ts`);
 managementFiles.push('src/lib/imo3d/plan-registration.ts','src/lib/imo3d/hotspots.ts','src/lib/imo3d/photo-edits.ts','src/lib/imo3d/photo-edit-projection.ts');
 managementFiles.push('src/lib/imo3d/measurement-projection.ts','src/lib/imo3d/branding-policy.ts','src/lib/imo3d/measurement-notebook.ts','src/lib/imo3d/measurement-units.ts');

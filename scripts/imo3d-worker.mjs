@@ -15,6 +15,7 @@ import {currentSurfaceModel,encodeSurfaceModel,surfaceModelFloorHeight,surfaceMo
 import {applyDepthArchitecture,runDepthArchitecture} from '../src/lib/imo3d/depth-architecture.ts';
 import {supportedDisplayDepth,fillMissingDisplayDepth} from '../src/lib/imo3d/display-depth.ts';
 import {applyRoomSemantics} from '../src/lib/imo3d/room-semantics.ts';
+import {processingEvidenceCounts} from './lib/imo3d-processing-evidence.mjs';
 
 const directory=path.resolve(process.env.IMO3D_DATA_DIR||'.imo3d-data');
 await mkdir(directory,{recursive:true});
@@ -111,7 +112,7 @@ async function processJob(job){
       catch(error){if(leaseLost||controller.signal.aborted)return;joint.warnings.push(error?.message||'تعذر تدقيق بعض الجدران؛ بقيت الحدود السابقة محفوظة.');}
     }
     if(leaseLost||controller.signal.aborted)return;
-    const summary={registered,total:tour.scenes.length,links:result.pairs.length,components:result.components.length,scale:'relative',boundaryPhotos:Object.keys(analysis.profiles).length,recognizedPhotos:analysis.observations.filter(observation=>observation.kind!=='unknown').length,jointDepthPhotos:Object.keys(joint.displayDepths).length,jointPoints:joint.pointSamples.length,rooms:0};
+    const summary={registered,total:tour.scenes.length,...processingEvidenceCounts(result,tour.scenes.length,tour.scenes),links:result.pairs.length,components:result.components.length,scale:'relative',boundaryPhotos:Object.keys(analysis.profiles).length,recognizedPhotos:analysis.observations.filter(observation=>observation.kind!=='unknown').length,jointDepthPhotos:Object.keys(joint.displayDepths).length,jointPoints:joint.pointSamples.length,rooms:0};
     const warnings=[...analysis.warnings,...result.warnings,...joint.warnings,...(architecture?.warnings??[]),'الحدود والمواقع مستخرجة بصريًا وتحتاج مراجعة؛ المقياس نسبي ولا يمثل قياسات بالمتر.'];
     if(result.roomLayout?.architectureDiagnostics?.some(diagnostic=>diagnostic.reason==='visual_sightline_through_third_room'))warnings.push('بعض اللقطات ترى الغرفة عبر فراغ آخر؛ حُفظ الربط البصري دون رسم باب مباشر غير مثبت.');
     if(registered<result.scenes.filter(s=>s.position).length)warnings.unshift('يعرض المخطط أكبر مجموعة متصلة في كل دور. المجموعات الأخرى مستقلة الإحداثيات وتبقى متاحة من قائمة الغرف؛ أضف صورًا متداخلة لربطها.');

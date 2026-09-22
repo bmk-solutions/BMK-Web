@@ -269,7 +269,7 @@ test("surface fallback covers off-axis same-room captures while preserving block
  const a={...scene('a',0,0),room:'master'},b={...scene('b',3,-1),room:'master'},foreign={...scene('foreign',0,-1),room:'kitchen'};
  assert.equal(pointerDestination([a,b,foreign],'a',0,.8,false,{kind:'unknown'})?.id,'b');
  assert.equal(pointerDestination([a,{...b,blockedLinks:['a']},foreign],'a',0,.8,false,{kind:'unknown'}),null);
- assert.equal(pointerDestination([{...a,roomSemantic:{groupId:'known'}},b],'a',0,.8,false,{kind:'unknown'}),null);
+ assert.equal(pointerDestination([{...a,roomSemantic:{groupId:'known',kind:'bedroom',confidence:1,nameSource:'automatic',suggestedName:'Master bedroom',needsReview:false,reviewFlags:[],evidenceIds:['a']}},b],'a',0,.8,false,{kind:'unknown'}),null);
  const u={...a,position:null,links:['b'],visualLinks:[{targetId:'b',yaw:70}]},v={...b,position:null,links:['a'],visualLinks:[{targetId:'a',yaw:250}]};
  assert.equal(pointerDestination([u,v],'a',0,.8,false,{kind:'unknown'})?.id,'b');
 });

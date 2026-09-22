@@ -119,3 +119,16 @@ test('deterministic guide cuts a real door gap through both shared wall strokes'
  assert.ok(data[(300*info.width+580)*info.channels]<100,'shared wall outside door remains solid');
  assert.ok(!svg.includes('Al Hamra'));
 });
+
+test('image guide uses continuous uncertain walls without sealing real door gaps',async()=>{
+ const layout=adjacentRooms();layout.rooms.forEach(room=>{room.uncertainty='Estimated wall boundary';});
+ const review=renderFloorplanLayoutSVG(layout),solid=renderFloorplanLayoutSVG(layout,{solidWalls:true});
+ assert.match(review,/stroke-dasharray="16 7"/);assert.match(review,/Dashed walls = uncertain/);
+ assert.ok(!solid.includes('stroke-dasharray'));assert.ok(!solid.includes('Dashed walls'));
+ assert.match(solid,/NOT SURVEYED.*Estimated geometry.*No metric scale/);
+ const {data,info}=await sharp(Buffer.from(solid)).removeAlpha().raw().toBuffer({resolveWithObject:true});
+ const pixel=(x:number,y:number)=>data[(y*info.width+x)*info.channels];
+ for(let y=210;y<390;y++)assert.ok(pixel(580,y)<100,'wall outside doorway remains continuous at every pixel');
+ assert.ok(pixel(580,580)>200,'actual doorway remains open');
+ assert.equal(renderFloorplanLayoutSVG(layout),review,'image mode does not modify review data or later exports');
+});

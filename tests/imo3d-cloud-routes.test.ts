@@ -205,10 +205,12 @@ test('photo and furnished-label contracts reject omitted sources and wrong room 
  assert.throws(()=>mergeSubscriptionReview({floors:[floor]},{floors:[{...geometry,evidenceCorrections:[{...corrected,sceneId:'other-tour'}]}]},scenes),/COVERAGE/);
  assert.throws(()=>mergeSubscriptionReview({floors:[floor]},{floors:[{...geometry,evidenceCorrections:[],audit:{...audit,reviewedSceneIds:['s1']}}]},scenes),/COVERAGE/);
  assert.throws(()=>mergeSubscriptionReview({floors:[floor]},{floors:[{...geometry,geometryBasis:'topology-only',evidenceCorrections:[]}]},scenes),/GEOMETRY_UNRESOLVED/);
- const image={imagePath:'generated.png',labels:[{roomId:'r',name:'صالة',x:.5,y:.5}],baseImageHasNoText:true,navigation:null,reviewNotes:'Reviewed photo furniture',audit};
+ const image={imagePath:'generated.png',labels:[{roomId:'r',name:'صالة',x:.5,y:.5}],baseImageHasNoText:true,navigation:null,reviewNotes:'Reviewed photo furniture',audit:{...audit,verdict:'consistent'}};
  assert.equal(validateImageReview(image,['r'],['s1','s2']).labels.length,1);
  assert.throws(()=>validateImageReview(image,['different'],['s1','s2']),/COVERAGE/);
  assert.throws(()=>validateImageReview({...image,baseImageHasNoText:false},['r'],['s1','s2']));
+ assert.throws(()=>validateImageReview({...image,audit},['r'],['s1','s2']),/IMAGE_AUDIT_UNRESOLVED/);
+ assert.match(planFailureMessage(Error('PLAN_INCOMPLETE:7:17')),/7.*17/);
  assert.match(labeledPlanSVG(Buffer.from('x'),500,500,[{roomId:'r',name:'<script>&',x:.5,y:.5}]),/&lt;script&gt;&amp;/);
 });
 test('plan retries reuse validated checkpoints only for the exact tour and image fingerprint',async()=>{

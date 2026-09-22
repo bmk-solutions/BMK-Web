@@ -1,7 +1,8 @@
 """Image-only, conservative spherical two-view reconstruction for IMO 3D.
 
-Input: {scenes:[{id,path,floor}], outputDir}. No camera coordinates, depths,
-scene order, filenames, or reference floor plans participate in inference.
+Input: {scenes:[{id,path,floor}], outputDir}. No supplied camera coordinates,
+depths, filenames, or reference floor plans participate in pose inference.
+Capture order can shortlist candidates; accepting a pose still requires pixels.
 Optional learned boundary profiles yield estimated room envelopes in camera-height
 units. Neither sparse camera positions nor inferred walls are measured floor plans.
 Requires the pinned packages in imo3d-reconstruction-requirements.txt.
@@ -31,6 +32,7 @@ import numpy as np
 
 VERSION = 1
 FEATURE_VERSION = "spherical-sift-v2-4k"
+PERSPECTIVE_FEATURE_VERSION = "spherical-perspective-sift-v1"
 
 
 def room_envelope_module():
@@ -192,6 +194,78 @@ def extract_features(path, cache_dir):
     return result
 
 
+def perspective_bearings(points, size, yaw, field_of_view=110):
+    """Map rectilinear image coordinates back to the panorama's unit rays."""
+    extent = math.tan(math.radians(field_of_view / 2))
+    points = np.asarray(points, dtype=float).reshape(-1, 2)
+    local = np.column_stack(((points[:, 0] + .5) / size * 2 * extent - extent,
+                             -((points[:, 1] + .5) / size * 2 * extent - extent),
+                             -np.ones(len(points))))
+    rotation = np.array([[math.cos(yaw), 0, -math.sin(yaw)], [0, 1, 0],
+                         [math.sin(yaw), 0, math.cos(yaw)]])
+    rays = local @ rotation.T
+    return rays / np.linalg.norm(rays, axis=1, keepdims=True)
+
+
+def extract_perspective_features(path, cache_dir):
+    """Recover descriptors distorted by equirectangular projection.
+
+    Four overlapping rectilinear views retain the same underlying rays. Their
+    centre 90-degree strips avoid duplicate features between adjacent views.
+    These are additional observations, never inferred camera coordinates.
+    """
+    import cv2
+    encoded = Path(path).resolve(strict=True).read_bytes()
+    fingerprint = hashlib.sha256(PERSPECTIVE_FEATURE_VERSION.encode() + encoded).hexdigest()
+    cache = cache_dir / (fingerprint + ".npz")
+    keys = ("points", "bearings", "descriptors")
+    if cache.exists():
+        try:
+            with np.load(cache, allow_pickle=False) as data:
+                return {key: data[key] for key in keys}
+        except (OSError, ValueError, KeyError, EOFError, zipfile.BadZipFile):
+            pass
+    image = cv2.imdecode(np.frombuffer(encoded, dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
+    if image is None or abs(image.shape[1] / image.shape[0] - 2) > .06:
+        raise ValueError("تتطلب المعالجة صورة بانوراما كاملة بنسبة 2:1")
+    height, width = image.shape
+    size = min(1024, max(128, width // 4))
+    extent = math.tan(math.radians(55))
+    columns, rows = np.meshgrid(np.arange(size), np.arange(size))
+    coordinates = np.column_stack((columns.ravel(), rows.ravel()))
+    mask = np.zeros((size, size), dtype=np.uint8)
+    margin = int(size * (1 - 1 / extent) / 2)
+    mask[:, margin:size - margin] = 255
+    detector = cv2.SIFT_create(nfeatures=4500, contrastThreshold=.018, edgeThreshold=12)
+    all_points, all_rays, all_descriptors = [], [], []
+    for face in range(4):
+        yaw = face * math.pi / 2
+        rays = perspective_bearings(coordinates, size, yaw).reshape(size, size, 3)
+        longitude = np.arctan2(rays[:, :, 0], -rays[:, :, 2])
+        latitude = np.arcsin(np.clip(rays[:, :, 1], -1, 1))
+        map_x = ((longitude / (2 * np.pi) + .5) * width).astype(np.float32)
+        map_y = ((.5 - latitude / np.pi) * height).astype(np.float32)
+        view = cv2.remap(image, map_x, map_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_WRAP)
+        keypoints, descriptors = detector.detectAndCompute(view, mask)
+        if descriptors is None:
+            continue
+        bearings = perspective_bearings([key.pt for key in keypoints], size, yaw)
+        points = np.column_stack(((np.arctan2(bearings[:, 0], -bearings[:, 2]) / (2 * np.pi) + .5) * width,
+                                  (.5 - np.arcsin(np.clip(bearings[:, 1], -1, 1)) / np.pi) * height))
+        all_points.append(points)
+        all_rays.append(bearings)
+        all_descriptors.append(descriptors)
+    descriptors = np.concatenate(all_descriptors) if all_descriptors else np.zeros((0, 128), dtype=np.float32)
+    descriptors = np.sqrt(descriptors / np.maximum(1e-12, descriptors.sum(axis=1, keepdims=True)))
+    result = {"points": np.concatenate(all_points) if all_points else np.zeros((0, 2)),
+              "bearings": np.concatenate(all_rays) if all_rays else np.zeros((0, 3)),
+              "descriptors": descriptors.astype(np.float32)}
+    temporary = cache.with_name(fingerprint + "." + uuid.uuid4().hex + ".npz")
+    np.savez_compressed(temporary, **result)
+    temporary.replace(cache)
+    return result
+
+
 def match_pair(first, second, rng):
     import cv2
     if min(len(first["descriptors"]), len(second["descriptors"])) < 24:
@@ -266,6 +340,41 @@ def connected_components(count, pairs):
             stack.extend(adjacency[current])
         result.append(sorted(component))
     return sorted(result, key=lambda component: (-len(component), component[0]))
+
+
+def recovery_candidates(scenes, features, components, tried, budget=None):
+    """Broaden retrieval for every stranded camera without accepting any edge.
+
+    Whole-panorama brightness can hide a doorway match behind many visually
+    similar interiors. A four-pair shortlist per component gives a large room
+    almost no chance to expose its boundary views. Give each camera a bounded
+    appearance and capture-neighbour shortlist instead. Capture order is only
+    a retrieval hint; matching and global pose validation remain mandatory.
+    """
+    if len(components) <= 1:
+        return []
+    membership = {node: index for index, nodes in enumerate(components) for node in nodes}
+    distances = {}
+    priorities = {}
+    for i in range(len(scenes)):
+        eligible = []
+        for j in range(len(scenes)):
+            key = (min(i, j), max(i, j))
+            if i == j or membership[i] == membership[j] or key in tried:
+                continue
+            if scenes[i].get("floor", 0) != scenes[j].get("floor", 0):
+                continue
+            if key not in distances:
+                distances[key] = float(np.mean((features[i]["signature"] - features[j]["signature"]) ** 2))
+            eligible.append(j)
+        appearance = sorted(eligible, key=lambda j: (distances[(min(i, j), max(i, j))], j))[:12]
+        neighbours = sorted(eligible, key=lambda j: (abs(i - j), j))[:8]
+        for offset, shortlist in ((0., appearance), (.1, neighbours)):
+            for rank, j in enumerate(shortlist):
+                key = (min(i, j), max(i, j))
+                priorities[key] = min(priorities.get(key, math.inf), rank + offset)
+    limit = min(1800, 12 * len(scenes)) if budget is None else max(0, int(budget))
+    return sorted(priorities, key=lambda key: (priorities[key], distances[key], key))[:limit]
 
 
 def rotate_horizontal(vector, yaw):
@@ -709,6 +818,25 @@ def reconstruct(payload):
             if index % 5 == 0 or index == len(bridges)-1:
                 progress("matching", len(candidates)+index+1, len(candidates)+len(bridges), acceptedPairs=len(pairs))
         candidates.extend(sorted(bridges))
+    # Search the remaining disconnected cameras individually. This second pass
+    # never weakens the two-view tests and its edges still pass the global solve.
+    recovery = recovery_candidates(scenes, features, connected_components(len(scenes), pairs), set(candidates)) if len(scenes) > 80 else []
+    recovered_pairs = 0
+    for index, (i, j) in enumerate(recovery):
+        pair, reason = match_pair(features[i], features[j], rng)
+        if pair:
+            pair.update(i=i, j=j, a=scenes[i]["id"], b=scenes[j]["id"])
+            if envelope_module and scenes[i]["id"] in envelopes and scenes[j]["id"] in envelopes:
+                floor_evidence = envelope_module.infer_floor_baseline(pair, features[i], features[j], profiles.get(scenes[i]["id"]), profiles.get(scenes[j]["id"]))
+                if floor_evidence:
+                    pair["_floorBaseline"] = floor_evidence
+            pairs.append(pair)
+            recovered_pairs += 1
+        else:
+            rejected[reason] = rejected.get(reason, 0) + 1
+        if index % 5 == 0 or index == len(recovery) - 1:
+            progress("matching", len(candidates) + index + 1, len(candidates) + len(recovery), acceptedPairs=len(pairs))
+    candidates.extend(recovery)
     # Reject globally inconsistent edges before assigning component IDs. Otherwise
     # removal of one false loop can leave a disconnected map labelled connected.
     globally_consistent = []
@@ -719,6 +847,43 @@ def reconstruct(payload):
         globally_consistent.extend(valid)
         progress("layout", 0, 1)
     components = connected_components(len(scenes), globally_consistent)
+    perspective_candidates = recovery_candidates(scenes, features, components, set())
+    perspective_pairs = 0
+    if perspective_candidates:
+        rectified = {}
+        for node in sorted({node for pair in perspective_candidates for node in pair}):
+            rectified[node] = extract_perspective_features(scenes[node]["path"], cache)
+            progress("matching", len(candidates), len(candidates) + len(perspective_candidates), acceptedPairs=len(pairs), recovery=True)
+        recovered = []
+        for index, (i, j) in enumerate(perspective_candidates):
+            pair, reason = match_pair(rectified[i], rectified[j], rng)
+            if pair:
+                pair.update(i=i, j=j, a=scenes[i]["id"], b=scenes[j]["id"])
+                if envelope_module and scenes[i]["id"] in envelopes and scenes[j]["id"] in envelopes:
+                    floor_evidence = envelope_module.infer_floor_baseline(pair, rectified[i], rectified[j], profiles.get(scenes[i]["id"]), profiles.get(scenes[j]["id"]))
+                    if floor_evidence:
+                        pair["_floorBaseline"] = floor_evidence
+                # Original and rectified descriptors have independent indices.
+                # Keep their tracks disjoint so index collisions cannot invent
+                # shared landmarks or corrupt cross-edge baseline ratios.
+                pair["_indices1"] += len(features[i]["points"])
+                pair["_indices2"] += len(features[j]["points"])
+                recovered.append(pair)
+            else:
+                rejected[reason] = rejected.get(reason, 0) + 1
+            if index % 5 == 0 or index == len(perspective_candidates) - 1:
+                progress("matching", len(candidates) + index + 1, len(candidates) + len(perspective_candidates), acceptedPairs=len(pairs) + len(recovered), recovery=True)
+        perspective_pairs = len(recovered)
+        pairs.extend(recovered)
+        if recovered:
+            combined = globally_consistent + recovered
+            globally_consistent = []
+            for nodes in connected_components(len(scenes), combined):
+                _, _, _, _, valid, _ = solve_component(nodes, combined)
+                globally_consistent.extend(valid)
+                progress("layout", 0, 1)
+            components = connected_components(len(scenes), globally_consistent)
+        candidates.extend(perspective_candidates)
     result_scenes, result_components, accepted = {}, [], []
     progress("layout", 0, len(components))
     for index, nodes in enumerate(components):
@@ -784,6 +949,8 @@ def reconstruct(payload):
             "pairs": public_pairs, "components": result_components, "warnings": warnings,
             **({"roomLayout": room_layout, "roomRelations": room_layout["relations"], "roomObservations": corridor_observations} if room_layout else {}),
             "diagnostics": {"imageCount": len(scenes), "candidatePairs": len(candidates), "geometricPairs": len(pairs),
+                            "recoveryCandidates": len(recovery), "recoveryPairs": recovered_pairs,
+                            "perspectiveCandidates": len(perspective_candidates), "perspectivePairs": perspective_pairs,
                             "acceptedPairs": len(accepted), "features": [len(feature["points"]) for feature in features],
                             "roomEnvelopes": len(envelopes), "floorAnchoredPairs": sum(bool(pair.get("_floorBaseline")) for pair in accepted),
                             "profileErrors": profile_errors,

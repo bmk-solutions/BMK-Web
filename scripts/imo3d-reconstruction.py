@@ -267,6 +267,17 @@ def extract_perspective_features(path, cache_dir):
     return result
 
 
+def prepare_perspective_features(scenes, nodes, cache_dir):
+    """Account for every cache load separately from subsequent pair matching."""
+    nodes = sorted(set(nodes))
+    result = {}
+    progress("perspective_features", 0, len(nodes))
+    for completed, node in enumerate(nodes, 1):
+        result[node] = extract_perspective_features(scenes[node]["path"], cache_dir)
+        progress("perspective_features", completed, len(nodes), sceneId=scenes[node]["id"])
+    return result
+
+
 def match_pair(first, second, rng):
     import cv2
     if min(len(first["descriptors"]), len(second["descriptors"])) < 24:
@@ -988,10 +999,7 @@ def reconstruct(payload):
     perspective_candidates = recovery_candidates(scenes, features, components, set())
     perspective_pairs = 0
     if perspective_candidates:
-        rectified = {}
-        for node in sorted({node for pair in perspective_candidates for node in pair}):
-            rectified[node] = extract_perspective_features(scenes[node]["path"], cache)
-            progress("matching", len(candidates), len(candidates) + len(perspective_candidates), acceptedPairs=len(pairs), recovery=True)
+        rectified = prepare_perspective_features(scenes, [node for pair in perspective_candidates for node in pair], cache)
         recovered = []
         for index, (i, j) in enumerate(perspective_candidates):
             pair, reason = match_pair(rectified[i], rectified[j], rng)

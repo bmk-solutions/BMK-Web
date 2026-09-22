@@ -42,6 +42,8 @@ managementFiles.push('src/lib/imo3d/floorplan-export.ts');
 testFiles.push('tests/imo3d-floorplan-export.test.ts');
 managementFiles.push('src/lib/imo3d/room-semantics.ts');
 managementFiles.push('src/lib/imo3d/room-analysis.ts');
+managementFiles.push('src/lib/imo3d/reconstruction.ts');
+testFiles.push('tests/imo3d-reconstruction-progress.test.ts');
 managementFiles.push('src/lib/imo3d/joint-depth.ts','src/lib/imo3d/joint-geometry-evidence.ts');
 managementFiles.push('src/lib/imo3d/depth-architecture.ts');
 testFiles.push('tests/imo3d-depth-architecture.test.ts');

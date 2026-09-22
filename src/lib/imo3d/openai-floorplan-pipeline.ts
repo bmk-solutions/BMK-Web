@@ -43,7 +43,7 @@ export const floorplanLayoutSchema=z.object({
 }).strict();
 // Fresh strict API output supplies the state explicitly; stored legacy input
 // remains valid through floorplanLayoutSchema when that field is absent.
-const floorplanLayoutOutputSchema=floorplanLayoutSchema.extend({openings:z.array(floorplanLayoutSchema.shape.openings.element.required({leafState:true})).max(200)}).strict();
+export const floorplanLayoutOutputSchema=floorplanLayoutSchema.extend({openings:z.array(floorplanLayoutSchema.shape.openings.element.required({leafState:true})).max(200)}).strict();
 export type FloorplanLayout=z.infer<typeof floorplanLayoutSchema>;
 export type FloorplanProgress = {stage:'analysis'|'layout'|'generation'|'audit'|'complete';completed:number;total:number;floor?:number};
 export type OpenAIFloorplanOptions = {

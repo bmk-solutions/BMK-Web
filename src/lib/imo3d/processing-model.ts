@@ -13,7 +13,7 @@ export function processingPhase(job:ProcessingJob|null|undefined):'queued'|'insp
  if(!processingActive(job))return null;
  if(job?.status==='queued')return 'queued';
  const label=job?.stage.split('·',1)[0].trim();
- if(['مطابقة اللقطات','تقدير مواقع التصوير','دمج الأسطح بين الصور','تدقيق الجدران المعمارية'].includes(label??''))return 'linking';
+ if(['مطابقة اللقطات','تصحيح منظور الصور للربط','تقدير مواقع التصوير','دمج الأسطح بين الصور','تدقيق الجدران المعمارية'].includes(label??''))return 'linking';
  if(['تجهيز الصور','تجهيز الصور على عامل المعالجة المحلي','فحص محرك المعالجة قبل تجهيز الصور','تجهيز صور المعالجة المحلية','استخراج حدود الغرف','تحسين عمق الانتقال','التعرف على الغرف','تحليل الصور'].includes(label??''))return 'inspection';
  return 'unknown';
 }

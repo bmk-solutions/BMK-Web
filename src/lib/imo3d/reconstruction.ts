@@ -7,12 +7,27 @@ import type {RoomDoorwayCandidate} from "./model";
 
 export type ReconstructionProgress = {
   event: "progress";
-  stage: "features" | "matching" | "layout";
+  stage: "features" | "perspective_features" | "matching" | "layout";
   completed: number;
   total: number;
   acceptedPairs?: number;
   sceneId?: string;
 };
+export function parseReconstructionProgress(value: unknown): ReconstructionProgress | null {
+  if (!value || typeof value !== "object") return null;
+  const event = value as ReconstructionProgress;
+  return event.event === "progress" && ["features", "perspective_features", "matching", "layout"].includes(event.stage)
+    && Number.isInteger(event.completed) && Number.isInteger(event.total)
+    && event.total > 0 && event.completed >= 0 && event.completed <= event.total ? event : null;
+}
+export function reconstructionProgressPresentation(event: ReconstructionProgress, previousProgress: number) {
+  const ratio = event.total ? Math.min(1, event.completed / event.total) : 0;
+  const labels = {features:"تحليل الصور", perspective_features:"تصحيح منظور الصور للربط", matching:"مطابقة اللقطات", layout:"تقدير مواقع التصوير"};
+  // Preparation has its own photo counter; it does not complete pair matching.
+  const progress = event.stage === "perspective_features" ? Math.max(0, Math.min(100, previousProgress))
+    : event.stage === "features" ? 38 + ratio * 12 : event.stage === "matching" ? 50 + ratio * 26 : 76 + ratio * 4;
+  return {progress, stage:`${labels[event.stage]} · ${event.completed} / ${event.total}`};
+}
 export type ReconstructionSceneInput = { id: string; path: string; floor: number };
 export type ReconstructionScene = {
   id: string; floor: number; position: { x: number; y: number; z: number } | null;
@@ -135,8 +150,8 @@ export async function runPanoramaReconstruction(options: ReconstructionOptions):
         if (!line) continue;
         try {
           const event = JSON.parse(line);
-          if (event.event === "progress" && ["features", "matching", "layout"].includes(event.stage)
-            && Number.isFinite(event.completed) && Number.isFinite(event.total)) options.onProgress?.(event);
+          const progress = parseReconstructionProgress(event);
+          if (progress) options.onProgress?.(progress);
           else if (event.event === "error") failure = new Error(String(event.message).slice(0, 1000));
         } catch { /* Worker logging is not allowed to crash the supervising queue. */ }
       }

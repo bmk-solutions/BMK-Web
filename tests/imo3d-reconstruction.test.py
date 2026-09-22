@@ -1,5 +1,8 @@
 """Independent geometry tests; no reference tour coordinates are used in worker input."""
 import importlib.util
+import io
+import json
+from contextlib import redirect_stdout
 import math
 from pathlib import Path
 import tempfile
@@ -23,6 +26,19 @@ def observations(count=160, yaw=.3, translation=np.array([.8, 0., -.4])):
 
 
 class ReconstructionGeometry(unittest.TestCase):
+    def test_perspective_cache_preparation_reports_each_unique_photo_without_changing_results(self):
+        scenes = [{'id': str(i), 'path': f'photo-{i}'} for i in range(4)]
+        expected = {1: {'cached': 1}, 2: {'cached': 2}, 3: {'cached': 3}}
+        log = io.StringIO()
+        with patch.object(core, 'extract_perspective_features', side_effect=list(expected.values())) as extract, redirect_stdout(log):
+            actual = core.prepare_perspective_features(scenes, [3, 1, 2, 1], Path('cache'))
+        self.assertEqual(actual, expected)
+        self.assertEqual([call.args for call in extract.call_args_list], [(f'photo-{i}', Path('cache')) for i in (1, 2, 3)])
+        events = [json.loads(line) for line in log.getvalue().splitlines()]
+        self.assertEqual([event['completed'] for event in events], [0, 1, 2, 3])
+        self.assertTrue(all(event['stage'] == 'perspective_features' and event['total'] == 3 for event in events))
+        self.assertEqual([event.get('sceneId') for event in events], [None, '1', '2', '3'])
+
     def test_visual_bearings_are_reciprocal_without_map_coordinates(self):
         forward, reverse = core.visual_pair_bearings({"direction": np.array([1., 0., -1.])}, math.radians(340))
         self.assertAlmostEqual(forward, 25)

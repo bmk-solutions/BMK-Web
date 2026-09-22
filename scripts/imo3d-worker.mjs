@@ -4,7 +4,7 @@ import {mkdir,open} from 'node:fs/promises';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {claimJob,ensureProcessingTables,heartbeatJob,imageFingerprint} from '../src/lib/imo3d/processing-jobs.ts';
-import {runPanoramaReconstruction} from '../src/lib/imo3d/reconstruction.ts';
+import {runPanoramaReconstruction,reconstructionProgressPresentation} from '../src/lib/imo3d/reconstruction.ts';
 import {buildEstimatedPlans,preserveAuthoredFloorState,selectLargestConnectedComponents} from '../src/lib/imo3d/reconstruction-layout.ts';
 import {cleanupProcessingArtifacts,unreferencedInputAssetFiles} from '../src/lib/imo3d/processing-cleanup.ts';
 import {cleanupPrivateAssetFiles} from '../src/lib/imo3d/private-asset-cleanup.ts';
@@ -67,9 +67,7 @@ async function processJob(job){
     }});
     if(leaseLost||controller.signal.aborted)return;
     const result=await runPanoramaReconstruction({scenes:inputScenes,outputDir,assetRoots,roomProfiles:analysis.profiles,roomObservations:analysis.observations,signal:controller.signal,onProgress:p=>{
-      const ratio=p.total?Math.min(1,p.completed/p.total):0;
-      progress=p.stage==='features'?38+ratio*12:p.stage==='matching'?50+ratio*26:76+ratio*4;
-      stage=`${p.stage==='features'?'تحليل الصور':p.stage==='matching'?'مطابقة اللقطات':'تقدير مواقع التصوير'} · ${p.completed} / ${p.total}`;
+      ({progress,stage}=reconstructionProgressPresentation(p,progress));
       if(!heartbeatJob(db,job.id,owner,progress,stage)){leaseLost=true;controller.abort();}
     }});
     if(leaseLost||controller.signal.aborted)return;

@@ -19,7 +19,7 @@ test('observed boundary, recognition, depth and feature labels keep inspection a
 
 test('matching, camera layout, surface fusion and wall audit activate linking without inventing photo counts',()=>{
  const tour=syntheticTour();
- for(const stage of ['مطابقة اللقطات · 281 / 1314','تقدير مواقع التصوير · 0 / 3','دمج الأسطح بين الصور · 45 / 93','تدقيق الجدران المعمارية']){
+ for(const stage of ['مطابقة اللقطات · 281 / 1314','تصحيح منظور الصور للربط · 24 / 100','تقدير مواقع التصوير · 0 / 3','دمج الأسطح بين الصور · 45 / 93','تدقيق الجدران المعمارية']){
   const current=job(tour,{status:'running',stage,progress:0,result:undefined}),steps=processingWorkflowSteps(current,tourWorkflowCoverage(tour,current));
   assert.equal(processingPhase(current),'linking');assert.equal(steps.inspection.state,'done');assert.match(steps.inspection.detail,/تُوثّق التغطية/);assert.doesNotMatch(steps.inspection.detail,/100|6/);assert.equal(steps.linking.state,'is-active');assert.equal(steps.linking.detail,stage);assert.doesNotMatch(steps.linking.detail,/في الإطار المكاني/);
  }

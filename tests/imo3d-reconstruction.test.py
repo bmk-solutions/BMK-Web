@@ -160,6 +160,42 @@ class ReconstructionGeometry(unittest.TestCase):
         self.assertTrue(all(99 not in pair for pair in pairs))
         self.assertEqual(core.dense_recovery_candidates(scenes, features, [list(range(100))]), [])
 
+    def test_dense_budget_reserves_multi_camera_bridges_even_with_many_singletons(self):
+        scenes = [{'id': str(i), 'floor': 0 if i < 99 else 1} for i in range(100)]
+        features = [{'signature': np.array([i])} for i in range(100)]
+        components = [list(range(40)), list(range(40, 80)), *[[i] for i in range(80, 100)]]
+        pairs = core.dense_recovery_candidates(scenes, features, components)
+        self.assertEqual(len(pairs), 32)
+        self.assertEqual(len(set(pairs)), 32)
+        self.assertTrue(any(a < 40 <= b < 80 for a, b in pairs))
+        self.assertTrue(any(b >= 80 for _, b in pairs))
+        self.assertTrue(all(99 not in pair for pair in pairs))
+        for budget in (0, 1, 2, 8, 16, 33):
+            self.assertLessEqual(len(core.dense_recovery_candidates(scenes, features, components, budget)), min(32, budget))
+
+    def test_matching_is_reproducible_after_unrelated_pairs_and_opencv_rng_activity(self):
+        import cv2
+        first_rays, second_rays, _, _ = observations(180)
+        rng = np.random.default_rng(411)
+        descriptors = rng.normal(size=(180, 128)).astype(np.float32)
+        first = {'descriptors': descriptors, 'bearings': first_rays}
+        second = {'descriptors': descriptors + rng.normal(0, .05, descriptors.shape).astype(np.float32), 'bearings': second_rays}
+        a, reason = core.match_pair(first, second, core.stable_pair_rng('scene-a', 'scene-b', 'perspective'))
+        self.assertIsNone(reason)
+        # The order and presence of other pairs must not alter either FLANN's
+        # correspondence set or RANSAC's samples for this pair.
+        cv2.setRNGSeed(61924)
+        core.match_pair(first, second, core.stable_pair_rng('unrelated-a', 'unrelated-b', 'spherical'))
+        b, reason = core.match_pair(first, second, core.stable_pair_rng('scene-a', 'scene-b', 'perspective'))
+        self.assertIsNone(reason)
+        self.assertEqual(a['inliers'], b['inliers'])
+        self.assertEqual(a['parallaxDegrees'], b['parallaxDegrees'])
+        np.testing.assert_array_equal(a['_indices1'], b['_indices1'])
+        np.testing.assert_array_equal(a['_indices2'], b['_indices2'])
+        np.testing.assert_array_equal(a['direction'], b['direction'])
+        self.assertNotEqual(core.stable_pair_rng('scene-a', 'scene-b', 'spherical').integers(2**32),
+                            core.stable_pair_rng('scene-a', 'scene-b', 'perspective').integers(2**32))
+
     def test_dense_observations_obey_same_spherical_pose_and_outlier_rejections(self):
         first, second, _, _ = observations(180)
         indices = np.arange(len(first))

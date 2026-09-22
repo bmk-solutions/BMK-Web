@@ -278,8 +278,18 @@ def prepare_perspective_features(scenes, nodes, cache_dir):
     return result
 
 
+def stable_pair_rng(first_id, second_id, family):
+    """Matching one image pair must not depend on other pairs or batch size."""
+    identity = json.dumps(["imo3d-pair-v1", family, str(first_id), str(second_id)], separators=(",", ":"))
+    seed = int.from_bytes(hashlib.sha256(identity.encode("utf-8")).digest()[:8], "little")
+    return np.random.default_rng(seed)
+
+
 def match_pair(first, second, rng):
     import cv2
+    # FLANN randomizes its search trees independently of NumPy's RANSAC RNG.
+    # Reset both per pair so a previous match cannot alter this correspondence set.
+    cv2.setRNGSeed(int(rng.integers(0, 2**31 - 1)))
     if min(len(first["descriptors"]), len(second["descriptors"])) < 24:
         return None, "few_features"
     matcher = cv2.FlannBasedMatcher(dict(algorithm=1, trees=4), dict(checks=64))
@@ -397,9 +407,32 @@ def recovery_candidates(scenes, features, components, tried, budget=None):
 
 
 def dense_recovery_candidates(scenes, features, components, budget=32):
-    """Prioritize unmatched cameras fairly, then remaining component bridges."""
+    """Balance multi-camera component bridges with unmatched camera recovery."""
     if len(components) <= 1 or budget <= 0:
         return []
+    limit = min(32, budget)
+    groups = [group for group in components if len(group) > 1]
+    bridge_queues = []
+    for offset, first in enumerate(groups):
+        for second in groups[offset + 1:]:
+            eligible = [(min(i, j), max(i, j)) for i in first for j in second
+                        if scenes[i].get('floor', 0) == scenes[j].get('floor', 0)]
+            nearby = sorted(eligible, key=lambda pair: (abs(pair[0] - pair[1]), pair))
+            similar = sorted(eligible, key=lambda pair: (float(np.mean((features[pair[0]]['signature'] - features[pair[1]]['signature']) ** 2)), pair))
+            bridge_queues.append([pair for choices in zip(nearby[:16], similar[:16]) for pair in choices])
+    result, seen = [], set()
+    # Otherwise difficult singleton photos can consume every optional GPU slot
+    # while a whole independently reconstructed room group is never examined.
+    bridge_budget = min(limit // 2, 16)
+    for rank in range(32 if bridge_budget else 0):
+        for queue in bridge_queues:
+            if rank >= len(queue) or queue[rank] in seen:
+                continue
+            seen.add(queue[rank]); result.append(queue[rank])
+            if len(result) >= bridge_budget:
+                break
+        if len(result) >= bridge_budget:
+            break
     queues = []
     for group in components:
         if len(group) != 1:
@@ -410,16 +443,15 @@ def dense_recovery_candidates(scenes, features, components, budget=32):
         similar = sorted(others, key=lambda j: (float(np.mean((features[i]["signature"] - features[j]["signature"]) ** 2)), j))
         targets = nearby[:2] + similar[:2] + nearby[2:4] + similar[2:4]
         queues.append([(min(i, j), max(i, j)) for j in targets])
-    result, seen = [], set()
     for rank in range(8):
         for queue in queues:
             if rank >= len(queue) or queue[rank] in seen:
                 continue
             seen.add(queue[rank])
             result.append(queue[rank])
-            if len(result) >= min(32, budget):
+            if len(result) >= limit:
                 return result
-    remaining = recovery_candidates(scenes, features, components, seen, budget=min(32, budget) - len(result))
+    remaining = recovery_candidates(scenes, features, components, seen, budget=limit - len(result))
     return result + remaining
 
 
@@ -920,9 +952,9 @@ def reconstruct(payload):
                 if scenes[i].get("floor", 0) == scenes[j].get("floor", 0):
                     chosen.add((i, j))
         candidates = sorted(chosen)
-    rng, pairs, rejected = np.random.default_rng(4729), [], {}
+    pairs, rejected = [], {}
     for index, (i, j) in enumerate(candidates):
-        pair, reason = match_pair(features[i], features[j], rng)
+        pair, reason = match_pair(features[i], features[j], stable_pair_rng(scenes[i]['id'], scenes[j]['id'], 'spherical'))
         if pair:
             pair.update(i=i, j=j, a=scenes[i]["id"], b=scenes[j]["id"])
             if envelope_module and scenes[i]["id"] in envelopes and scenes[j]["id"] in envelopes:
@@ -954,7 +986,7 @@ def reconstruct(payload):
                 bridge_scores.update((pair_key, score) for score, pair_key in sorted(ranked)[:4])
         bridges = sorted(sorted(bridge_scores, key=lambda pair: (bridge_scores[pair], pair))[:4 * len(scenes)])
         for index, (i, j) in enumerate(sorted(bridges)):
-            pair, reason = match_pair(features[i], features[j], rng)
+            pair, reason = match_pair(features[i], features[j], stable_pair_rng(scenes[i]['id'], scenes[j]['id'], 'spherical'))
             if pair:
                 pair.update(i=i, j=j, a=scenes[i]["id"], b=scenes[j]["id"])
                 if envelope_module and scenes[i]["id"] in envelopes and scenes[j]["id"] in envelopes:
@@ -972,7 +1004,7 @@ def reconstruct(payload):
     recovery = recovery_candidates(scenes, features, connected_components(len(scenes), pairs), set(candidates)) if len(scenes) > 80 else []
     recovered_pairs = 0
     for index, (i, j) in enumerate(recovery):
-        pair, reason = match_pair(features[i], features[j], rng)
+        pair, reason = match_pair(features[i], features[j], stable_pair_rng(scenes[i]['id'], scenes[j]['id'], 'spherical'))
         if pair:
             pair.update(i=i, j=j, a=scenes[i]["id"], b=scenes[j]["id"])
             if envelope_module and scenes[i]["id"] in envelopes and scenes[j]["id"] in envelopes:
@@ -1002,7 +1034,7 @@ def reconstruct(payload):
         rectified = prepare_perspective_features(scenes, [node for pair in perspective_candidates for node in pair], cache)
         recovered = []
         for index, (i, j) in enumerate(perspective_candidates):
-            pair, reason = match_pair(rectified[i], rectified[j], rng)
+            pair, reason = match_pair(rectified[i], rectified[j], stable_pair_rng(scenes[i]['id'], scenes[j]['id'], 'perspective'))
             if pair:
                 pair.update(i=i, j=j, a=scenes[i]["id"], b=scenes[j]["id"])
                 if envelope_module and scenes[i]["id"] in envelopes and scenes[j]["id"] in envelopes:
@@ -1036,7 +1068,7 @@ def reconstruct(payload):
     for index, (i, j, rays1, rays2) in enumerate(dense_observations):
         indices = np.arange(len(rays1), dtype=np.int64)
         pair, reason = verify_correspondences(rays1, rays2, indices, indices,
-                                             np.random.default_rng(4729 + i * len(scenes) + j), max_trials=1500)
+                                             stable_pair_rng(scenes[i]['id'], scenes[j]['id'], 'dense'), max_trials=1500)
         if pair:
             pair.update(i=i, j=j, a=scenes[i]["id"], b=scenes[j]["id"])
             if envelope_module and scenes[i]["id"] in envelopes and scenes[j]["id"] in envelopes:

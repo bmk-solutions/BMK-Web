@@ -9,7 +9,7 @@ function collect(file){
   let dependency=path.resolve(path.dirname(file),match[1]);if(!/\.[cm]?tsx?$/.test(dependency))dependency+='.ts';collect(dependency);
  }
 }
-const tests=['tests/imo3d-plan-quality.test.ts','tests/imo3d-plan-recovery.test.ts','tests/imo3d-plan-render-integrity.test.ts','tests/imo3d-plan-output-schema.test.ts'];
+const tests=['tests/imo3d-plan-quality.test.ts','tests/imo3d-plan-recovery.test.ts','tests/imo3d-plan-render-integrity.test.ts','tests/imo3d-plan-output-schema.test.ts','tests/imo3d-plan-image-review.test.ts'];
 tests.forEach(collect);
 for(const file of files){
  const output=path.join(targetRoot,path.relative(process.cwd(),file).replace(/\.ts$/,'.js'));mkdirSync(path.dirname(output),{recursive:true});

@@ -1,13 +1,35 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {syntheticTour} from './fixtures/imo3d-synthetic-tour';
-import {parseProcessingJob,tourWorkflowCoverage,type ProcessingJob} from '../src/lib/imo3d/processing-model';
+import {parseProcessingJob,processingPhase,processingWorkflowSteps,tourWorkflowCoverage,type ProcessingJob} from '../src/lib/imo3d/processing-model';
 import type {Tour} from '../src/lib/imo3d/model';
 import {changePhotoEdit} from '../src/lib/imo3d/photo-edits';
 import {applySceneFloorAssignments} from '../src/lib/imo3d/floor-assignment';
 
 function job(tour:Tour,overrides:Partial<ProcessingJob>={}):ProcessingJob{return {id:'processing-test',tourId:tour.id,status:'review',progress:100,stage:'Finished',createdAt:tour.createdAt,updatedAt:tour.updatedAt,error:null,warnings:[],result:{registered:tour.scenes.length,total:tour.scenes.length,links:10,components:1,scale:'relative',analyzedPhotos:tour.scenes.length,analyzedSceneIds:tour.scenes.map(scene=>scene.id),analyzedSources:tour.scenes.map(({id,image,floor})=>({id,image,floor}))},...overrides};}
 function reviewFloor(tour:Tour,floor:number){const plan=tour.plans.find(item=>item.floor===floor)!;plan.architectureReview='reviewed';plan.architecture={version:1,floor,scale:{status:'estimated',metersPerUnit:null,displayUnit:'m'},walls:[],openings:[],columns:[],rooms:[{id:`room-${floor}`,name:'Synthetic',polygon:[{x:0,z:0},{x:10,z:0},{x:10,z:10},{x:0,z:10}],wallIds:[],cameraIds:tour.scenes.filter(scene=>scene.floor===floor).map(scene=>scene.id),confidence:.8}]};}
+
+test('observed boundary, recognition, depth and feature labels keep inspection active',()=>{
+ const tour=syntheticTour();
+ for(const stage of ['استخراج حدود الغرف · 20 / 100','التعرف على الغرف · 60 / 100','تحسين عمق الانتقال · 80 / 100','تحليل الصور · 100 / 100']){
+  const current=job(tour,{status:'running',stage,progress:99,result:undefined}),steps=processingWorkflowSteps(current,tourWorkflowCoverage(tour,current));
+  assert.equal(processingPhase(current),'inspection');assert.equal(steps.inspection.state,'is-active');assert.equal(steps.inspection.detail,stage);assert.equal(steps.linking.state,'');assert.match(steps.linking.detail,/بانتظار/);
+ }
+});
+
+test('matching, camera layout, surface fusion and wall audit activate linking without inventing photo counts',()=>{
+ const tour=syntheticTour();
+ for(const stage of ['مطابقة اللقطات · 281 / 1314','تقدير مواقع التصوير · 0 / 3','دمج الأسطح بين الصور · 45 / 93','تدقيق الجدران المعمارية']){
+  const current=job(tour,{status:'running',stage,progress:0,result:undefined}),steps=processingWorkflowSteps(current,tourWorkflowCoverage(tour,current));
+  assert.equal(processingPhase(current),'linking');assert.equal(steps.inspection.state,'done');assert.match(steps.inspection.detail,/تُوثّق التغطية/);assert.doesNotMatch(steps.inspection.detail,/100|6/);assert.equal(steps.linking.state,'is-active');assert.equal(steps.linking.detail,stage);assert.doesNotMatch(steps.linking.detail,/في الإطار المكاني/);
+ }
+});
+
+test('queued, unknown, failed, cancelled and stale jobs never guess a later phase from percentages',()=>{
+ const tour=syntheticTour();
+ for(const status of ['queued','running'] as const){const current=job(tour,{status,stage:'new worker phase',progress:100,result:undefined}),steps=processingWorkflowSteps(current,tourWorkflowCoverage(tour,current));assert.equal(processingPhase(current),status==='queued'?'queued':'unknown');assert.equal(steps.inspection.state,'is-active');assert.equal(steps.linking.state,'');}
+ for(const status of ['failed','cancelled','stale'] as const){const current=job(tour,{status,stage:'مطابقة اللقطات · 281 / 1314',result:undefined}),steps=processingWorkflowSteps(current,tourWorkflowCoverage(tour,current));assert.equal(processingPhase(current),null);assert.equal(steps.inspection.state,'needs-review');assert.equal(steps.linking.state,'needs-review');assert.match(steps.linking.detail,/آخر نتيجة محفوظة/);}
+});
 
 test('photo evidence coverage is separate from a shared camera frame',()=>{
  const tour=syntheticTour();tour.scenes[4].position=null;tour.scenes[5].position=null;

@@ -8,6 +8,28 @@ export type ProcessingJob={
 };
 export const processingActive=(job:ProcessingJob|null|undefined)=>job?.status==="queued"||job?.status==="running";
 
+/** Worker labels are phase evidence; percentages are not, since recovery can restart matching. */
+export function processingPhase(job:ProcessingJob|null|undefined):'queued'|'inspection'|'linking'|'unknown'|null{
+ if(!processingActive(job))return null;
+ if(job?.status==='queued')return 'queued';
+ const label=job?.stage.split('·',1)[0].trim();
+ if(['مطابقة اللقطات','تقدير مواقع التصوير','دمج الأسطح بين الصور','تدقيق الجدران المعمارية'].includes(label??''))return 'linking';
+ if(['تجهيز الصور','تجهيز الصور على عامل المعالجة المحلي','فحص محرك المعالجة قبل تجهيز الصور','تجهيز صور المعالجة المحلية','استخراج حدود الغرف','تحسين عمق الانتقال','التعرف على الغرف','تحليل الصور'].includes(label??''))return 'inspection';
+ return 'unknown';
+}
+
+export function processingWorkflowSteps(job:ProcessingJob|null|undefined,coverage:ReturnType<typeof tourWorkflowCoverage>,format:(n:number)=>string=String){
+ const phase=processingPhase(job),interrupted=!!job&&['failed','cancelled','stale'].includes(job.status);
+ if(phase)return {
+  inspection:{detail:phase==='linking'?'انتهى فحص الصور الأولي؛ تُوثّق التغطية عند حفظ النتيجة':job?.stage||'بانتظار فحص الصور',state:phase==='linking'?'done':'is-active'},
+  linking:{detail:phase==='linking'?job!.stage:'بانتظار اكتمال فحص الصور',state:phase==='linking'?'is-active':''},
+ };
+ return {
+  inspection:{detail:coverage.analyzed!==null?`${format(coverage.analyzed)} / ${format(coverage.total)} لقطة فُحصت`:interrupted?'توقف الفحص قبل توثيق نتيجة جديدة':job?.result?'تغطية الفحص غير موثّقة في النتيجة السابقة':'ينطلق تلقائيًا بعد الرفع',state:coverage.analysisComplete?'done':job?.result||interrupted?'needs-review':''},
+  linking:{detail:`${interrupted?'آخر نتيجة محفوظة: ':''}${format(coverage.positioned)} / ${format(coverage.total)} في الإطار المكاني${coverage.unpositioned?` · ${format(coverage.unpositioned)} لم تُحسم`:''}`,state:!interrupted&&coverage.spatialComplete?'done':coverage.total?'needs-review':''},
+ };
+}
+
 export const processingSourceSchema=z.object({
  id:z.string().regex(/^[\w-]+$/).max(80),
  image:z.string().max(512).refine(value=>/^\/(?:imo3d\/example\/|api\/imo3d\/assets\/)[a-zA-Z0-9/_.-]+$/.test(value)&&!value.includes('..')),

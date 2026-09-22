@@ -28,7 +28,7 @@ import {SemanticRoomsEditor} from "./SemanticRoomsEditor";
 import {ProjectUsageDialog} from "./ProjectUsageDialog";
 import {LeadInbox} from "./LeadInbox";
 import {unnamedRoom} from "./room-labels";
-import {parseProcessingJob,processingActive,tourWorkflowCoverage,type ProcessingJob} from "@/lib/imo3d/processing-model";
+import {parseProcessingJob,processingActive,processingWorkflowSteps,tourWorkflowCoverage,type ProcessingJob} from "@/lib/imo3d/processing-model";
 import "./studio-workflows.css";
 import "./liquid-glass.css";
 
@@ -170,11 +170,12 @@ function Editor({initial,onChange,onBack,onError,onNotice,onBlockedChange,onSett
   const processing=processingActive(job),link=`/imo3d/t/${tour.id}`;
   const estimated=tour.spatialSource==="images";
   const coverage=tourWorkflowCoverage(tour,job),planActive=!processing&&(planStatus?.job?.status==='queued'||planStatus?.job?.status==='running');
+  const photoStages=processingWorkflowSteps(job,coverage,number);
   const uploadActive=working&&progress.total>0,workflowReady=coverage.ready&&!planStatus?.stale;
   const workflow=[
     {title:'رفع اللقطات',detail:uploadActive?`${number(progress.done)} / ${number(progress.total)} ملفات الدفعة`: `${number(coverage.total)} لقطة محفوظة`,state:uploadActive?'is-active':coverage.total?'done':''},
-    {title:'فحص الصور',detail:coverage.analyzed!==null?`${number(coverage.analyzed)} / ${number(coverage.total)} لقطة فُحصت`:processing?'فحص أدلة الصور والتداخل':job?.result?'تغطية الفحص غير موثّقة في النتيجة السابقة':'ينطلق تلقائيًا بعد الرفع',state:processing?'is-active':coverage.analysisComplete?'done':job?.result?'needs-review':''},
-    {title:'الربط المكاني',detail:`${number(coverage.positioned)} / ${number(coverage.total)} في الإطار المكاني${coverage.unpositioned?` · ${number(coverage.unpositioned)} لم تُحسم`:''}`,state:!processing&&coverage.spatialComplete?'done':coverage.total&&!processing?'needs-review':''},
+    {title:'فحص الصور',...photoStages.inspection},
+    {title:'الربط المكاني',...photoStages.linking},
     {title:'المخطط والمراجعة',detail:processing?'بانتظار اكتمال فحص الصور والربط':planActive?'جارٍ التحليل والرسم':planStatus?.stale?'تغيّرت الصور؛ يلزم تحديث المخطط':coverage.planComplete?'كل الأدوار مغطاة ومراجعة':planStatus?.job?.status==='failed'?'توقف المخطط؛ راجع سبب التوقف':planStatus?.job?.status==='draft'?'مسودة تحتاج مراجعة التغطية':`${number(coverage.reviewedFloors)} / ${number(coverage.floors)} أدوار مكتملة ومراجعة`,state:processing?'':planActive?'is-active':coverage.planComplete&&!planStatus?.stale?'done':planStatus?.job?.status==='draft'||planStatus?.job?.status==='failed'?'needs-review':''},
     {title:'العرض والمشاركة',detail:tour.published?workflowReady?'الرابط منشور':'الرابط منشور؛ التجهيز يحتاج مراجعة':workflowReady?'جاهز للمراجعة والنشر':coverage.total?'معاينة الصور متاحة؛ التجهيز غير مكتمل':'بانتظار الصور',state:tour.published&&workflowReady?'done':tour.published?'needs-review':''},
   ];

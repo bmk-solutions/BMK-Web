@@ -4,9 +4,10 @@
 import {useEffect,useState,type FormEvent} from 'react';
 import {PlanRoomNames} from './PlanRoomNames';
 import type {PlanLabel} from '@/lib/imo3d/plan-labels';
-type Draft={id:string;floor:number;stale:boolean;created_at:string;result:{qualityHold?:string;furnished?:{reviewNotes:string;labels?:PlanLabel[];baseImageHasNoText?:boolean};audit:{verdict:string;issues:string[];limitations:string[]}}};
+type Draft={id:string;floor:number;stale:boolean;created_at:string;result:{qualityHold?:string;layout?:{rooms:{label:string;polygon:unknown[]|null}[]};furnished?:{reviewNotes:string;labels?:PlanLabel[];baseImageHasNoText?:boolean};audit:{verdict:string;issues:string[];limitations:string[]}}};
 function DraftCard({draft,tourId,onSaved}:{draft:Draft;tourId:string;onSaved:()=>void}){
  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[selected,setSelected]=useState(false);
+ const rooms=draft.result.layout?.rooms??[],unresolved=rooms.filter(room=>!room.polygon);
  const url=`/api/imo3d-chatgpt/drafts?tourId=${encodeURIComponent(tourId)}&id=${draft.id}`;
  async function selectPlan(){setBusy(true);setError('');try{const response=await fetch(url+'&approve=1',{method:'POST'});const data=await response.json();if(!response.ok)throw Error(data.error);setSelected(true);}catch(error){setError(error instanceof Error?error.message:'تعذر اختيار المخطط.');}finally{setBusy(false);}}
  async function upload(event:FormEvent<HTMLFormElement>){
@@ -18,6 +19,7 @@ function DraftCard({draft,tourId,onSaved}:{draft:Draft;tourId:string;onSaved:()=
  if(draft.result.qualityHold)return <article style={{paddingBlock:20,borderTop:'1px solid var(--imo-border,#d9e2dd)'}}><h4>تجربة مستبعدة من الاعتماد</h4><p role="status">{draft.result.qualityHold}</p><a href={url} target="_blank" rel="noreferrer">عرض التجربة المستبعدة للمقارنة فقط</a></article>;
  return <article style={{paddingBlock:20,borderTop:'1px solid var(--imo-border,#d9e2dd)'}}>
   <h4>{draft.result.furnished?'مخطط 2D مفروش':'مخطط الغرف والفتحات'} · الدور {draft.floor} · {new Date(draft.created_at).toLocaleString('ar')}</h4>
+  {unresolved.length>0&&<p role="status" style={{padding:12,border:'1px solid #d4af62',borderRadius:12}}>مخطط جزئي: تم تحديد حدود {rooms.length-unresolved.length} من {rooms.length} مساحة. لم تُحدد بعد: {unresolved.map(room=>room.label).join('، ')}. هذه المسودة لا تمثل الوحدة كاملة.</p>}
   {draft.stale?<p>تغيرت الصور بعد هذه المسودة. يلزم تحليل الصور الحالية قبل الاعتماد.</p>:<>
    <a href={url} target="_blank" rel="noreferrer"><img src={url} alt={draft.result.furnished?'مسودة مخطط 2D مفروش من صور الشقة':'مسودة الغرف والفتحات من تحليل ChatGPT'} style={{display:'block',width:'100%',maxHeight:720,objectFit:'contain'}}/></a>
    <p>{draft.result.furnished?'الأثاث مستنتج من الصور ومواضعه تقديرية. هذه نسخة للمراجعة لم تستبدل مخطط الجولة.':'هذا مخطط الغرف والفتحات. النتيجة المفروشة تضيف الأثاث الظاهر في صور هذه الشقة بعد المراجعة.'}</p>

@@ -1,12 +1,13 @@
 import {createHash,randomUUID} from 'node:crypto';
 import {isDeepStrictEqual} from 'node:util';
-import {mkdir,readFile,realpath,writeFile,rename} from 'node:fs/promises';
+import {mkdir,readFile,realpath,writeFile,rename,lstat} from 'node:fs/promises';
 import {DatabaseSync} from 'node:sqlite';
 import {spawn} from 'node:child_process';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {ensureProcessingTables,imageFingerprint} from '../../src/lib/imo3d/processing-jobs.ts';
 import {checkWorkerRuntime} from './imo3d-worker-runtime.mjs';
+import {savePlanSpatialEvidence} from '../../src/lib/imo3d/plan-spatial-evidence.ts';
 
 const MAX_IMAGE_BYTES=100*1024*1024;
 const idPattern=/^[A-Za-z0-9_-]{1,80}$/;
@@ -125,7 +126,9 @@ export async function runLocalReconstruction({root,directory,job,signal,onProgre
     const row=database.prepare('SELECT * FROM processing_jobs WHERE id=?').get(job.id);
     if(code!==0||!row||!['completed','review'].includes(row.status))throw Error('LOCAL_PROCESSING_FAILED');
     const tour=JSON.parse(database.prepare('SELECT payload FROM tours WHERE id=?').get(job.tour_id).payload);
-    return {tour,status:row.status,stage:row.stage,result:row.result?JSON.parse(row.result):null,warnings:JSON.parse(row.warnings??'[]'),assets:database.prepare('SELECT * FROM assets WHERE tour_id=?').all(job.tour_id)};
+    const spatialFile=path.join(directory,'processing',job.id,'result.json');
+    const spatialEvidence=await lstat(spatialFile).then(info=>info.isFile()&&!info.isSymbolicLink()&&info.size<=64*1024*1024?readFile(spatialFile,'utf8').then(JSON.parse):undefined).catch(()=>undefined);
+    return {tour,spatialEvidence,status:row.status,stage:row.stage,result:row.result?JSON.parse(row.result):null,warnings:JSON.parse(row.warnings??'[]'),assets:database.prepare('SELECT * FROM assets WHERE tour_id=?').all(job.tour_id)};
   }finally{
     clearInterval(progress);clearTimeout(timeout);clearTimeout(killTimer);signal.removeEventListener('abort',stop);database.close();
     await writeFile(path.join(directory,'worker.log'),Buffer.concat(log),{flag:'wx'}).catch(()=>{});
@@ -236,6 +239,8 @@ export async function processCloudJob({root,transport,job,owner,signal,executeLo
     const warnings=(local.warnings??[]).map(safeWorkerMessage);
     const candidate=structuredClone(local.tour);if(candidate.quality?.warnings)candidate.quality.warnings=candidate.quality.warnings.map(safeWorkerMessage);
     const saved=await transport.rpc('commit_job',{p_id:job.id,p_owner:owner,p_expected_revision:tour.revision,p_input_hash:job.input_hash,p_tour:candidate,p_result:local.result??null,p_warnings:warnings,p_assets:newAssets,p_status:local.status,p_stage:safeWorkerMessage(local.stage??'اكتملت المعالجة المحلية')},{signal:controller.signal});
+    // Optional plan hints cannot turn a successful authoritative commit into a failed job.
+    if(local.spatialEvidence)await savePlanSpatialEvidence(root,candidate,local.spatialEvidence).catch(()=>console.warn('PLAN_SPATIAL_EVIDENCE_UNAVAILABLE'));
     return {status:'committed',jobId:job.id,revision:saved?.revision,directory};
   }catch(error){
     if(lease.lost()||error instanceof WorkerLeaseLost)return {status:'lease_lost',jobId:job.id,directory};

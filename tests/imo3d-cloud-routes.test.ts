@@ -17,7 +17,9 @@ import {cloudSignedDownloads} from '../src/lib/imo3d/cloud/client';
 import {chatgptOAuth,chatgptResource,signedValue,authorization,digest,chatgptConnection} from '../src/lib/imo3d/cloud/chatgpt-auth';
 import {chatgptMCP,callChatGPTTool,chatgptDrafts} from '../src/lib/imo3d/cloud/chatgpt-mcp';
 import {translatePlanIds,planFailureMessage,subscriptionChildEnvironment,validateSubscriptionAnalysis,validateImageReview,mergeSubscriptionReview} from '../src/lib/imo3d/subscription-plan-worker';
-import {planCheckpointDirectory,readPlanCheckpoint,savePlanCheckpoint,preparePlanPhotos} from '../src/lib/imo3d/plan-checkpoints';
+import {planCheckpointDirectory,readPlanCheckpoint,savePlanCheckpoint,preparePlanPhotos,selectPlanRepairPhotos,analyzePlanPhotoBatches} from '../src/lib/imo3d/plan-checkpoints';
+import {buildPlanSpatialEvidence,savePlanSpatialEvidence,readPlanSpatialEvidence} from '../src/lib/imo3d/plan-spatial-evidence';
+import {mkdtemp,mkdir} from 'node:fs/promises';
 import {labeledPlanSVG} from '../src/lib/imo3d/plan-labels';
 const origin='https://imo3d.example',secret='synthetic-test-secret-is-at-least-32-characters',fetchOriginal=globalThis.fetch,envOriginal={...process.env};
 test('cloud measurement scale is capture-scoped, revision safe and does not promote inferred geometry',()=>{
@@ -36,6 +38,60 @@ const result=(value:unknown,status=200)=>new Response(JSON.stringify(value),{sta
 type Call={url:URL;method:string;body:Record<string,unknown>|null};let storedCredential:Record<string,unknown>|null=null;let calls:Call[]=[];let mock:(call:Call)=>Response|Promise<Response>;
 beforeEach(()=>{Object.assign(process.env,{IMO3D_CLOUD:'1',SUPABASE_URL:'https://synthetic.supabase.co',SUPABASE_SERVICE_ROLE_KEY:'synthetic-key',IMO3D_ADMIN_SECRET:secret,IMO3D_PUBLIC_ORIGIN:origin,IMO3D_DATA_DIR:path.resolve('work/cloud-test-must-not-create-database')});storedCredential=null;calls=[];mock=call=>{throw Error('Unexpected cloud request '+call.url.pathname);};globalThis.fetch=async(input,init)=>{const call={url:new URL(String(input)),method:init?.method??'GET',body:typeof init?.body==='string'?JSON.parse(init.body):null};if(call.url.pathname.endsWith("/imo3d_admin_credentials")&&call.method==="GET")return result(storedCredential?[storedCredential]:[]);calls.push(call);return mock(call);};});
 afterEach(()=>{globalThis.fetch=fetchOriginal;for(const key of Object.keys(process.env))if(!(key in envOriginal))delete process.env[key];Object.assign(process.env,envOriginal);});
+
+test('focused plan repair covers every known room and floor without repeating all 100 photographs',()=>{
+ const photos=Array.from({length:100},(_,i)=>({sceneId:'s'+i,floor:i<50?0:1}));
+ const floors=[0,1].map(floor=>({floor,layout:{rooms:Array.from({length:10},(_,i)=>({evidenceSceneIds:photos.slice(floor*50+i*5,floor*50+i*5+5).map(p=>p.sceneId)}))}}));
+ const selected=selectPlanRepairPhotos(photos,floors);assert.ok(selected.length<=48);assert.equal(new Set(selected.map(p=>p.sceneId)).size,selected.length);
+ for(const f of floors)for(const r of f.layout.rooms)assert.ok(selected.some(p=>r.evidenceSceneIds.includes(p.sceneId)));
+ assert.deepEqual(selected,photos.filter(p=>selected.includes(p)));
+ assert.deepEqual(selectPlanRepairPhotos(photos.slice(0,10),floors),photos.slice(0,10));
+});
+
+test('photo batches retain checked progress after a failure, resume only missing photos, and preserve order',async()=>{
+ const base=path.resolve('work/plan-batch-tests');await mkdir(base,{recursive:true});const cache=await mkdtemp(path.join(base,'run-'));
+ const photos=Array.from({length:30},(_,i)=>({sceneId:'s'+i,floor:0}));let fail=true,active=0,maxActive=0;const calls:number[]=[];
+ const options={photos,cache,signal:new AbortController().signal,validate:(v:unknown)=>v as {sceneId:string}[],analyze:async(batch:typeof photos,index:number)=>{
+  calls.push(index);active++;maxActive=Math.max(maxActive,active);try{await new Promise(resolve=>setTimeout(resolve,index===1?15:2));if(index===1&&fail)throw Error('TEMPORARY');return [...batch].reverse().map(p=>({sceneId:p.sceneId}));}finally{active--;}
+ }};
+ await assert.rejects(analyzePlanPhotoBatches(options),/TEMPORARY/);assert.ok(maxActive<=2);assert.equal(active,0);
+ const completedBefore=calls.filter(n=>n!==1);calls.length=0;fail=false;
+ const progress:number[]=[];const result=await analyzePlanPhotoBatches({...options,progress:async(done)=>{progress.push(done);}});
+ assert.deepEqual(result.map(p=>p.sceneId),photos.map(p=>p.sceneId));assert.deepEqual(calls,[0,1,2].filter(i=>!completedBefore.includes(i)));assert.ok(completedBefore.length>=1);
+ assert.equal(progress.at(-1),30);assert.deepEqual([...progress].sort((a,b)=>a-b),progress);
+});
+
+test('photo batches reject partial evidence and respect cancellation before work begins',async()=>{
+ const base=path.resolve('work/plan-batch-tests');await mkdir(base,{recursive:true});const cache=await mkdtemp(path.join(base,'invalid-'));
+ const photos=[{sceneId:'a',floor:0},{sceneId:'b',floor:0}];let called=0;
+ const options={photos,cache,signal:new AbortController().signal,validate:(v:unknown)=>v as {sceneId:string}[],analyze:async()=>{called++;return [{sceneId:'a'}];}};
+ await assert.rejects(analyzePlanPhotoBatches(options),/PHOTO_COVERAGE/);
+ const controller=new AbortController();controller.abort();await assert.rejects(analyzePlanPhotoBatches({...options,signal:controller.signal}));assert.equal(called,1);
+});
+
+test('repair photo selection samples the whole capture when grouping is missing',()=>{
+ const photos=Array.from({length:100},(_,i)=>({sceneId:'s'+i,floor:i<50?0:1}));
+ const selected=selectPlanRepairPhotos(photos,[]);assert.ok(selected.length>=45&&selected.length<=48);assert.ok(selected.some(p=>p.sceneId==='s0'));assert.ok(selected.some(p=>p.floor===1));assert.ok(selected.some(p=>Number(p.sceneId.slice(1))>95));
+});
+
+test('plan geometry keeps separate coordinate frames and rejects foreign or duplicated members',()=>{
+ const tour=syntheticTour();
+ const raw={version:1,scale:'relative',privatePath:'C:/private',scenes:tour.scenes.map((s,i)=>({id:s.id,floor:s.floor,component:'c'+i,position:s.position,yaw:s.yaw})),components:tour.scenes.map((s,i)=>({id:'c'+i,sceneIds:[s.id],layout:'topology_only',scaleBasis:'unscaled'}))};
+ const before=JSON.stringify(raw),packet=buildPlanSpatialEvidence(tour,raw);
+ assert.equal(packet.geometry.components.length,tour.scenes.length);assert.equal(JSON.stringify(raw),before);assert.equal('privatePath' in packet.geometry,false);
+ assert.throws(()=>buildPlanSpatialEvidence(tour,{...raw,scenes:[...raw.scenes.slice(1),{...raw.scenes[0],id:'foreign'}]}),/PHOTO_MISMATCH/);
+ assert.throws(()=>buildPlanSpatialEvidence(tour,{...raw,components:raw.components.map((c,i)=>i?c:{...c,sceneIds:[raw.scenes[1].id]})}),/FRAME_MISMATCH/);
+});
+
+test('geometry checkpoints cannot survive changed photographs, camera frames or project ownership',async()=>{
+ const tour=syntheticTour(),base=path.resolve('work/plan-spatial-tests');await mkdir(base,{recursive:true});const root=await mkdtemp(path.join(base,'run-'));
+ const raw={version:1,scale:'relative',scenes:tour.scenes.map((s,i)=>({id:s.id,floor:s.floor,component:'c'+i,position:s.position,yaw:s.yaw})),components:tour.scenes.map((s,i)=>({id:'c'+i,sceneIds:[s.id],layout:'topology_only',scaleBasis:'unscaled'}))};
+ await savePlanSpatialEvidence(root,tour,raw);assert.ok(await readPlanSpatialEvidence(root,tour));
+ assert.equal(await readPlanSpatialEvidence(root,{...tour,projectId:'other-project'}),null);
+ assert.equal(await readPlanSpatialEvidence(root,{...tour,scenes:tour.scenes.map((s,i)=>i?s:{...s,yaw:s.yaw+1})}),null);
+ assert.equal(await readPlanSpatialEvidence(root,{...tour,scenes:tour.scenes.map((s,i)=>i?s:{...s,image:'/api/imo3d/assets/new'})}),null);
+ assert.ok(await readPlanSpatialEvidence(root,{...tour,title:'Renamed',revision:tour.revision+1}));
+});
 
 test('tour listing requests lightweight database summaries and still strips private render data',async()=>{
  const tour=syntheticTour();

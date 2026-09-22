@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,readFile,writeFile} from 'node:fs/promises';
 import {DatabaseSync} from 'node:sqlite';
 import path from 'node:path';
+import {readPlanSpatialEvidence} from '../src/lib/imo3d/plan-spatial-evidence.ts';
 import {imageFingerprint} from '../src/lib/imo3d/processing-jobs.ts';
 import {buildLocalInputPlan,createJobWorkspace,createWorkerTransport,hashBytes,pollCloudJobs as pollCloudJobsImpl,processCloudJob as processCloudJobImpl,runLocalReconstruction,seedLocalMirror,validateLocalResult,verifyDownloadedObject} from '../scripts/lib/imo3d-cloud-worker.mjs';
 const processCloudJob=options=>processCloudJobImpl({checkRuntime:async()=>({ok:true}),...options});
@@ -194,4 +195,12 @@ test('cancellation during preflight does not download or commit a tour',async()=
  run.transport.query=async()=>assert.fail('Cancelled preflight must not read project data');
  const result=await processCloudJob({root,transport:run.transport,job:data.job,owner,signal:controller.signal,checkRuntime:async()=>{controller.abort(Error('Stop'));return {ok:true};},executeLocal:run.executeLocal});
  assert.equal(result.status,'stopped');assert.equal(run.uploads.length,0);assert.ok(!run.calls.some(call=>call.name==='commit_job'));
+});
+
+for(const conflict of [false,true])test(`reconstruction evidence reaches the plan worker only after an accepted commit (${conflict?'conflict':'success'})`,async()=>{
+ const root=await workspace(),data=fixture(),run=harness(data,{conflict});
+ const geometry={version:1,scale:'relative',scenes:data.tour.scenes.map(s=>({id:s.id,floor:s.floor,component:'c1',position:s.position,yaw:s.yaw})),components:[{id:'c1',sceneIds:data.tour.scenes.map(s=>s.id),layout:'relative_reconstruction',scaleBasis:'camera_height'}]};
+ const result=await processCloudJob({root,transport:run.transport,job:data.job,owner,signal:new AbortController().signal,executeLocal:async options=>({...await run.executeLocal(options),spatialEvidence:geometry})});
+ assert.equal(result.status,conflict?'stale':'committed');const saved=await readPlanSpatialEvidence(root,data.tour);
+ if(conflict)assert.equal(saved,null);else {assert.ok(saved);assert.equal(saved.geometry.scenes.length,2);assert.equal(saved.tourId,data.tour.id);}
 });

@@ -12,8 +12,10 @@ function compile(file){
   let dependency=path.resolve(path.dirname(file),match[1]);if(!/\.tsx?$/.test(dependency))dependency+='.ts';compile(dependency);
  }
  const output=path.join(target,path.relative(root,file).replace(/\.ts$/,'.js'));mkdirSync(path.dirname(output),{recursive:true});
- writeFileSync(output,ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText);
+ writeFileSync(output,ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,esModuleInterop:true,rewriteRelativeImportExtensions:true}}).outputText);
 }
 compile(path.join(root,'src/lib/imo3d/subscription-plan-worker.ts'));
 const require=createRequire(import.meta.url);
-await require(path.join(target,'src/lib/imo3d/subscription-plan-worker.js')).runSubscriptionWorker(root,process.argv.includes('--once'));
+const worker=require(path.join(target,'src/lib/imo3d/subscription-plan-worker.js'));
+if(process.argv.includes('--check'))console.log(JSON.stringify({status:'plan-runtime-imported',networkContacted:false}));
+else await worker.runSubscriptionWorker(root,process.argv.includes('--once'));

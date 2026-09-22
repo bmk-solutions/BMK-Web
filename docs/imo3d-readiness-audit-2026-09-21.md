@@ -26,3 +26,14 @@ The repaired joint-depth runtime produced 150,000 points without runtime errors.
 The 1.27 m capture-height setting supports estimated planar/vertical measurement. It does not certify arbitrary point-to-point dimensions, 95% accuracy, or Biganto-equivalent reconstruction. Ground-truth validation and adequate overlapping capture/geometry are still required for those claims.
 
 One local device processes the queues. Its availability, model capacity and subscription limits remain operational dependencies. Dashboard scale tests do not establish processing throughput for 100 simultaneous projects.
+
+
+## Floorplan processing follow-up — 2026-09-22
+
+- Fresh subscription analyses now inspect 12 panoramas per batch, with two bounded requests at a time. Each batch is checked for exact scene coverage and checkpointed. Restarting after one failed batch retains completed batches; cancellation stops scheduling further batches. Apartment layout synthesis follows the combined evidence, instead of requiring a single response to describe 100 panoramas and draw the layout.
+- Focused geometry repair attaches representative photographs from each known room and retains the complete per-photo transcript. Furnished image boards use room representatives so individual views are larger. A soft attachment budget never drops an identified room solely to meet the budget.
+- The photo worker preserves validated reconstruction boundary hypotheses after its authoritative cloud commit. The plan worker can now inspect those hypotheses alongside photographs. Different components keep independent coordinate frames; stale image/camera/project checkpoints are rejected. These hypotheses are not surveyed walls or calibrated depth.
+- Geometry checkpoints are keyed to the camera/geometry input; rendered checkpoints are keyed to their actual floor analysis. An old render cannot be silently reused for a changed layout.
+- The administrator draft card explicitly identifies partial layouts and lists rooms whose geometry remains unresolved.
+- Verified: 72 cloud tests, 19 worker tests, scoped lint, TypeScript/production build. An actual 12-photo batch completed with exact scene coverage in 57 seconds. An isolated 40-photo focused geometry probe completed in 150 seconds; it proposed only 5 located spaces and failed complete scene coverage. It was not published or accepted as a complete plan. These timings are measured examples, not a throughput guarantee.
+- The previous full 100-image probe exceeded its eight-minute phase deadline. A new scoped production plan attempt is being evaluated; its end-to-end result must be recorded separately. Existing photographs, approved drawings and unrelated projects remain unchanged.

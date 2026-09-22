@@ -132,3 +132,32 @@ test('image guide uses continuous uncertain walls without sealing real door gaps
  assert.ok(pixel(580,580)>200,'actual doorway remains open');
  assert.equal(renderFloorplanLayoutSVG(layout),review,'image mode does not modify review data or later exports');
 });
+
+test('opening cut cannot erase an unrelated parallel wall only 10px away',async()=>{
+ const layout=adjacentRooms();
+ layout.rooms[1].polygon=[{x:.51,y:.1},{x:.91,y:.1},{x:.91,y:.9},{x:.51,y:.9}];
+ layout.openings[0].otherRoomId=null;
+ validateFloorplanLayout(layout,['a','b']);
+ const {data,info}=await sharp(Buffer.from(renderFloorplanLayoutSVG(layout,{solidWalls:true}))).removeAlpha().raw().toBuffer({resolveWithObject:true});
+ const pixel=(x:number,y:number)=>data[(y*info.width+x)*info.channels];
+ assert.ok(pixel(580,580)>200,'the hosted doorway is open');
+ // The prior global 20px mask erased x=585..589 of this 10px wall.
+ for(let x=586;x<=593;x++)assert.ok(pixel(x,580)<100,`unrelated wall remains intact at x=${x}`);
+});
+
+test('closed unknown doorway guide retains observed leaves and only opens confirmed room routes',async()=>{
+ const layout=adjacentRooms();
+ layout.openings.push({id:'unseen',roomId:'left',otherRoomId:null,kind:'door',edgeIndex:3,offset:.4,width:.2,evidenceSceneIds:['a'],uncertainty:'Destination cannot be seen'});
+ const before=JSON.stringify(layout),review=renderFloorplanLayoutSVG(layout);
+ const svg=renderFloorplanLayoutSVG(layout,{solidWalls:true,unknownDoorways:'closed'});
+ const {data,info}=await sharp(Buffer.from(svg)).removeAlpha().raw().toBuffer({resolveWithObject:true});
+ const pixel=(x:number,y:number)=>[...data.subarray((y*info.width+x)*info.channels,(y*info.width+x)*info.channels+3)];
+ assert.deepEqual(pixel(180,580),[139,119,98],'unknown destination is represented as a closed wood leaf');
+ assert.deepEqual(pixel(176,580),[53,59,56],'closed observation retains its surrounding wall');
+ assert.ok(pixel(580,580)[0]>200,'confirmed inter-room door still cuts both wall strokes');
+ assert.deepEqual(pixel(580,300),[53,59,56],'remaining shared wall stays solid');
+ const legacy=await sharp(Buffer.from(review)).removeAlpha().raw().toBuffer();
+ assert.ok(legacy[(580*info.width+180)*info.channels]>200,'default review representation is unchanged');
+ assert.equal(JSON.stringify(layout),before,'conservative guide does not rewrite unknown topology');
+ assert.equal(renderFloorplanLayoutSVG(layout),review);
+});

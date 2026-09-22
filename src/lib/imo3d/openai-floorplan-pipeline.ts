@@ -135,22 +135,32 @@ export function validateFloorplanLayout(value:unknown,sceneIds:string[]):Floorpl
 }
 const xml=(value:string)=>value.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]!));
 /** Stable guide: the image model styles this geometry instead of redrawing a template. */
-export function renderFloorplanLayoutSVG(layout:FloorplanLayout,options:{solidWalls?:boolean}={}):string{
+export function renderFloorplanLayoutSVG(layout:FloorplanLayout,options:{solidWalls?:boolean;unknownDoorways?:'open'|'closed'}={}):string{
   const size=1000,margin=80,unknown=layout.rooms.filter(room=>!room.polygon),height=1200+unknown.length*30;
   const xy=(p:Point)=>`${(margin+p.x*size).toFixed(2)},${(margin+p.y*size).toFixed(2)}`;
   const rooms=new Map(layout.rooms.map(room=>[room.id,room]));
-  const gapLines=layout.openings.map(opening=>{
-    const polygon=rooms.get(opening.roomId)!.polygon!;const [a,b]=openingSegment(opening,polygon);
-    return `<line x1="${margin+a.x*size}" y1="${margin+a.y*size}" x2="${margin+b.x*size}" y2="${margin+b.y*size}" stroke="black" stroke-width="20"/>`;
+  const located=layout.rooms.filter(room=>room.polygon);
+  const isClosedObservation=(opening:FloorplanLayout['openings'][number])=>options.unknownDoorways==='closed'&&opening.kind==='door'&&opening.otherRoomId===null;
+  // An opening belongs only to its declared wall hosts. A global mask also
+  // erased unrelated parallel walls when their separation was below 20px.
+  const masks=located.map((room,index)=>{
+    const gaps=layout.openings.filter(opening=>!isClosedObservation(opening)&&(opening.roomId===room.id||opening.otherRoomId===room.id)).map(opening=>{
+      const [a,b]=openingSegment(opening,rooms.get(opening.roomId)!.polygon!);
+      return `<line x1="${margin+a.x*size}" y1="${margin+a.y*size}" x2="${margin+b.x*size}" y2="${margin+b.y*size}" stroke="black" stroke-width="20"/>`;
+    }).join('');
+    return `<mask id="walls-${index}"><rect width="100%" height="100%" fill="white"/>${gaps}</mask>`;
   }).join('');
-  const fills=layout.rooms.filter(room=>room.polygon).map(room=>`<polygon points="${room.polygon!.map(xy).join(' ')}" fill="#f1eee7"/>`).join('');
+  const fills=located.map(room=>`<polygon points="${room.polygon!.map(xy).join(' ')}" fill="#f1eee7"/>`).join('');
   // Image generation must not mistake uncertainty dashes for architectural
   // gaps or disconnected masonry. Review exports keep the original notation.
-  const walls=layout.rooms.filter(room=>room.polygon).map(room=>`<polygon points="${room.polygon!.map(xy).join(' ')}" fill="none" stroke="#353b38" stroke-width="10" stroke-linejoin="miter"${room.uncertainty.trim()&&!options.solidWalls?' stroke-dasharray="16 7"':''}/>`).join('');
+  const walls=located.map((room,index)=>`<polygon points="${room.polygon!.map(xy).join(' ')}" fill="none" stroke="#353b38" stroke-width="10" stroke-linejoin="miter" mask="url(#walls-${index})"${room.uncertainty.trim()&&!options.solidWalls?' stroke-dasharray="16 7"':''}/>`).join('');
   const openingMarks=layout.openings.map(opening=>{
-    if(opening.kind!=='window')return '';
+    const closed=isClosedObservation(opening);
+    if(opening.kind!=='window'&&!closed)return '';
     const [a,b]=openingSegment(opening,rooms.get(opening.roomId)!.polygon!);
-    return `<line x1="${margin+a.x*size}" y1="${margin+a.y*size}" x2="${margin+b.x*size}" y2="${margin+b.y*size}" stroke="#9aaea5" stroke-width="4"/>`;
+    // An unseen destination is not a confirmed route. Keep the wall closed,
+    // marking the observed leaf without connecting it to a nearby doorway.
+    return `<line x1="${margin+a.x*size}" y1="${margin+a.y*size}" x2="${margin+b.x*size}" y2="${margin+b.y*size}" stroke="${closed?'#8b7762':'#9aaea5'}" stroke-width="${closed?6:4}"/>`;
   }).join('');
   const labels=layout.rooms.filter(room=>room.polygon).map(room=>{
     const polygon=room.polygon!;
@@ -163,7 +173,7 @@ export function renderFloorplanLayoutSVG(layout:FloorplanLayout,options:{solidWa
     return `<text x="${margin+best.x*size}" y="${margin+best.y*size}" font-size="20" text-anchor="middle" direction="rtl">${xml(room.label)}</text>`;
   }).join('');
   const legend=options.solidWalls?'AI DRAFT — NOT SURVEYED · Estimated geometry · No metric scale':'AI DRAFT — NOT SURVEYED · Dashed walls = uncertain · No metric scale';
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="1160" height="${height}" viewBox="0 0 1160 ${height}"><rect width="100%" height="100%" fill="white"/><defs><mask id="walls"><rect width="100%" height="100%" fill="white"/>${gapLines}</mask></defs><g font-family="Arial,sans-serif" fill="#353b38">${fills}<g mask="url(#walls)">${walls}</g>${openingMarks}${labels}<text x="580" y="1120" text-anchor="middle" font-size="18">${legend}</text>${unknown.map((room,i)=>`<text x="580" y="${1160+i*30}" text-anchor="middle" font-size="16">${xml(room.label)} — geometry unresolved; not placed</text>`).join('')}</g></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1160" height="${height}" viewBox="0 0 1160 ${height}"><rect width="100%" height="100%" fill="white"/><defs>${masks}</defs><g font-family="Arial,sans-serif" fill="#353b38">${fills}${walls}${openingMarks}${labels}<text x="580" y="1120" text-anchor="middle" font-size="18">${legend}</text>${unknown.map((room,i)=>`<text x="580" y="${1160+i*30}" text-anchor="middle" font-size="16">${xml(room.label)} — geometry unresolved; not placed</text>`).join('')}</g></svg>`;
 }
 
 /** Six rectilinear views preserve doors and wall corners across the panorama seam. */

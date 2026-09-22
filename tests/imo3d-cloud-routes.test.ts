@@ -10,6 +10,7 @@ import {applyMetadata} from '../src/lib/imo3d/cloud/geometry';
 import {tourMetadataSchema} from '../src/lib/imo3d/floor-assignment';
 import {publicProcessingJob} from '../src/lib/imo3d/cloud/jobs';
 import {aiPlanFingerprint} from '../src/lib/imo3d/ai-plan-jobs';
+import {imageFingerprint} from '../src/lib/imo3d/processing-jobs';
 import {syntheticTour} from './fixtures/imo3d-synthetic-tour';
 import {hashAdminPassword,verifyAdminPassword} from '../src/lib/imo3d/admin-password';
 import {PanoramaBlobCache} from '../src/components/imo3d/PanoramaBlobCache';
@@ -628,15 +629,66 @@ test('compact scene aliases round-trip without altering descriptive text or hidi
 });
 
 
-test('starting photo processing atomically requests automatic floorplan for the same snapshot',async()=>{
+test('photo retries request a fresh plan even when the atomic workflow reused an old partial draft',async()=>{
  const tour=syntheticTour();mock=call=>{
   if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);
+  if(call.url.pathname.endsWith('/imo3d_processing_jobs')||call.url.pathname.endsWith('/imo3d_subscription_plan_jobs')){assert.equal(call.url.searchParams.get('tour_id'),'eq.'+tour.id);assert.equal(call.url.searchParams.get('status'),'in.(queued,running)');return result([]);}
+  if(call.url.pathname.endsWith('/rpc/imo3d_enqueue_subscription_plan')){assert.equal(call.body?.p_hash,aiPlanFingerprint(tour.scenes));assert.equal((call.body?.p_scenes as unknown[]).length,tour.scenes.length);return result('fresh-plan-after-old-draft');}
   assert.ok(call.url.pathname.endsWith('/rpc/imo3d_start_tour_workflow'));
   assert.equal(call.body?.p_tour_id,tour.id);assert.ok(call.body?.p_input_hash);assert.ok(call.body?.p_plan_hash);
   assert.equal((call.body?.p_scenes as unknown[]).length,tour.scenes.length);
   return result({id:'automatic-job',tour_id:tour.id,status:'queued',stage:'Queued',progress:0,warnings:[],created_at:'2026-01-01',updated_at:'2026-01-01'});
  };
  const response=await cloudRoute(req(`tours/${tour.id}/processing`,{method:'POST'},true));assert.equal(response.status,202);assert.equal((await response.json()).id,'automatic-job');
+ assert.deepEqual(calls.filter(c=>c.url.pathname.includes('/rpc/')).map(c=>c.url.pathname.split('/').at(-1)),['imo3d_start_tour_workflow','imo3d_enqueue_subscription_plan']);
+});
+
+for(const status of ['queued','running'])test(`photo reanalysis preserves an active ${status} same-source plan`,async()=>{
+ const tour=syntheticTour();mock=call=>{
+  if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);
+  assert.equal(call.method,'GET');assert.equal(call.url.searchParams.get('tour_id'),'eq.'+tour.id);
+  if(call.url.pathname.endsWith('/imo3d_processing_jobs'))return result([]);
+  assert.ok(call.url.pathname.endsWith('/imo3d_subscription_plan_jobs'));
+  return result([{id:'existing-plan',status,input_hash:aiPlanFingerprint(tour.scenes),lease_until:new Date(Date.now()+60000).toISOString()}]);
+ };
+ const response=await cloudRoute(req(`tours/${tour.id}/processing`,{method:'POST'},true));assert.equal(response.status,409);assert.match((await response.json()).error,/المخطط الحالي/);assert.equal(calls.filter(c=>c.method!=='GET').length,0);
+});
+
+test('new photos invalidate only their own obsolete plan before starting the automatic sequence',async()=>{
+ const tour=syntheticTour();mock=call=>{
+  if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);
+  if(call.url.pathname.endsWith('/imo3d_processing_jobs'))return result([]);
+  if(call.url.pathname.endsWith('/imo3d_subscription_plan_jobs')){
+   if(call.method==='GET')return result([{id:'old-plan',status:'running',input_hash:'old-photo-hash',lease_until:new Date(Date.now()+60000).toISOString()}]);
+   assert.equal(call.method,'PATCH');assert.equal(call.url.searchParams.get('id'),'eq.old-plan');assert.equal(call.url.searchParams.get('tour_id'),'eq.'+tour.id);assert.equal(call.url.searchParams.get('input_hash'),'eq.old-photo-hash');assert.equal(call.url.searchParams.get('status'),'in.(queued,running)');assert.equal(call.body?.status,'stale');return result([{id:'old-plan'}]);
+  }
+  if(call.url.pathname.endsWith('/rpc/imo3d_start_tour_workflow'))return result({id:'new-photos',tour_id:tour.id,status:'queued',progress:0,stage:'queued'});
+  assert.ok(call.url.pathname.endsWith('/rpc/imo3d_enqueue_subscription_plan'));return result('new-plan');
+ };
+ const response=await cloudRoute(req(`tours/${tour.id}/processing`,{method:'POST'},true));assert.equal(response.status,202);
+ assert.equal(calls.filter(c=>c.method==='PATCH').length,1);
+});
+
+test('retrying an active photo workflow repairs the plan queue without replacing either active job',async()=>{
+ const tour=syntheticTour(),photo={id:'existing-photo',tour_id:tour.id,status:'running',input_hash:imageFingerprint(tour.scenes),progress:40,stage:'matching'};mock=call=>{
+  if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);
+  if(call.url.pathname.endsWith('/imo3d_processing_jobs'))return result([photo]);
+  if(call.url.pathname.endsWith('/imo3d_subscription_plan_jobs'))return result([{id:'existing-plan',status:'queued',input_hash:aiPlanFingerprint(tour.scenes)}]);
+  if(call.url.pathname.endsWith('/rpc/imo3d_start_tour_workflow'))return result(photo);
+  assert.ok(call.url.pathname.endsWith('/rpc/imo3d_enqueue_subscription_plan'));return result('existing-plan');
+ };
+ const response=await cloudRoute(req(`tours/${tour.id}/processing`,{method:'POST'},true));assert.equal(response.status,202);assert.equal((await response.json()).id,photo.id);assert.equal(calls.filter(c=>c.method==='PATCH').length,0);
+});
+
+test('an expired plan lease does not permanently block photo workflow retries',async()=>{
+ const tour=syntheticTour();mock=call=>{
+  if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);
+  if(call.url.pathname.endsWith('/imo3d_processing_jobs'))return result([]);
+  if(call.url.pathname.endsWith('/imo3d_subscription_plan_jobs'))return result([{id:'expired-plan',status:'running',input_hash:aiPlanFingerprint(tour.scenes),lease_until:new Date(Date.now()-60000).toISOString()}]);
+  if(call.url.pathname.endsWith('/rpc/imo3d_start_tour_workflow'))return result({id:'recovered-photo',tour_id:tour.id,status:'queued',progress:0,stage:'queued'});
+  assert.ok(call.url.pathname.endsWith('/rpc/imo3d_enqueue_subscription_plan'));return result('replacement-plan');
+ };
+ const response=await cloudRoute(req(`tours/${tour.id}/processing`,{method:'POST'},true));assert.equal(response.status,202);assert.equal(calls.filter(c=>c.method==='PATCH').length,0);
 });
 
 

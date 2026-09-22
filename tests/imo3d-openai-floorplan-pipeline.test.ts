@@ -42,6 +42,8 @@ test('analyzes every original, merges each floor, audits coverage and reuses com
   assert.deepEqual(result.floors[0].sceneIds,['a','b']);
   assert.equal(m.calls.length,5);
   assert.deepEqual(m.calls[3].tool_choice,{type:'image_generation'});
+  const layoutRequest=m.calls[2] as {text:{format:{schema:{properties:{openings:{items:{required:string[]}}}}}}};
+  assert.ok(layoutRequest.text.format.schema.properties.openings.items.required.includes('leafState'),'fresh strict model output requires an explicit observed state');
   assert.ok(stages.indexOf('layout')<stages.indexOf('generation'));
   assert.ok((await readFile(result.floors[0].guidePath)).length>0);
   assert.ok(JSON.parse(await readFile(result.floors[0].layoutPath,'utf8')).rooms.length);
@@ -147,7 +149,7 @@ test('opening cut cannot erase an unrelated parallel wall only 10px away',async(
 
 test('closed unknown doorway guide retains observed leaves and only opens confirmed room routes',async()=>{
  const layout=adjacentRooms();
- layout.openings.push({id:'unseen',roomId:'left',otherRoomId:null,kind:'door',edgeIndex:3,offset:.4,width:.2,evidenceSceneIds:['a'],uncertainty:'Destination cannot be seen'});
+ layout.openings.push({id:'unseen',roomId:'left',otherRoomId:null,kind:'door',leafState:'closed',edgeIndex:3,offset:.4,width:.2,evidenceSceneIds:['a'],uncertainty:'Closed leaf; destination cannot be seen'});
  const before=JSON.stringify(layout),review=renderFloorplanLayoutSVG(layout);
  const svg=renderFloorplanLayoutSVG(layout,{solidWalls:true,unknownDoorways:'closed'});
  const {data,info}=await sharp(Buffer.from(svg)).removeAlpha().raw().toBuffer({resolveWithObject:true});
@@ -160,4 +162,17 @@ test('closed unknown doorway guide retains observed leaves and only opens confir
  assert.ok(legacy[(580*info.width+180)*info.channels]>200,'default review representation is unchanged');
  assert.equal(JSON.stringify(layout),before,'conservative guide does not rewrite unknown topology');
  assert.equal(renderFloorplanLayoutSVG(layout),review);
+});
+
+test('unresolved destination never changes an open or unobserved exterior door into a closed leaf',async()=>{
+ for(const leafState of ['open','unknown',undefined] as const){
+  const layout=adjacentRooms();layout.openings[0].otherRoomId=null;layout.rooms=layout.rooms.slice(0,1);layout.openings[0].evidenceSceneIds=['a'];
+  if(leafState!==undefined)layout.openings[0].leafState=leafState;
+  const checked=validateFloorplanLayout(layout,['a']);
+  assert.equal(checked.openings[0].leafState,leafState,'legacy absence remains an unknown observation');
+  const {data,info}=await sharp(Buffer.from(renderFloorplanLayoutSVG(checked,{solidWalls:true,unknownDoorways:'closed'}))).removeAlpha().raw().toBuffer({resolveWithObject:true});
+  assert.ok(data[(580*info.width+580)*info.channels]>200,`${leafState??'legacy'} doorway keeps its gap`);
+ }
+ const invalid=adjacentRooms() as unknown as {openings:{leafState:string}[]};invalid.openings[0].leafState='assumed';
+ assert.throws(()=>validateFloorplanLayout(invalid,['a','b']));
 });

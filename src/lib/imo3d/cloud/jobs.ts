@@ -1,6 +1,6 @@
 import {z} from "zod";
 import {processingSourceSchema} from "../processing-model";
-import {changeSubscriptionPlan,subscriptionPlanStatus,sceneSnapshot} from './subscription-plans';
+import {changeSubscriptionPlan,subscriptionPlanStatus,sceneSnapshot,type SubscriptionJob} from './subscription-plans';
 import type {Tour,Lead} from "../model";
 import type {CloudAccess} from "./auth";
 import type {CloudJob} from "./types";
@@ -23,7 +23,26 @@ export async function cloudProcessing(request:Request,tour:Tour,action:string){
  if(action!=="processing")return null;
  if(request.method==="POST"){
   if(tour.scenes.length<2||tour.scenes.length>300)return fail("ارفع من صورتين إلى 300 صورة متداخلة للمعالجة التلقائية.",422);
-  const row=await cloudRpc<CloudJob>("start_tour_workflow",{p_tour_id:tour.id,p_input_hash:imageFingerprint(tour.scenes),p_plan_hash:aiPlanFingerprint(tour.scenes),p_scenes:sceneSnapshot(tour)});return json(publicProcessingJob(row),202);
+  const inputHash=imageFingerprint(tour.scenes),planHash=aiPlanFingerprint(tour.scenes),snapshot=sceneSnapshot(tour);
+  const [photoJobs,planJobs]=await Promise.all([
+   cloudQuery<CloudJob[]>("processing_jobs",`tour_id=eq.${eq(tour.id)}&status=in.(queued,running)&limit=1`),
+   cloudQuery<SubscriptionJob[]>("subscription_plan_jobs",`tour_id=eq.${eq(tour.id)}&status=in.(queued,running)&limit=1`),
+  ]);
+  const photoJob=photoJobs[0];let planJob:SubscriptionJob|undefined=planJobs[0];
+  if(planJob?.status==='running'&&planJob.lease_until&&Date.parse(planJob.lease_until)<Date.now())planJob=undefined;
+  if(planJob&&planJob.input_hash!==planHash){
+   // A new upload invalidates only the old-source plan. Its lease stops that
+   // worker; an unrelated/newer job can never match this conditional update.
+   await cloudQuery('subscription_plan_jobs',`id=eq.${eq(planJob.id)}&tour_id=eq.${eq(tour.id)}&input_hash=eq.${eq(planJob.input_hash)}&status=in.(queued,running)`,'PATCH',{status:'stale',stage:'تغيّرت الصور؛ تبدأ معالجة الصور الحالية تلقائيًا'});
+   planJob=undefined;
+  }
+  if(planJob&&!photoJob)return fail('المخطط الحالي قيد المعالجة. انتظر اكتماله أو أوقفه قبل إعادة تحليل مواقع الصور.',409);
+  if(photoJob&&photoJob.input_hash!==inputHash)return fail('تغيّرت بيانات الجولة أثناء المعالجة. أوقف العملية الحالية ثم أعد تحليل الصور.',409);
+  const row=await cloudRpc<CloudJob>("start_tour_workflow",{p_tour_id:tour.id,p_input_hash:inputHash,p_plan_hash:planHash,p_scenes:snapshot});
+  // The original transaction may reuse an old draft with these photos. A
+  // requested rerun must also retry its plan; this RPC reuses an active job.
+  if(tour.scenes.length<=100)await cloudRpc('enqueue_subscription_plan',{p_tour_id:tour.id,p_hash:planHash,p_scenes:snapshot});
+  return json(publicProcessingJob(row),202);
  }
  if(request.method==="GET"){const rows=await cloudQuery<CloudJob[]>("processing_jobs",`tour_id=eq.${eq(tour.id)}&order=created_at.desc,id.desc&limit=1`);return json(publicProcessingJob(rows[0]??null));}
  return fail("العملية غير متاحة.",405);

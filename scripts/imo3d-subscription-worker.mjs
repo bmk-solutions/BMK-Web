@@ -3,6 +3,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createRequire} from 'node:module';
 import ts from 'typescript';
+import {withLocalCredential} from './lib/imo3d-local-credentials.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const target=path.join(root,'work/subscription-worker-runtime'),files=new Set();
 function compile(file){
@@ -18,4 +19,10 @@ compile(path.join(root,'src/lib/imo3d/subscription-plan-worker.ts'));
 const require=createRequire(import.meta.url);
 const worker=require(path.join(target,'src/lib/imo3d/subscription-plan-worker.js'));
 if(process.argv.includes('--check'))console.log(JSON.stringify({status:'plan-runtime-imported',networkContacted:false}));
-else await worker.runSubscriptionWorker(root,process.argv.includes('--once'));
+else {
+ const {createGeminiPlanProvider}=require(path.join(target,'src/lib/imo3d/gemini-plan-provider.js'));
+ const provider=createGeminiPlanProvider(root,use=>withLocalCredential('gemini-api-key',use));
+ await withLocalCredential('gemini-api-key',async()=>true);
+ console.log(JSON.stringify({provider:provider.id,status:'configured'}));
+ await worker.runSubscriptionWorker(root,process.argv.includes('--once'),provider);
+}

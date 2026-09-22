@@ -1,4 +1,4 @@
-/** Node/server-only transport. Deliberately not wired to any user-facing route or worker. */
+/** Node/server-only Gemini transport. Credentials are supplied by the private local worker. */
 import {Buffer} from 'node:buffer';
 import {createHash} from 'node:crypto';
 import sharp from 'sharp';
@@ -221,7 +221,7 @@ async function send(body: Record<string, unknown>, options: GeminiCallOptions, c
   if (typeof options.apiKey === 'string') key = options.apiKey;
   else if (options.apiKey instanceof Uint8Array) key = Buffer.from(options.apiKey).toString('utf8');
   else fail('INVALID_ARGUMENT');
-  if (!/^[A-Za-z0-9_-]{16,512}$/.test(key)) fail('INVALID_ARGUMENT');
+  if (!/^[\x21-\x7e]{8,8192}$/.test(key)) fail('INVALID_ARGUMENT');
   let serialized: string;
   try {serialized = JSON.stringify({...body, store: false, stream: false, background: false});}
   catch {fail('INVALID_ARGUMENT');}

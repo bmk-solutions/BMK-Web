@@ -1,6 +1,6 @@
-# Isolated Gemini transport
+# Gemini plan processing
 
-`src/lib/imo3d/gemini-transport.ts` is a Node/server module. Nothing imports it into the current workflow yet. Adding the module does not activate a provider, upload photographs or make a paid call.
+`src/lib/imo3d/gemini-transport.ts` is a Node/server module. The local subscription-plan worker now injects `createGeminiPlanProvider` for plan evidence analysis, geometry synthesis, furnished image generation, metadata review and independent image audit. The separate photo-edit workflow keeps its existing provider. Secrets are read through the private Windows credential callback, never sent to the browser or committed.
 
 ## Interface
 
@@ -30,3 +30,11 @@ Responses are capped at 40 MB while streaming, image bytes at 25 MB, decoded out
 ## Verification
 
 Run `node scripts/test-imo3d-gemini.mjs`. Tests inject fetch and use generated synthetic fixtures only: all-photo coverage, secret handling, schema validation, deadlines, cancellation, bounded retry/size handling and image decode. They do not verify account access, live latency, billing, model quality or apartment geometry.
+
+## Activation verification — 2026-09-22
+
+The masked credential is configured and decryptable, and the read-only model listing succeeded. Actual tiny text generation returned HTTP 503 for gemini-3.8-flash; a supported image model request returned HTTP 429 with an explicit quota limit of 0. Therefore successful image generation, final plan quality and live generation latency have **not** been verified. Google account quota/billing must be made available before a furnished plan can succeed. No image was published or old plan overwritten. A manually cancelled plan job was not restarted.
+
+All new plan jobs use Gemini on this processing computer. Source photo evidence and validated geometry checkpoints remain reusable; generated-image checkpoints are namespaced by provider to prevent claiming a previous provider's image as a new Gemini rendering. Every original photo remains accounted for. Apartment-wide review copies may be resized explicitly to fit the request limit after per-photo evidence passes; no source is silently removed. Outputs remain private review drafts behind the original completeness, freshness, cancellation, independent audit and publication gates.
+
+The UI shows Gemini and reports quota/service failures with actionable messages. The key does not need to be copied to Vercel, Supabase or other visitor devices. The processing computer must remain online.

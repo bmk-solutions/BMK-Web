@@ -327,3 +327,9 @@ test('browser invocation is blocked before accessing a secret or making requests
 // Compile-time transport boundary must accept the private loader's owned buffer directly.
 const acceptsPrivateBuffer: GeminiCallOptions = {apiKey: Buffer.alloc(32), prompt: 'unused'};
 void acceptsPrivateBuffer;
+
+test('accepts opaque current authorization keys but rejects header injection', async () => {
+ const transport=createGeminiTransport(async()=>validResponse());
+ await transport.structuredJson({...base,apiKey:'synthetic.authorization-key='+ 'x'.repeat(600)});
+ await rejectsCode(transport.structuredJson({...base,apiKey:'synthetic-key\r\nx-evil: value'}),'INVALID_ARGUMENT');
+});

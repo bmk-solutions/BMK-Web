@@ -19,8 +19,8 @@ export async function subscriptionPlanStatus(tour:Tour){
     if(rooms.length&&located<rooms.length)stage=`مسودة جزئية — تم تحديد ${located} من ${rooms.length} فراغًا؛ توزيع بقية الفراغات غير محسوم`;
    }
   }
-  return {configured:online,provider:'chatgpt-subscription-local',workerOnline:online,job:row?{id:row.id,tourId:row.tour_id,status:expired?'failed':row.status,stage:expired?'انقطع عامل المعالجة؛ أعد المحاولة.':stage,error:expired?'لم تكتمل المعالجة. النسخ السابقة محفوظة.':row.error,createdAt:row.created_at,draftIds:row.draft_ids,result:null}:null,stale:!!row&&row.input_hash!==aiPlanFingerprint(tour.scenes)};
- }catch(error){if(error instanceof CloudError&&['42P01','PGRST205'].includes(error.code))return {configured:false,provider:'chatgpt-subscription-local',workerOnline:false,job:null,stale:false};throw error;}
+  return {configured:online,provider:'gemini-local',workerOnline:online,job:row?{id:row.id,tourId:row.tour_id,status:expired?'failed':row.status,stage:expired?'انقطع عامل المعالجة؛ أعد المحاولة.':stage,error:expired?'لم تكتمل المعالجة. النسخ السابقة محفوظة.':row.error,createdAt:row.created_at,draftIds:row.draft_ids,result:null}:null,stale:!!row&&row.input_hash!==aiPlanFingerprint(tour.scenes)};
+ }catch(error){if(error instanceof CloudError&&['42P01','PGRST205'].includes(error.code))return {configured:false,provider:'gemini-local',workerOnline:false,job:null,stale:false};throw error;}
 }
 export async function changeSubscriptionPlan(request:Request,tour:Tour){
  if(!cloudSameOrigin(request))return fail('مصدر الطلب غير مسموح.',403);
@@ -29,7 +29,7 @@ export async function changeSubscriptionPlan(request:Request,tour:Tour){
  }else{
   if(tour.scenes.length<2||tour.scenes.length>100)return fail('أضف من صورتين إلى 100 صورة 360 للتحليل.');
   const status=await subscriptionPlanStatus(tour);
-  if(!status.workerOnline)return fail('عامل ChatGPT على جهازك غير متصل. شغّل عامل المخططات واترك الجهاز متصلًا أثناء المعالجة.',503);
+  if(!status.workerOnline)return fail('عامل Gemini على جهازك غير متصل. شغّل عامل المخططات واترك الجهاز متصلًا أثناء المعالجة.',503);
   await cloudRpc('enqueue_subscription_plan',{p_tour_id:tour.id,p_hash:aiPlanFingerprint(tour.scenes),p_scenes:sceneSnapshot(tour)});
  }
  return json(await subscriptionPlanStatus(tour));

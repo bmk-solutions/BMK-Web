@@ -19,7 +19,8 @@ import {chatgptMCP,callChatGPTTool,chatgptDrafts} from '../src/lib/imo3d/cloud/c
 import {translatePlanIds,planFailureMessage,subscriptionChildEnvironment,validateSubscriptionAnalysis,validateImageReview,mergeSubscriptionReview} from '../src/lib/imo3d/subscription-plan-worker';
 import {planCheckpointDirectory,readPlanCheckpoint,savePlanCheckpoint,preparePlanPhotos,selectPlanRepairPhotos,analyzePlanPhotoBatches} from '../src/lib/imo3d/plan-checkpoints';
 import {buildPlanSpatialEvidence,savePlanSpatialEvidence,readPlanSpatialEvidence} from '../src/lib/imo3d/plan-spatial-evidence';
-import {mkdtemp,mkdir} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile} from 'node:fs/promises';
+import {planEvidenceBoard} from '../src/lib/imo3d/openai-floorplan-pipeline';
 import {labeledPlanSVG} from '../src/lib/imo3d/plan-labels';
 const origin='https://imo3d.example',secret='synthetic-test-secret-is-at-least-32-characters',fetchOriginal=globalThis.fetch,envOriginal={...process.env};
 test('cloud measurement scale is capture-scoped, revision safe and does not promote inferred geometry',()=>{
@@ -634,4 +635,13 @@ test('starting photo processing atomically requests automatic floorplan for the 
   return result({id:'automatic-job',tour_id:tour.id,status:'queued',stage:'Queued',progress:0,warnings:[],created_at:'2026-01-01',updated_at:'2026-01-01'});
  };
  const response=await cloudRoute(req(`tours/${tour.id}/processing`,{method:'POST'},true));assert.equal(response.status,202);assert.equal((await response.json()).id,'automatic-job');
+});
+
+
+test('reference boards fit the image-tool byte budget and preserve two-column order',async()=>{
+ const base=path.resolve('work/plan-board-tests');await mkdir(base,{recursive:true});const root=await mkdtemp(path.join(base,'run-'));
+ const files=await Promise.all(['#ff0000','#0000ff'].map(async(color,i)=>{const file=path.join(root,i+'.png');await writeFile(file,await sharp({create:{width:1152,height:768,channels:3,background:color}}).png().toBuffer());return file;}));
+ const board=await planEvidenceBoard(files),meta=await sharp(board).metadata();assert.equal(meta.format,'jpeg');assert.equal(meta.width,1440);assert.equal(meta.height,480);assert.ok(board.length<=900_000);
+ const left=await sharp(board).extract({left:360,top:240,width:1,height:1}).raw().toBuffer(),right=await sharp(board).extract({left:1080,top:240,width:1,height:1}).raw().toBuffer();assert.ok(left[0]>240&&left[2]<15);assert.ok(right[2]>240&&right[0]<15);
+ await assert.rejects(planEvidenceBoard([]),/INVALID_BOARD_SIZE/);
 });

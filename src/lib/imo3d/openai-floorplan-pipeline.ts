@@ -189,6 +189,19 @@ export async function panoramaEvidenceSheet(original:Buffer):Promise<Buffer> {
   throw new Error('Panorama evidence sheet exceeds request budget.');
 }
 
+/** Keep reference boards below the device image-tool transport budget. PNG
+ * contact sheets of 100 panoramas can otherwise exceed several MiB each. */
+export async function planEvidenceBoard(files:string[]):Promise<Buffer>{
+ if(!files.length||files.length>25)throw Error('INVALID_BOARD_SIZE');
+ const tiles=await Promise.all(files.map(async(file,index)=>({input:await sharp(file).resize(720,480,{fit:'contain',background:'white'}).jpeg({quality:90}).toBuffer(),left:index%2*720,top:Math.floor(index/2)*480})));
+ const board=await sharp({create:{width:1440,height:Math.ceil(files.length/2)*480,channels:3,background:'white'}}).composite(tiles).raw().toBuffer({resolveWithObject:true});
+ for(const quality of [82,70,58,45]){
+  const bytes=await sharp(board.data,{raw:board.info}).jpeg({quality}).toBuffer();if(bytes.length<=900_000)return bytes;
+ }
+ const smaller=await sharp(board.data,{raw:board.info}).resize({width:960,height:3200,fit:'inside',withoutEnlargement:true}).jpeg({quality:60}).toBuffer();
+ if(smaller.length>900_000)throw Error('EVIDENCE_BOARD_TOO_LARGE');return smaller;
+}
+
 export async function runOpenAIFloorplanPipeline(options:OpenAIFloorplanOptions):Promise<OpenAIFloorplanResult> {
   const {scenes,outputDir,apiKey,signal,onProgress}=options;
   if(!apiKey.trim()) throw new Error('OPENAI_API_KEY is required on the server.');

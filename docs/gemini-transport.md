@@ -38,3 +38,9 @@ The masked credential is configured and decryptable, and the read-only model lis
 All new plan jobs use Gemini on this processing computer. Source photo evidence and validated geometry checkpoints remain reusable; generated-image checkpoints are namespaced by provider to prevent claiming a previous provider's image as a new Gemini rendering. Every original photo remains accounted for. Apartment-wide review copies may be resized explicitly to fit the request limit after per-photo evidence passes; no source is silently removed. Outputs remain private review drafts behind the original completeness, freshness, cancellation, independent audit and publication gates.
 
 The UI shows Gemini and reports quota/service failures with actionable messages. The key does not need to be copied to Vercel, Supabase or other visitor devices. The processing computer must remain online.
+
+### Final device mode
+
+The user explicitly chose manual operation instead of a persistent scheduled-task ExecutionPolicy Bypass. The existing plans scheduled task was restored to its original PowerShell action and disabled; photo-processing tasks were not changed. The manually launched plan supervisor successfully loads the encrypted credential and its Supabase heartbeat is online. Worker startup now provides a non-network `--check-credentials` mode and only sanitized failure diagnostics. No machine-wide execution policy changed.
+
+Production deployment `dpl_B4ESGLoRaJXG5PbHLY8Dbi415njB` reached READY and aliases `https://bmk-imo3d.vercel.app`. Gemini/provider tests:30; quality/recovery:46; cloud routes:80; private credential loader:4. TypeScript, scoped lint and production build passed. Actual Gemini drawing remains unverified because the account's image quota is0.

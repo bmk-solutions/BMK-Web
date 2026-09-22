@@ -5,7 +5,8 @@ param(
 $ErrorActionPreference='Stop'
 $projectRoot=(Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $nodeExecutable=(Resolve-Path -LiteralPath $NodePath).Path
-$rootHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($projectRoot.ToLowerInvariant()))).Substring(0,16)
+$hashAlgorithm=[Security.Cryptography.SHA256]::Create()
+try {$rootHash=[BitConverter]::ToString($hashAlgorithm.ComputeHash([Text.Encoding]::UTF8.GetBytes($projectRoot.ToLowerInvariant()))).Replace('-','').Substring(0,16)} finally {$hashAlgorithm.Dispose()}
 $mutex=[Threading.Mutex]::new($false,"Local\IMO3D-$rootHash-$Role")
 $acquired=$false
 try {

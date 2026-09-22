@@ -3,6 +3,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createRequire} from 'node:module';
 import ts from 'typescript';
+import {spawnSync} from 'node:child_process';
 import {withLocalCredential} from './lib/imo3d-local-credentials.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const target=path.join(root,'work/subscription-worker-runtime'),files=new Set();
@@ -22,7 +23,13 @@ if(process.argv.includes('--check'))console.log(JSON.stringify({status:'plan-run
 else {
  const {createGeminiPlanProvider}=require(path.join(target,'src/lib/imo3d/gemini-plan-provider.js'));
  const provider=createGeminiPlanProvider(root,use=>withLocalCredential('gemini-api-key',use));
- await withLocalCredential('gemini-api-key',async()=>true);
+ try { await withLocalCredential('gemini-api-key',async()=>true); }
+ catch {
+  const checked=spawnSync(path.join(process.env.SystemRoot??'C:\\Windows','System32/WindowsPowerShell/v1.0/powershell.exe'),['-NoLogo','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',path.join(root,'scripts/imo3d-local-credential-bridge.ps1'),'-Diagnostics'],{windowsHide:true,encoding:'utf8',timeout:15000,env:worker.subscriptionChildEnvironment(process.env)});
+  let safe={configured:false,decryptable:false};try {const value=JSON.parse(checked.stdout);safe={configured:value.configured===true,decryptable:value.decryptable===true,...(typeof value.diagnostic==='string'&&/^[a-z_]+$/.test(value.diagnostic)?{diagnostic:value.diagnostic}:{})};}catch{}
+  console.log(JSON.stringify({status:'private-credential-unavailable',...safe,bridgeExit:checked.status,bridgeOutput:!!checked.stdout,bridgeFailure:checked.error?.code??null}));process.exit(2);
+ }
  console.log(JSON.stringify({provider:provider.id,status:'configured'}));
+ if(process.argv.includes('--check-credentials'))process.exit(0);
  await worker.runSubscriptionWorker(root,process.argv.includes('--once'),provider);
 }

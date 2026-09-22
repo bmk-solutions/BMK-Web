@@ -1,6 +1,6 @@
 # Internal local worker bridge. Default mode reports booleans only.
 # -PrivatePipe is exclusively for a child process whose stdout is captured in memory.
-param([string] $Name = 'gemini-api-key', [switch] $PrivatePipe)
+param([string] $Name = 'gemini-api-key', [switch] $PrivatePipe, [switch] $Diagnostics)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $WarningPreference = 'SilentlyContinue'
@@ -34,6 +34,12 @@ try {
     }
     exit 0
 } catch {
+    if ($Diagnostics -and -not $PrivatePipe) {
+        $reason = 'private_storage_unavailable'
+        if ($_.Exception.Message -cmatch '^credentials_[a-z_]+$') { $reason = $_.Exception.Message }
+        [Console]::WriteLine((@{configured=$configured;decryptable=$false;diagnostic=$reason} | ConvertTo-Json -Compress))
+        exit 2
+    }
     if (-not $PrivatePipe) {
         if ($configured) { [Console]::WriteLine('{"configured":true,"decryptable":false}') }
         else { [Console]::WriteLine('{"configured":false,"decryptable":false}') }

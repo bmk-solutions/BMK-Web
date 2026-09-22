@@ -14,7 +14,7 @@ function readPrivatePipe(name, {signal, timeoutMs = 15000} = {}) {
   const systemRoot = process.env.SystemRoot;
   if (!systemRoot || !path.isAbsolute(systemRoot)) return Promise.reject(failure());
   // No inherited provider keys or child-global mutations; Windows DPAPI uses the login identity.
-  const env = Object.fromEntries(['SystemRoot', 'WINDIR', 'USERPROFILE', 'LOCALAPPDATA', 'TEMP', 'TMP']
+  const env = Object.fromEntries(['SystemRoot', 'WINDIR', 'USERPROFILE', 'LOCALAPPDATA', 'APPDATA', 'HOMEDRIVE', 'HOMEPATH', 'USERNAME', 'USERDOMAIN', 'TEMP', 'TMP']
     .filter(key => typeof process.env[key] === 'string').map(key => [key, process.env[key]]));
   return new Promise((resolve, reject) => {
     const child = spawn(path.join(systemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe'),

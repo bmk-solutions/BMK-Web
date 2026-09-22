@@ -22,7 +22,10 @@ export async function reviewAndRepairPlanImage<T extends {audit:Audit},P extends
   options.signal.throwIfAborted();
   await options.checkpoint?.(candidate,image,imageSha256,repairsUsed);
   options.signal.throwIfAborted();
-  const audit=floorplanAuditSchema.parse(await options.audit(candidate,image,repairsUsed));
+  const knownIssues=candidate.audit.issues.length?candidate.audit.issues:candidate.audit.verdict!=='consistent'?['Candidate review remains unresolved.']:[];
+  // Already-rejected bytes need correction, not another model call confirming
+  // the same defects. The corrected candidate always receives a fresh audit.
+  const audit=floorplanAuditSchema.parse(knownIssues.length&&repairsUsed===0?candidate.audit:await options.audit(candidate,image,repairsUsed));
   options.signal.throwIfAborted();
   const expected=candidate.audit.reviewedSceneIds,actual=audit.reviewedSceneIds;
   if(actual.length!==expected.length||new Set(actual).size!==expected.length||actual.some(id=>!expected.includes(id)))throw Error('AUDIT_COVERAGE');
@@ -31,7 +34,6 @@ export async function reviewAndRepairPlanImage<T extends {audit:Audit},P extends
   if(!matchesPlanImageDigest(afterAudit.png,imageSha256))throw Error('IMAGE_CHANGED_DURING_AUDIT');
   // A later reviewer cannot silently waive a generator or prior reviewer defect.
   // Only a correction, with fresh candidate metadata, can clear those findings.
-  const knownIssues=candidate.audit.issues.length?candidate.audit.issues:candidate.audit.verdict!=='consistent'?['Candidate review remains unresolved.']:[];
   audit.issues=[...new Set([...knownIssues,...audit.issues])];
   audit.limitations=[...new Set([...candidate.audit.limitations,...audit.limitations])];
   if(audit.issues.length)audit.verdict='issues_found';

@@ -61,11 +61,16 @@ test('resuming a corrected candidate always re-audits and retains the one-repair
  const f=fixture([bad]);await assert.rejects(reviewAndRepairPlanImage({...f.options,candidate:{...original,imagePath:'corrected.png'},repairsUsed:1}),/IMAGE_AUDIT_UNRESOLVED/);
  assert.deepEqual(f.auditCalls,['corrected.png']);assert.equal(f.repairCalls.length,0);
 });
-test('known candidate defects cannot be waived by a nominally consistent independent audit',async()=>{
- const f=fixture([good,good]);
+test('known candidate defects skip redundant initial review but require a post-correction independent audit',async()=>{
+ const f=fixture([good]);
  const result=await reviewAndRepairPlanImage({...f.options,candidate:{...original,audit:bad}});
  assert.equal(result.repairsUsed,1);assert.deepEqual(f.repairCalls,['first.png']);
- assert.deepEqual(f.auditCalls,['first.png','corrected.png']);
+ assert.deepEqual(f.auditCalls,['corrected.png']);
+});
+test('a correction that still reports defects cannot be approved by a later nominally consistent audit',async()=>{
+ const f=fixture([good]);
+ await assert.rejects(reviewAndRepairPlanImage({...f.options,candidate:{...original,audit:bad},repair:async()=>({imagePath:'corrected.png',audit:bad})}),/IMAGE_AUDIT_UNRESOLVED/);
+ assert.deepEqual(f.auditCalls,['corrected.png']);
 });
 test('changing only metadata cannot clear known defects without correcting image bytes',async()=>{
  const f=fixture([bad,good]);

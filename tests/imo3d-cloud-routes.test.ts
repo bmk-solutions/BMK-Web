@@ -645,3 +645,26 @@ test('reference boards fit the image-tool byte budget and preserve two-column or
  const left=await sharp(board).extract({left:360,top:240,width:1,height:1}).raw().toBuffer(),right=await sharp(board).extract({left:1080,top:240,width:1,height:1}).raw().toBuffer();assert.ok(left[0]>240&&left[2]<15);assert.ok(right[2]>240&&right[0]<15);
  await assert.rejects(planEvidenceBoard([]),/INVALID_BOARD_SIZE/);
 });
+
+
+test('plan polling labels partial drafts honestly and reads only their layout metadata',async()=>{
+ const tour=syntheticTour(),draft='00000000-0000-4000-8000-000000000001';
+ mock=call=>{
+  if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);
+  if(call.url.pathname.endsWith('/imo3d_plan_workers'))return result([{seen_at:new Date().toISOString()}]);
+  if(call.url.pathname.endsWith('/imo3d_subscription_plan_jobs'))return result([{id:'job',tour_id:tour.id,status:'draft',stage:'ready',input_hash:aiPlanFingerprint(tour.scenes),draft_ids:[draft]}]);
+  assert.ok(call.url.pathname.endsWith('/imo3d_chatgpt_drafts'));assert.equal(call.url.searchParams.get('tour_id'),'eq.'+tour.id);assert.equal(call.url.searchParams.get('select'),'layout:result->layout');
+  return result([{layout:{rooms:[{polygon:[{}, {}, {}]},{polygon:null}]}}]);
+ };
+ const response=await cloudRoute(req(`tours/${tour.id}/ai-plan`,{},true));assert.equal(response.status,200);
+ const data=await response.json();assert.match(data.job.stage,/1 من 2/);assert.equal(data.stale,false);
+
+});
+
+test('plan polling hides private and missing tours before querying jobs',async()=>{
+ const tour=syntheticTour();let missing=false;
+ mock=call=>{assert.ok(call.url.pathname.endsWith('/imo3d_tours'));return result(missing?[]:[{payload:{...tour,published:false}}]);};
+ assert.equal((await cloudRoute(req(`tours/${tour.id}/ai-plan`))).status,404);
+ missing=true;assert.equal((await cloudRoute(req(`tours/${tour.id}/ai-plan`,{},true))).status,404);
+ assert.equal(calls.length,2);
+});

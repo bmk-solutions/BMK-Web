@@ -246,3 +246,30 @@ test("unpositioned capture uses a same-room bearing rather than comparing a loca
  assert.equal(pointerDestination([a,b],"a",Math.PI/2,0,false,{kind:"wall",point:{x:2,y:1,z:0}})?.id,"b");
  assert.equal(pointerDestination([a,b],"a",0,0,false,{kind:"wall",point:{x:0,y:1,z:-3}}),null);
 });
+
+
+test("floor click selects the capture nearest the actual hit without a direct link or an angular cutoff",()=>{
+ const a={...scene('a',0,0),room:'master'},near={...scene('near',1,-1),room:'master'},far={...scene('far',0,-10),room:'master'},kitchen={...scene('kitchen',1.2,-1.2),room:'kitchen'};
+ const before=JSON.stringify([a,near,far,kitchen]);
+ assert.equal(pointerDestination([a,near,far,kitchen],'a',0,-.12,false,{kind:'floor',point:{x:1.2,y:0,z:-1.2}})?.id,'near');
+ assert.equal(pointerDestination([a,near,far,kitchen],'a',0,-.8,false,{kind:'floor',point:{x:0,y:0,z:-9}})?.id,'far');
+ assert.equal(pointerDestination([a,near,far,kitchen],'a',0,-.8,false,{kind:'floor',point:{x:0,y:0,z:-.1}}),null);
+ assert.equal(JSON.stringify([a,near,far,kitchen]),before);
+});
+
+test("an aimed doorway does not pull a click on the floor beside the current camera into the next room",()=>{
+ const a={...scene('a',0,0,['door']),room:'master',visualLinks:[{targetId:'door',yaw:0}]};
+ const door={...scene('door',0,-3,['a']),room:'hall',visualLinks:[{targetId:'a',yaw:180}]};
+ assert.equal(pointerDestination([a,door],'a',0,-.2,false,{kind:'floor',point:{x:0,y:0,z:-.4}}),null);
+ assert.equal(pointerDestination([a,door],'a',0,-.2,false,{kind:'floor',point:{x:0,y:0,z:-3}})?.id,'door');
+ assert.equal(pointerDestination([a,door],'a',0,-.2,false,{kind:'wall',point:{x:0,y:1,z:-3}}),null);
+});
+
+test("surface fallback covers off-axis same-room captures while preserving blocked links and room identity",()=>{
+ const a={...scene('a',0,0),room:'master'},b={...scene('b',3,-1),room:'master'},foreign={...scene('foreign',0,-1),room:'kitchen'};
+ assert.equal(pointerDestination([a,b,foreign],'a',0,.8,false,{kind:'unknown'})?.id,'b');
+ assert.equal(pointerDestination([a,{...b,blockedLinks:['a']},foreign],'a',0,.8,false,{kind:'unknown'}),null);
+ assert.equal(pointerDestination([{...a,roomSemantic:{groupId:'known'}},b],'a',0,.8,false,{kind:'unknown'}),null);
+ const u={...a,position:null,links:['b'],visualLinks:[{targetId:'b',yaw:70}]},v={...b,position:null,links:['a'],visualLinks:[{targetId:'a',yaw:250}]};
+ assert.equal(pointerDestination([u,v],'a',0,.8,false,{kind:'unknown'})?.id,'b');
+});

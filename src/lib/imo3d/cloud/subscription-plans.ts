@@ -10,7 +10,16 @@ export async function subscriptionPlanStatus(tour:Tour){
   const [workers,jobs]=await Promise.all([cloudQuery<{seen_at:string}[]>('plan_workers',`id=eq.subscription&limit=1`),cloudQuery<SubscriptionJob[]>('subscription_plan_jobs',`tour_id=eq.${eq(tour.id)}&order=created_at.desc&limit=1`)]);
   const online=!!workers[0]&&Date.now()-Date.parse(workers[0].seen_at)<90000,row=jobs[0];
   const expired=row?.status==='running'&&!!row.lease_until&&Date.parse(row.lease_until)<Date.now();
-  return {configured:online,provider:'chatgpt-subscription-local',workerOnline:online,job:row?{id:row.id,tourId:row.tour_id,status:expired?'failed':row.status,stage:expired?'انقطع عامل المعالجة؛ أعد المحاولة.':row.stage,error:expired?'لم تكتمل المعالجة. النسخ السابقة محفوظة.':row.error,createdAt:row.created_at,draftIds:row.draft_ids,result:null}:null,stale:!!row&&row.input_hash!==aiPlanFingerprint(tour.scenes)};
+  let stage=row?.stage;
+  if(row?.status==='draft'&&row.draft_ids?.length){
+   const ids=row.draft_ids.filter(id=>/^[0-9a-f-]{36}$/i.test(id));
+   if(ids.length){
+    const drafts=await cloudQuery<{layout:{rooms:{polygon:unknown[]|null}[]}|null}[]>('chatgpt_drafts',`tour_id=eq.${eq(tour.id)}&id=in.(${ids.join(',')})&select=layout:result->layout`);
+    const rooms=drafts.flatMap(d=>d.layout?.rooms??[]),located=rooms.filter(r=>Array.isArray(r.polygon)&&r.polygon.length>=3).length;
+    if(rooms.length&&located<rooms.length)stage=`مسودة جزئية — تم تحديد ${located} من ${rooms.length} فراغًا؛ توزيع بقية الفراغات غير محسوم`;
+   }
+  }
+  return {configured:online,provider:'chatgpt-subscription-local',workerOnline:online,job:row?{id:row.id,tourId:row.tour_id,status:expired?'failed':row.status,stage:expired?'انقطع عامل المعالجة؛ أعد المحاولة.':stage,error:expired?'لم تكتمل المعالجة. النسخ السابقة محفوظة.':row.error,createdAt:row.created_at,draftIds:row.draft_ids,result:null}:null,stale:!!row&&row.input_hash!==aiPlanFingerprint(tour.scenes)};
  }catch(error){if(error instanceof CloudError&&['42P01','PGRST205'].includes(error.code))return {configured:false,provider:'chatgpt-subscription-local',workerOnline:false,job:null,stale:false};throw error;}
 }
 export async function changeSubscriptionPlan(request:Request,tour:Tour){

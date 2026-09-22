@@ -77,7 +77,7 @@ export function pickNavigationDirection(scenes:Scene[],currentId:string,yaw:numb
 export type PointerSurface={kind:"floor"|"wall"|"unknown";point?:Point};
 export function sameNavigationRoom(a:Scene,b:Scene):boolean{
   if(a.floor!==b.floor)return false;
-  if(a.roomSemantic?.groupId&&b.roomSemantic?.groupId)return a.roomSemantic.groupId===b.roomSemantic.groupId;
+  if(a.roomSemantic?.groupId||b.roomSemantic?.groupId)return Boolean(a.roomSemantic?.groupId)&&a.roomSemantic?.groupId===b.roomSemantic?.groupId;
   return Boolean(a.room?.trim())&&a.room.trim()===b.room?.trim();
 }
 /** Walls select a capture on this side; a room exit needs a supported floor ray
@@ -120,19 +120,22 @@ function forwardDoorwayDestinations(scenes:Scene[],current:Scene,yaw:number):Set
 export function pointerDestination(scenes:Scene[],currentId:string,yaw:number,pitch:number,metricGeometry=false,surface?:PointerSurface):Scene|null {
   if(!Number.isFinite(yaw)||!Number.isFinite(pitch)||(!surface&&pitch>Math.PI/3))return null;
   const current=scenes.find(scene=>scene.id===currentId);
-  if(current?.position&&surface?.kind==="wall"&&surface.point){
+  const doorwayTargets=current&&surface?.kind==="floor"?forwardDoorwayDestinations(scenes,current,yaw):new Set<string>();
+  const allowed=(scene:Scene)=>!surface||Boolean(current&&(pointerRoomAllowed(current,scene,yaw,surface)||doorwayTargets.has(scene.id)));
+  // The clicked surface position takes priority over screen-height heuristics.
+  // This works without a graph edge, but never relaxes room/doorway boundaries.
+  if(current?.position&&surface?.point&&surface.kind!=="unknown"&&(!metricGeometry||surface.kind==="wall")&&
+    [surface.point.x,surface.point.z,current.position.x,current.position.z].every(Number.isFinite)){
     const hit=surface.point;
     const separation=(scene:Scene)=>scene.position?Math.hypot(scene.position.x-hit.x,scene.position.z-hit.z):Infinity;
     let best:Scene|null=null,bestDistance=separation(current);
     for(const scene of scenes){
-      if(scene.id===current.id||!sameNavigationRoom(current,scene)||current.blockedLinks?.includes(scene.id)||scene.blockedLinks?.includes(current.id))continue;
+      if(scene.id===current.id||scene.floor!==current.floor||!allowed(scene)||current.blockedLinks?.includes(scene.id)||scene.blockedLinks?.includes(current.id))continue;
       const d=separation(scene);
       if(d+1e-5<bestDistance){best=scene;bestDistance=d;}
     }
     return best;
   }
-  const doorwayTargets=current&&surface?.kind==="floor"?forwardDoorwayDestinations(scenes,current,yaw):new Set<string>();
-  const allowed=(scene:Scene)=>!surface||Boolean(current&&(pointerRoomAllowed(current,scene,yaw,surface)||doorwayTargets.has(scene.id)));
   if(metricGeometry&&current?.depth&&current.position){
     const hit=surfacePoint(current,yaw,pitch);
     if(hit){
@@ -183,6 +186,18 @@ export function pointerDestination(scenes:Scene[],currentId:string,yaw:number,pi
       aimed.sort((a,b)=>score(a)-score(b)||a.scene.id.localeCompare(b.scene.id));
     }else aimed.sort((a,b)=>a.angle-b.angle||a.distance-b.distance||a.scene.id.localeCompare(b.scene.id));
     if(aimed[0])return aimed[0].scene;
+    // Missing surface geometry must not make most of the panorama unclickable.
+    // A same-room fallback may choose an off-axis capture; it cannot exit a room.
+    if(surface){
+      const local=scenes.flatMap(scene=>{
+        if(scene.id===current.id||!sameNavigationRoom(current,scene)||current.blockedLinks?.includes(scene.id)||scene.blockedLinks?.includes(current.id))return [];
+        const link=navigationLink(current,scene),a=current.position,b=scene.position;
+        if(!link&&(!a||!b||![a.x,a.z,b.x,b.z].every(Number.isFinite)||Math.hypot(b.x-a.x,b.z-a.z)<.01))return [];
+        const heading=link?.fromYaw??Math.atan2(b!.x-a!.x,-(b!.z-a!.z)),angle=Math.abs(angleDifference(heading,yaw));
+        return angle<Math.PI/2?[{scene,angle,distance:link?(link.distance??Infinity):Math.hypot(b!.x-a!.x,b!.z-a!.z)}]:[];
+      }).sort((a,b)=>a.angle-b.angle||a.distance-b.distance||a.scene.id.localeCompare(b.scene.id));
+      if(local[0])return local[0].scene;
+    }
   }
   return surface?null:pickNavigationDirection(scenes,currentId,yaw,radians(40));
 }

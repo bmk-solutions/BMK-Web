@@ -20,13 +20,15 @@ import {architectureSaveSchema} from "../architecture-storage";
 import {editTourConnection,type ConnectionEdit} from "../connection-editing";
 import {removeTourScene} from "../scene-removal";
 import {mergeTourSpatial} from "../tour-merge";
+import {withoutBasePath} from "../base-path";
+import {embedTourURL} from "../suite";
 import {currentSurfaceModel,surfaceModelMime} from "../surface-model";
 import {currentTexturedMesh,meshModelMime,maxMeshBytes} from "../mesh-model";
 const tourSummary=(tour:Tour)=>{const {photoEdits,...safe}=tour;void photoEdits;return({...safe,scenes:tour.scenes.map(({depth,displayDepth,...scene})=>{void depth;void displayDepth;return scene;})});};
 const revisionBody=z.object({revision:z.number().int().nonnegative()}).strict();
 const pair=z.object({revision:z.number().int().nonnegative(),fromId:z.string().regex(/^[\w-]{1,80}$/),toId:z.string().regex(/^[\w-]{1,80}$/)});
 async function handle(request:Request){
- const pathname=new URL(request.url).pathname,prefix="/api/imo3d/";
+ const pathname=withoutBasePath(new URL(request.url).pathname),prefix="/api/imo3d/";
  if(!pathname.startsWith(prefix))return fail("المسار غير موجود.",404);
  const segments=pathname.slice(prefix.length).split("/").filter(Boolean).map(decodeURIComponent);
  if(segments.length>4||segments.some(segment=>segment.length>160||!/^[-\w]+$/.test(segment)))return fail("المسار غير موجود.",404);
@@ -118,7 +120,8 @@ async function handle(request:Request){
  if(action==="processing"||action==="processing-cancel")return(await cloudProcessing(request,tour,action))??fail("العملية غير متاحة.",405);
  if(action==="embed"&&method==="GET"){
   if(!tour.published)return fail("أتِح رابط الجولة قبل تضمينها في منصة أخرى.",409);
-  const src=new URL(`/imo3d/t/${tour.id}`,process.env.IMO3D_PUBLIC_ORIGIN||new URL(request.url).origin).href;return json({url:src,html:`<iframe src="${src}" title="360 tour" width="100%" height="700" style="border:0" allow="fullscreen" loading="lazy"></iframe>`});
+  // This app's own host, not the suite's: os.bmk.solutions refuses framing (SAMEORIGIN).
+  const src=embedTourURL(tour.id);return json({url:src,html:`<iframe src="${src}" title="360 tour" width="100%" height="700" style="border:0" allow="fullscreen" loading="lazy"></iframe>`});
  }
  if(action==="connections"&&(method==="POST"||method==="DELETE")){
   const value=method==="POST"?pair.extend({fromYaw:z.number().finite(),toYaw:z.number().finite()}).strict().parse(await readJSON(request,2000)):pair.strict().parse(await readJSON(request,2000));requireRevision(tour,value.revision);

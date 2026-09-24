@@ -1,4 +1,5 @@
 import type {Plan,Scene,TexturedMesh} from "./model";
+import {storedAssetPath} from "./base-path.ts";
 
 export const meshModelMime="model/gltf-binary";
 export const maxMeshBytes=40*1024*1024,maxMeshTriangles=350_000,maxMeshTexels=16_777_216;
@@ -18,7 +19,7 @@ export function meshGeometrySignature(plan:Pick<Plan,"floor"|"authoredRooms"|"ge
 }
 export function currentTexturedMesh(plan:Plan,scenes:readonly Scene[]):TexturedMesh|undefined{
   const model=plan.texturedMesh;
-  if(!model||model.source!==meshModelSource||model.units!=="camera_height"||!/^\/api\/imo3d\/assets\/[\w-]{1,80}$/.test(model.url)||
+  if(!model||model.source!==meshModelSource||model.units!=="camera_height"||!/^\/api\/imo3d\/assets\/[\w-]{1,80}$/.test(storedAssetPath(model.url))||
     !integer(model.byteLength,32,maxMeshBytes)||!integer(model.triangleCount,1,maxMeshTriangles)||!coordinate(model.floorHeight)||
     !coordinate(model.ceilingHeight)||model.ceilingHeight<=0||model.ceilingHeight>10||typeof model.geometrySignature!=="string"||model.geometrySignature.length>250000||
     !(plan.authoredRooms??plan.generatedRooms)?.length||model.geometrySignature!==meshGeometrySignature(plan)||

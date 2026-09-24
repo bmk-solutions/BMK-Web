@@ -4,11 +4,12 @@
 import {useEffect,useState} from "react";
 import type {AIPlanJob} from "@/lib/imo3d/ai-plan-jobs";
 import {ChatGPTDrafts} from './ChatGPTDrafts';
+import {withBasePath} from "@/lib/imo3d/base-path";
 export type AIPlanPanelStatus={configured:boolean;provider?:string;workerOnline?:boolean;job:AIPlanJob|null;stale:boolean};
 export function AIPlanPanel({tourId,sceneCount,disabled,processing=false,compact=false,onOpenPlan,onStatusChange}:{tourId:string;sceneCount:number;disabled:boolean;processing?:boolean;compact?:boolean;onOpenPlan?:()=>void;onStatusChange?:(status:AIPlanPanelStatus|null)=>void}){
  const [status,setStatus]=useState<AIPlanPanelStatus|null>(null),[error,setError]=useState(''),[pollError,setPollError]=useState(''),[busy,setBusy]=useState(false);
  const [now,setNow]=useState(()=>Date.now());
- const url=`/api/imo3d/tours/${tourId}/ai-plan`;
+ const url=withBasePath(`/api/imo3d/tours/${tourId}/ai-plan`);
  useEffect(()=>{let stopped=false,polling=false;const controller=new AbortController();const update=async()=>{if(polling)return;polling=true;try{const response=await fetch(url,{signal:controller.signal});const data=await response.json();if(!response.ok)throw Error(data.error);if(!stopped){setStatus(data);setPollError('');setNow(Date.now());}}catch(error){if(!stopped)setPollError(error instanceof Error?error.message:'تعذر قراءة حالة المخطط.');}finally{polling=false;}};void update();const timer=setInterval(()=>void update(),4000);return()=>{stopped=true;controller.abort();clearInterval(timer);};},[url]);
  useEffect(()=>{onStatusChange?.(status);},[status,onStatusChange]);
  const run=async(method:'POST'|'DELETE')=>{setBusy(true);setError('');try{const response=await fetch(url,{method});const data=await response.json();if(!response.ok)throw Error(data.error);setStatus(data);}catch(error){setError(error instanceof Error?error.message:'تعذر بدء التحليل.');}finally{setBusy(false);}};
@@ -26,7 +27,7 @@ export function AIPlanPanel({tourId,sceneCount,disabled,processing=false,compact
    <strong>{job.stage}</strong>
    <span>{Number.isFinite(elapsedMinutes)&&elapsedMinutes>0?`مضى ${elapsedMinutes} دقيقة على طلب المخطط`:'بدأ طلب المخطط للتو'}</span>
    <p style={{margin:0}}>صور الجولة محفوظة. هذه مرحلة المخطط من تجهيز الجولة؛ يمكنك معاينة الصور أثناء العمل. انتهاء التحليل لا يعني اكتمال حدود الغرف أو دقة القياسات.</p>
-   <a className="imo-button secondary" href={`/imo3d/t/${tourId}`} target="_blank" rel="noreferrer">معاينة الجولة الآن</a>
+   <a className="imo-button secondary" href={withBasePath(`/t/${tourId}`)} target="_blank" rel="noreferrer">معاينة الجولة الآن</a>
    <small>تحليل الصور وتوزيع الغرف ← رسم المخطط ومراجعته. لا تنشر المسودة إلا بعد مراجعتها.</small>
   </div>}
   {(error||pollError||job?.error)&&<p role="alert" className="imo-error">{error||pollError||job?.error}</p>}

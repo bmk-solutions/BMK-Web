@@ -75,7 +75,7 @@ export function evaluateCloudReadiness(snapshot) {
   const exampleImports = matching(/(?:from\s*|import\s*)["'][^"']*example\.json["']/);
   add('private-example-dependency', !!exampleImports.length,
     exampleImports.length ? 'Source imports the excluded real-apartment dataset. Replace the static import before building a clean checkout; do not force-add the dataset.' : 'No static import of the excluded real-apartment dataset found.', exampleImports);
-  const planRoutes = (isolation.isolated?files.filter(([file])=>runtimeFiles.has(file)):files).filter(([file, content]) => /\/ai-plan\/(?:image\/)?route\.ts$/.test(file) && /!isAdmin\(request\)/.test(content) && !/\.published\b/.test(content)).map(([file]) => file);
+  const planRoutes = (isolation.isolated?files.filter(([file])=>runtimeFiles.has(file)):files).filter(([file, content]) => /\/ai-plan\/(?:image\/)?route\.ts$/.test(file) && /!(?:await\s+)?isAdmin\(request\)/.test(content) && !/\.published\b/.test(content)).map(([file]) => file);
   add('published-plan-access', !!planRoutes.length,
     planRoutes.length ? 'Raster-plan routes are admin-only. A reviewed plan needs a separate published-tour authorization path.' : 'No known unconditional admin-only raster-plan path found.', planRoutes);
   const blocked = checks.filter(check => check.status === 'blocked');

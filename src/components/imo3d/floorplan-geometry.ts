@@ -1,5 +1,6 @@
 import type {Plan, Point, Scene} from "@/lib/imo3d/model";
 import {roomIdentity} from "./room-labels";
+import {storedAssetPath} from "../../lib/imo3d/base-path";
 
 export type MapPoint = {x:number;y:number};
 export type MapViewport = {x:number;y:number;width:number;height:number};
@@ -19,7 +20,7 @@ export function nearestPlanLocation(locations:readonly {id:string;point:MapPoint
 // Measured from all 485 line elements in the bundled architectural drawing.
 // Unknown drawings keep their entire canvas so we never trim unmeasured walls.
 export function floorPlanViewport(plan:Plan):MapViewport {
-  if(plan.image==="/imo3d/example/plan-f0.svg"&&plan.width===473&&plan.height===583)
+  if(plan.image&&storedAssetPath(plan.image)==="/imo3d/example/plan-f0.svg"&&plan.width===473&&plan.height===583)
     return {x:40,y:40,width:392.7,height:502.8};
   const width=Math.max(0.1,plan.width??plan.bounds.maxX-plan.bounds.minX);
   const height=Math.max(0.1,plan.height??plan.bounds.maxZ-plan.bounds.minZ);

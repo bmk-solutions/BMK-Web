@@ -29,15 +29,16 @@ import "./liquid-glass.css";
 import "./viewer-clean.css";
 import "./viewer-presentation.css";
 import {hasReviewedArchitecture} from "@/lib/imo3d/architecture-visibility";
+import {withBasePath} from "@/lib/imo3d/base-path";
 type ViewerMedia={expiresAt:number;urls:Record<string,string>};
 type ViewerTour=Tour&{media?:ViewerMedia};
 
 export default function TourViewer({id,embedded=false,initialSceneId}:{id:string;embedded?:boolean;initialSceneId?:string}) {
   const [tour,setTour]=useState<ViewerTour|null>(null),[error,setError]=useState("");
   useEffect(()=>{let active=true;api<ViewerTour>(`tours/${id}?media=1`).then(value=>{if(active)setTour(value);}).catch(e=>{if(active)setError(e.message);});return()=>{active=false;};},[id]);
-  if(error)return <main className="imo-shell imo-load"><Icon name="info" size={32}/><h1>تعذر فتح الجولة</h1><p>{error}</p><a className="imo-button primary" href="/imo3d">العودة إلى الاستوديو</a></main>;
+  if(error)return <main className="imo-shell imo-load"><Icon name="info" size={32}/><h1>تعذر فتح الجولة</h1><p>{error}</p><a className="imo-button primary" href={withBasePath("/")}>العودة إلى الاستوديو</a></main>;
   if(!tour)return <main className="imo-shell imo-load"><span className="imo-spinner"/><p>جارٍ تحضير جولتك…</p></main>;
-  if(!tour.scenes.length)return <main className="imo-shell imo-load"><h1>{tour.title}</h1><p>لم تُضف لقطات لهذه الجولة بعد.</p><a href="/imo3d" className="imo-button primary">فتح الاستوديو</a></main>;
+  if(!tour.scenes.length)return <main className="imo-shell imo-load"><h1>{tour.title}</h1><p>لم تُضف لقطات لهذه الجولة بعد.</p><a href={withBasePath("/")} className="imo-button primary">فتح الاستوديو</a></main>;
   return <Viewer key={tour.id} tour={tour} embedded={embedded} initialSceneId={tour.scenes.some(scene=>scene.id===initialSceneId)?initialSceneId:undefined}/>;
 }
 function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean;initialSceneId?:string}) {
@@ -290,7 +291,7 @@ function Viewer({tour,embedded,initialSceneId}:{tour:ViewerTour;embedded:boolean
     {hotspotsVisible&&!measure&&!panel&&<HotspotOverlay key={current.id} rows={visibleHotspots} scene={current} engine={engine} onModal={onHotspotModal} onNavigate={id=>{const target=scenesById.current.get(id);if(target)void navigate(target,false);}}/>}
     <button type="button" className="imo-glass imo-controls-toggle" aria-label={controlsHidden?"إظهار أدوات الجولة":"إخفاء أدوات الجولة"} aria-pressed={controlsHidden} onClick={()=>{openPanel(null);setControlsHidden(value=>!value);}}><Icon name={controlsHidden?"settings":"eye"}/><span>{controlsHidden?"إظهار الأدوات":"إخفاء الأدوات"}</span></button>
     <header className="imo-view-header">
-      <Wordmark href={embedded?undefined:"/imo3d"} className={`imo-wordmark${branding?.logo||branding?.name!==undefined&&branding.name!=="IMO 3D"?" imo-custom-brand":""}`} aria-label={`${branding?.name||"IMO 3D"}${embedded?"":" — الاستوديو"}`}>{branding?.logo&&<BrandLogo className="imo-brand-logo" src={branding.logo} clean={branding.logoStyle!=="original"} tone="light"/>}{branding?.name&&branding.name!=="IMO 3D"?<span>{branding.name}</span>:!branding?.logo&&<span>IMO<span className="imo-logo-dot"/>3D</span>}{!branding?.logo&&(!branding?.name||branding.name==="IMO 3D")&&<small>BY BMK SOLUTIONS</small>}</Wordmark>
+      <Wordmark href={embedded?undefined:withBasePath("/")} className={`imo-wordmark${branding?.logo||branding?.name!==undefined&&branding.name!=="IMO 3D"?" imo-custom-brand":""}`} aria-label={`${branding?.name||"IMO 3D"}${embedded?"":" — الاستوديو"}`}>{branding?.logo&&<BrandLogo className="imo-brand-logo" src={branding.logo} clean={branding.logoStyle!=="original"} tone="light"/>}{branding?.name&&branding.name!=="IMO 3D"?<span>{branding.name}</span>:!branding?.logo&&<span>IMO<span className="imo-logo-dot"/>3D</span>}{!branding?.logo&&(!branding?.name||branding.name==="IMO 3D")&&<small>BY BMK SOLUTIONS</small>}</Wordmark>
       <div className="imo-view-title"><span>{tour.title}</span></div>
       <button className="imo-glass imo-icon" title={fullscreen?"الخروج من ملء الشاشة":"ملء الشاشة"} aria-label={fullscreen?"الخروج من ملء الشاشة":"ملء الشاشة"} onClick={toggleFullscreen}><Icon name="expand"/></button>
     </header>

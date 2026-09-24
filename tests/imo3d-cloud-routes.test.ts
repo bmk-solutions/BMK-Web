@@ -342,7 +342,7 @@ test('ChatGPT cannot save a draft without all current images and their inspectio
  assert.equal(calls.filter(call=>call.method!=='GET').length,1);
 });
 
-test('viewer media signs only current display images in one batch and preserves canonical scene references',async()=>{
+test('viewer media signs only current display images in one batch and serves each scene reference under the suite basePath',async()=>{
  const tour={...syntheticTour(),published:true};tour.scenes[0].image='/api/imo3d/assets/display';
  const started=Date.now();
  mock=call=>{
@@ -354,9 +354,10 @@ test('viewer media signs only current display images in one batch and preserves 
   return result([{path:'tour/display.webp',signedURL:'/object/sign/imo3d-private/tour/display.webp?token=test'}]);
  };
  const response=await cloudRoute(req(`tours/${tour.id}?media=1`));assert.equal(response.status,200);
- const body=await response.json();assert.equal(body.scenes[0].image,tour.scenes[0].image);
- assert.deepEqual(Object.keys(body.media.urls),['/api/imo3d/assets/display']);
- assert.match(body.media.urls['/api/imo3d/assets/display'],/^https:\/\/synthetic.storage.supabase.co\/storage\/v1\//);
+ // The row keeps /api/imo3d/assets/display; the response serves it under the basePath, paired with its signed URL.
+ const body=await response.json(),served='/media-support/tour/api/imo3d/assets/display';assert.equal(body.scenes[0].image,served);assert.equal(tour.scenes[0].image,'/api/imo3d/assets/display');
+ assert.deepEqual(Object.keys(body.media.urls),[served]);
+ assert.match(body.media.urls[served],/^https:\/\/synthetic.storage.supabase.co\/storage\/v1\//);
  assert.ok(body.media.expiresAt>=started+269000&&body.media.expiresAt<=Date.now()+270000);
  assert.match(response.headers.get('cache-control')!,/no-store/);
  assert.equal(calls.filter(call=>call.url.pathname.includes('/object/sign/')).length,1);
@@ -721,4 +722,49 @@ test('plan polling hides private and missing tours before querying jobs',async()
  assert.equal((await cloudRoute(req(`tours/${tour.id}/ai-plan`))).status,404);
  missing=true;assert.equal((await cloudRoute(req(`tours/${tour.id}/ai-plan`,{},true))).status,404);
  assert.equal(calls.length,2);
+});
+test('a studio-suite session unlocks the admin API; without one the API answers 401 JSON',async()=>{
+ const token='suite-token.'+'b'.repeat(40);process.env.MS_ZONE_ORIGIN='https://zone.example.test';
+ mock=call=>{
+  if(call.url.origin==='https://zone.example.test'){assert.equal(call.url.pathname,'/media-support/api/_ms/session');return result({ok:true,uid:'owner',email:'owner@example.test'});}
+  throw Error('Unexpected cloud request '+call.url.pathname);
+ };
+ const suiteReq=(url:string,init:RequestInit={})=>new Request(origin+'/media-support/tour/api/imo3d/'+url,{...init,headers:{cookie:'ms_session='+token,...Object.fromEntries(new Headers(init.headers))}});
+ assert.deepEqual(await (await cloudRoute(suiteReq('session'))).json(),{admin:true,local:false,cloud:true,uploadMode:'signed'});
+ assert.equal(await cloudIsAdmin(suiteReq('session')),true);
+ assert.equal(calls.filter(call=>call.url.origin==='https://zone.example.test').length,1,'the positive answer is remembered');
+ const anonymous=await cloudRoute(new Request(origin+'/media-support/tour/api/imo3d/dashboard'));
+ assert.equal(anonymous.status,401);assert.match(anonymous.headers.get('content-type')!,/json/);assert.deepEqual(await anonymous.json(),{error:'تسجيل دخول الإدارة مطلوب.'});
+ mock=call=>call.url.origin==='https://zone.example.test'?result({ok:false},401):(()=>{throw Error('Unexpected '+call.url.pathname);})();
+ const refused=new Request(origin+'/media-support/tour/api/imo3d/dashboard',{headers:{cookie:'ms_session=other-token.'+'c'.repeat(40)}});
+ assert.equal((await cloudRoute(refused)).status,401);
+});
+
+test('API paths answer under the suite basePath and at their old form; stray prefixes do not',async()=>{
+ for(const path of ['/media-support/tour/api/imo3d/session','/api/imo3d/session'])assert.equal((await cloudRoute(new Request(origin+path))).status,200,path);
+ for(const path of ['/media-support/api/imo3d/session','/media-support/tourx/api/imo3d/session'])assert.equal((await cloudRoute(new Request(origin+path))).status,404,path);
+});
+
+test('writes from the suite origin are same-origin; foreign and cross-site origins are refused',()=>{
+ const post=(headers:Record<string,string>)=>new Request(origin+'/media-support/tour/api/imo3d/tours',{method:'POST',headers});
+ assert.equal(cloudSameOrigin(post({Origin:'https://os.bmk.solutions'})),true);
+ assert.equal(cloudSameOrigin(post({Origin:'https://bmk-media-support.vercel.app'})),true);
+ assert.equal(cloudSameOrigin(post({Origin:origin})),true);
+ assert.equal(cloudSameOrigin(post({Origin:'https://evil.example.test'})),false);
+ assert.equal(cloudSameOrigin(post({Origin:'https://os.bmk.solutions','Sec-Fetch-Site':'cross-site'})),false);
+ assert.equal(cloudSameOrigin(post({})),false);
+});
+
+test('embed codes frame the app host under the new basePath even when the public origin is the suite',async()=>{
+ const tour={...syntheticTour(),published:true};process.env.IMO3D_PUBLIC_ORIGIN='https://os.bmk.solutions';
+ mock=call=>call.url.pathname.endsWith('/imo3d_tours')?result([{payload:tour}]):(()=>{throw Error('Unexpected '+call.url.pathname);})();
+ const response=await cloudRoute(new Request('https://os.bmk.solutions/media-support/tour/api/imo3d/tours/'+tour.id+'/embed',{headers:{cookie:adminCookie()}}));
+ assert.equal(response.status,200);const body=await response.json(),src='https://bmk-imo3d.vercel.app/media-support/tour/t/'+tour.id;
+ assert.equal(body.url,src);assert.ok(body.html.includes('<iframe src="'+src+'"'));assert.equal(body.html.includes('os.bmk.solutions'),false);
+});
+
+test('the legacy password session cookie is scoped to this app, not to the whole suite domain',async()=>{
+ mock=call=>call.url.pathname.endsWith('/imo3d_rate_limit')?result(true):(()=>{throw Error('Unexpected request');})();
+ const response=await cloudRoute(req('session',{method:'POST',body:JSON.stringify({password:secret})}));
+ assert.equal(response.status,200);assert.match(response.headers.get('set-cookie')!,/; Path=\/media-support\/tour; /);
 });

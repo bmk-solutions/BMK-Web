@@ -10,6 +10,8 @@ import { mkdir,readFile,writeFile,unlink } from "node:fs/promises";
 const path: typeof import("node:path") = process.getBuiltinModule("node:path");
 import { addLead,dataDirectory,db,getTour,installExample,newProject,newTour,projects,saveTour,toursSummary,withinRateLimit } from "@/lib/imo3d/store";
 import { isAdmin,login,sameOrigin } from "@/lib/imo3d/auth";
+import {servePayloadPaths} from "@/lib/imo3d/base-path";
+import {embedTourURL} from "@/lib/imo3d/suite";
 import {privateExamplePreview,PrivateExampleUnavailableError} from "@/lib/imo3d/private-example";
 import { cameraBundleSchema,type Scene,type Tour } from "@/lib/imo3d/model";
 import {initialRoomSemantic} from "@/lib/imo3d/room-semantics";
@@ -29,7 +31,8 @@ import {cleanupPrivateAssetFiles} from "@/lib/imo3d/private-asset-cleanup";
 export const runtime="nodejs";
 export const maxDuration=300;
 export const dynamic="force-dynamic";
-const json=(value:unknown,status=200)=>NextResponse.json(value,{status,headers:{"Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff"}});
+// Stored asset paths leave in their served form (under the suite basePath).
+const json=(value:unknown,status=200)=>NextResponse.json(servePayloadPaths(value),{status,headers:{"Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff"}});
 const fail=(message:string,status=400)=>json({error:message},status);
 type Context={params:Promise<{path:string[]}>};
 async function savedTourResponse(tour:Tour,files:readonly string[],status=200){
@@ -55,7 +58,7 @@ async function handle(request:Request,context:Context) {
   if(segments.length>3)return fail("المسار غير موجود",404);
   const integration=integrationForRequest(request),hasAuthorization=request.headers.has("authorization");
   if(hasAuthorization&&!integration)return fail("مفتاح API غير صالح أو أُلغي",401);
-  const sessionAdmin=!hasAuthorization&&isAdmin(request);
+  const sessionAdmin=!hasAuthorization&&await isAdmin(request);
   const admin=sessionAdmin||!!integration;
   const allowed=(projectId:string,scope:"read"|"write"|"leads"="read")=>sessionAdmin||!!integration&&integration.projectId===projectId&&integration.scopes.includes(scope);
   if(method!=="GET"&&!integration&&!sameOrigin(request))return fail("المصدر غير مسموح",403);
@@ -122,7 +125,8 @@ async function handle(request:Request,context:Context) {
   if(action==="processing-cancel"&&method==="POST")return json(cancelJob(db(),tour.id));
   if(action==="embed"&&method==="GET"){
     if(!tour.published)return fail("أتِح رابط الجولة قبل تضمينها في منصة أخرى.",409);
-    const src=new URL(`/imo3d/t/${tour.id}`,process.env.IMO3D_PUBLIC_ORIGIN||new URL(request.url).origin).href;
+    // This app's own host, never the suite's: os.bmk.solutions refuses framing (SAMEORIGIN).
+    const src=embedTourURL(tour.id,new URL(request.url).origin);
     return json({url:src,html:`<iframe src="${src}" title="360 tour" width="100%" height="700" style="border:0" allow="fullscreen" loading="lazy"></iframe>`});
   }
   if(action==="images"&&method==="POST"){

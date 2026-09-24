@@ -115,6 +115,22 @@ async function codexExecutable(){
  }
  return 'codex';
 }
+export type CodexLogin={ok:boolean;mode:'chatgpt'|'api-key'|'signed-out'|'unavailable';build:string};
+/** Whether the local Codex is signed in with the owner's ChatGPT account (his subscription, not API billing).
+ * Local and read-only: `codex login status` reads the saved login; only the mode is reported, never the output. */
+export async function codexLoginStatus(timeoutMs=20000):Promise<CodexLogin>{
+ const executable=await codexExecutable(),build=path.basename(path.dirname(executable));
+ return new Promise(resolve=>{
+  let output='',settled=false;
+  const child=spawn(executable,['login','status'],{windowsHide:true,env:subscriptionChildEnvironment(process.env),stdio:['ignore','pipe','pipe']});
+  const done=(value:Omit<CodexLogin,'build'>)=>{if(settled)return;settled=true;clearTimeout(timer);resolve({...value,build});};
+  const timer=setTimeout(()=>{child.kill();done({ok:false,mode:'unavailable'});},timeoutMs);
+  const collect=(data:Buffer)=>{if(output.length<4000)output+=data.toString('utf8');};
+  child.stdout.on('data',collect);child.stderr.on('data',collect);
+  child.once('error',()=>done({ok:false,mode:'unavailable'}));
+  child.once('close',code=>{const mode=/logged in using chatgpt/i.test(output)?'chatgpt':/logged in using an api key/i.test(output)?'api-key':code===0?'unavailable':'signed-out';done({ok:mode==='chatgpt',mode});});
+ });
+}
 export async function execute(directory:string,prompt:string,schema:z.ZodType,output:string,signal:AbortSignal,images:string[]=[],options:{effort?:'medium'|'high'|'xhigh';timeoutMs?:number;repairIssues?:string[]}={}){
  const schemaFile=path.join(directory,output+'.schema.json'),outputFile=path.join(directory,output+'.json');
  await writeFile(schemaFile,JSON.stringify(z.toJSONSchema(schema)));

@@ -4,11 +4,12 @@
 import {useEffect,useState,type FormEvent} from 'react';
 import {PlanRoomNames} from './PlanRoomNames';
 import type {PlanLabel} from '@/lib/imo3d/plan-labels';
+import {withBasePath} from "@/lib/imo3d/base-path";
 type Draft={id:string;floor:number;stale:boolean;created_at:string;result:{qualityHold?:string;layout?:{rooms:{label:string;polygon:unknown[]|null}[]};furnished?:{reviewNotes:string;labels?:PlanLabel[];baseImageHasNoText?:boolean};audit:{verdict:string;issues:string[];limitations:string[]}}};
 function DraftCard({draft,tourId,onSaved}:{draft:Draft;tourId:string;onSaved:()=>void}){
  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[selected,setSelected]=useState(false);
  const rooms=draft.result.layout?.rooms??[],unresolved=rooms.filter(room=>!room.polygon);
- const url=`/api/imo3d-chatgpt/drafts?tourId=${encodeURIComponent(tourId)}&id=${draft.id}`;
+ const url=withBasePath(`/api/imo3d-chatgpt/drafts?tourId=${encodeURIComponent(tourId)}&id=${draft.id}`);
  async function selectPlan(){setBusy(true);setError('');try{const response=await fetch(url+'&approve=1',{method:'POST'});const data=await response.json();if(!response.ok)throw Error(data.error);setSelected(true);}catch(error){setError(error instanceof Error?error.message:'تعذر اختيار المخطط.');}finally{setBusy(false);}}
  async function upload(event:FormEvent<HTMLFormElement>){
   event.preventDefault();const form=event.currentTarget,body=new FormData(form),file=body.get('image');
@@ -36,6 +37,6 @@ function DraftCard({draft,tourId,onSaved}:{draft:Draft;tourId:string;onSaved:()=
 }
 export function ChatGPTDrafts({tourId}:{tourId:string}){
  const [drafts,setDrafts]=useState<Draft[]>([]),[error,setError]=useState(''),[revision,setRevision]=useState(0);
- useEffect(()=>{let active=true;async function update(){if(document.hidden)return;try{const response=await fetch('/api/imo3d-chatgpt/drafts?tourId='+encodeURIComponent(tourId));if(response.status===503)return;const data=await response.json();if(!response.ok)throw Error(data.error);if(active){setDrafts(data);setError('');}}catch(error){if(active)setError(error instanceof Error?error.message:'تعذر قراءة المسودات');}}void update();const timer=setInterval(()=>void update(),15000);return()=>{active=false;clearInterval(timer);};},[tourId,revision]);
+ useEffect(()=>{let active=true;async function update(){if(document.hidden)return;try{const response=await fetch(withBasePath('/api/imo3d-chatgpt/drafts?tourId='+encodeURIComponent(tourId)));if(response.status===503)return;const data=await response.json();if(!response.ok)throw Error(data.error);if(active){setDrafts(data);setError('');}}catch(error){if(active)setError(error instanceof Error?error.message:'تعذر قراءة المسودات');}}void update();const timer=setInterval(()=>void update(),15000);return()=>{active=false;clearInterval(timer);};},[tourId,revision]);
  return <section><h4>مسودات المخططات</h4><p>صور الشقة ← مراجعة الغرف والأثاث ← مخطط 2D مفروش للمراجعة. لكل شقة توزيعها وأثاثها الخاص.</p>{!drafts.length&&<p>يبدأ تجهيز المخطط تلقائيًا بعد رفع الصور وربطها. تظهر هنا مسودات هذه الجولة عند اكتمالها، ويمكنك إعادة التحليل أو إيقافه من الأعلى.</p>}{error&&<p role="status">{error}</p>}{drafts.map(draft=><DraftCard key={draft.id} draft={draft} tourId={tourId} onSaved={()=>setRevision(value=>value+1)}/>)}</section>;
 }

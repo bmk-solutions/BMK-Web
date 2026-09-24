@@ -7,11 +7,12 @@ import { brandingForProject } from "@/lib/imo3d/branding";
 import { db, getTour } from "@/lib/imo3d/store";
 import { ConnectionError, type ConnectionEdit } from "@/lib/imo3d/connection-editing";
 import { saveConnectionEdit } from "@/lib/imo3d/connection-storage";
+import {servePayloadPaths} from "@/lib/imo3d/base-path";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 type Context = { params: Promise<{ id: string }> };
-const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } });
+const json = (value: unknown, status = 200) => Response.json(servePayloadPaths(value), { status, headers: { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } });
 const pairSchema = z.object({ revision: z.number().int().nonnegative(), fromId: z.string().regex(/^[\w-]{1,80}$/), toId: z.string().regex(/^[\w-]{1,80}$/) });
 const connectSchema = pairSchema.extend({ fromYaw: z.number().finite(), toYaw: z.number().finite() }).strict();
 async function input(request: Request) {
@@ -30,7 +31,7 @@ async function handle(request: Request, context: Context) {
   if(cloudEnabled())return cloudRoute(request);
   const hasAuthorization = request.headers.has("authorization"), integration = integrationForRequest(request);
   if (hasAuthorization && !integration) return json({ error: "مفتاح API غير صالح أو ملغى." }, 401);
-  const admin = !hasAuthorization && isAdmin(request);
+  const admin = !hasAuthorization && await isAdmin(request);
   if (!admin && !integration) return json({ error: "تسجيل دخول الإدارة مطلوب." }, 401);
   if (!integration && !sameOrigin(request)) return json({ error: "المصدر غير مسموح." }, 403);
   const { id } = await context.params, tour = getTour(id);

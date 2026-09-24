@@ -4,11 +4,12 @@ import {isAdmin,sameOrigin} from "@/lib/imo3d/auth";
 import {db,getTour} from "@/lib/imo3d/store";
 import {aiPlanFingerprint,cancelAIPlanJob,enqueueAIPlan,latestAIPlanJob,recoverAIPlanJobs} from "@/lib/imo3d/ai-plan-jobs";
 import {launchAIPlan} from "@/lib/imo3d/ai-plan-launcher";
+import {servePayloadPaths} from "@/lib/imo3d/base-path";
 export const runtime="nodejs";export const dynamic="force-dynamic";
-const json=(body:unknown,status=200)=>Response.json(body,{status,headers:{"Cache-Control":"private, no-store"}});
+const json=(body:unknown,status=200)=>Response.json(servePayloadPaths(body),{status,headers:{"Cache-Control":"private, no-store"}});
 async function handle(request:Request,context:{params:Promise<{id:string}>}){
   if(cloudEnabled())return cloudRoute(request);
- if(request.headers.has("authorization")||!isAdmin(request))return json({error:"دخول الإدارة مطلوب."},401);
+ if(request.headers.has("authorization")||!await isAdmin(request))return json({error:"دخول الإدارة مطلوب."},401);
  if(request.method!=="GET"&&!sameOrigin(request))return json({error:"المصدر غير مسموح."},403);
  const {id}=await context.params,tour=getTour(id);if(!tour)return json({error:"الجولة غير موجودة."},404);
  recoverAIPlanJobs(db());const configured=!!process.env.OPENAI_API_KEY?.trim();

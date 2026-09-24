@@ -10,7 +10,7 @@ export const dynamic="force-dynamic";
 async function handle(request:Request,context:{params:Promise<{id?:string[]}>}){
   if(cloudEnabled())return cloudRoute(request);
  try{
- if(request.headers.has("authorization")||!isAdmin(request))return json({error:"تسجيل دخول الإدارة مطلوب."},401);
+ if(request.headers.has("authorization")||!await isAdmin(request))return json({error:"تسجيل دخول الإدارة مطلوب."},401);
  const ids=(await context.params).id??[];
  if(ids.length>1)return json({error:"المسار غير موجود."},404);
  if(request.method==="GET"&&!ids.length)return json(listDevelopers(db()));

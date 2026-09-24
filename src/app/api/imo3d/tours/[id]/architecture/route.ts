@@ -5,12 +5,13 @@ import {isAdmin,sameOrigin} from "@/lib/imo3d/auth";
 import {integrationForRequest} from "@/lib/imo3d/integrations";
 import {db,getTour} from "@/lib/imo3d/store";
 import {architectureSaveSchema,ArchitectureSaveError,saveArchitecture} from "@/lib/imo3d/architecture-storage";
+import {servePayloadPaths} from "@/lib/imo3d/base-path";
 export const runtime="nodejs";export const dynamic="force-dynamic";
-const json=(body:unknown,status=200)=>Response.json(body,{status,headers:{"Cache-Control":"private, no-store"}});
+const json=(body:unknown,status=200)=>Response.json(servePayloadPaths(body),{status,headers:{"Cache-Control":"private, no-store"}});
 export async function PUT(request:Request,{params}:{params:Promise<{id:string}>}){
   if(cloudEnabled())return cloudRoute(request);
   try{
-    const token=integrationForRequest(request),hasToken=request.headers.has("authorization"),admin=!hasToken&&isAdmin(request);
+    const token=integrationForRequest(request),hasToken=request.headers.has("authorization"),admin=!hasToken&&await isAdmin(request);
     if(hasToken&&!token||!admin&&!token)return json({error:"دخول الإدارة مطلوب."},401);
     if(!token&&!sameOrigin(request))return json({error:"المصدر غير مسموح."},403);
     const{id}=await params,tour=getTour(id);

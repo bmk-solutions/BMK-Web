@@ -2,13 +2,14 @@ import * as THREE from "three";
 import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader.js";
 import type {TexturedMesh} from "../../lib/imo3d/model";
 import {maxMeshBytes,validateTexturedMeshGlb} from "../../lib/imo3d/mesh-model";
+import {storedAssetPath} from "../../lib/imo3d/base-path";
 
 export type ApartmentModelState={status:"unavailable"|"loading"|"ready"|"error";active:boolean};
 const aborted=()=>new DOMException("أُلغي تحميل المجسّم.","AbortError");
 
 /** Read one private, self-contained GLB; the parser never resolves remote resources. */
 export async function loadApartmentMeshBytes(model:TexturedMesh,signal:AbortSignal,fetcher:typeof fetch=fetch):Promise<ArrayBuffer>{
-  if(!/^\/api\/imo3d\/assets\/[\w-]{1,80}$/.test(model.url)||!Number.isInteger(model.byteLength)||model.byteLength<28||model.byteLength>maxMeshBytes)throw Error("ملف المجسّم غير صالح.");
+  if(!/^\/api\/imo3d\/assets\/[\w-]{1,80}$/.test(storedAssetPath(model.url))||!Number.isInteger(model.byteLength)||model.byteLength<28||model.byteLength>maxMeshBytes)throw Error("ملف المجسّم غير صالح.");
   if(signal.aborted)throw aborted();
   const response=await fetcher(model.url,{signal,credentials:"same-origin",cache:"no-store",redirect:"error"});
   const length=response.headers.get("content-length");

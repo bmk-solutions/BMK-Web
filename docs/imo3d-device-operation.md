@@ -1,5 +1,9 @@
 # Operating the device workers
 
+> **2026-09-24, studio suite:** the workers now run on the owner's PC from a deploy folder built
+> from a commit, plans on the local Codex. See `scripts/device/README.md`; the scheduled tasks below
+> describe the previous machine.
+
 The public site and existing tours run on Vercel and Supabase. New photo and
 subscription-plan jobs run on the designated Windows computer. Any signed-in
 administrator can submit jobs from another computer or phone.

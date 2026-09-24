@@ -1,7 +1,9 @@
 import {z} from 'zod';
 import type {Point,Scene,Tour} from './model';
+import {storedAssetPath} from './base-path.ts';
 export const hotspotKinds={text:'نص',image:'صورة',video:'فيديو',audio:'صوت',pano:'بانوراما',link:'رابط',point:'نقطة انتقال',space:'جولة أخرى',screen:'شاشة فيديو',staging:'تصوّر بديل',product:'منتج',area:'منطقة'} as const;
-export const hotspotUrl=z.string().max(2000).refine(value=>{if(!value||/^\/api\/imo3d\/assets\/[0-9a-f-]{36}$/i.test(value))return true;try{const u=new URL(value);return u.protocol==='https:'&&!u.username&&!u.password;}catch{return false;}},'استخدم رابط HTTPS صحيحًا.');
+// A served asset path (under the suite basePath) is stored in its canonical form.
+export const hotspotUrl=z.string().max(2000).transform(storedAssetPath).refine(value=>{if(!value||/^\/api\/imo3d\/assets\/[0-9a-f-]{36}$/i.test(value))return true;try{const u=new URL(value);return u.protocol==='https:'&&!u.username&&!u.password;}catch{return false;}},'استخدم رابط HTTPS صحيحًا.');
 export const hotspotSchema=z.object({
  id:z.string().uuid(),sceneId:z.string().min(1).max(80),kind:z.enum(Object.keys(hotspotKinds) as [keyof typeof hotspotKinds,...(keyof typeof hotspotKinds)[]]),
  title:z.string().trim().min(1).max(120),body:z.string().max(4000).default(''),url:hotspotUrl.default(''),link:hotspotUrl.default(''),

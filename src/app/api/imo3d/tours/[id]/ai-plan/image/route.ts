@@ -8,7 +8,7 @@ const path:typeof import("node:path")=process.getBuiltinModule("node:path");
 export const runtime="nodejs";export const dynamic="force-dynamic";
 export async function GET(request:Request,{params}:{params:Promise<{id:string}>}){
   if(cloudEnabled())return cloudRoute(request);
- if(request.headers.has("authorization")||!isAdmin(request))return new Response(null,{status:401});
+ if(request.headers.has("authorization")||!await isAdmin(request))return new Response(null,{status:401});
  const {id}=await params,url=new URL(request.url),jobId=url.searchParams.get('job'),floor=Number(url.searchParams.get('floor'));
  if(!jobId||!Number.isInteger(floor))return new Response(null,{status:400});
  ensureAIPlanTables(db());const row=db().prepare("SELECT * FROM ai_plan_jobs WHERE id=? AND tour_id=? AND status='draft'").get(jobId,id),tour=getTour(id);

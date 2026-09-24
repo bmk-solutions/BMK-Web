@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type {SurfaceModel} from "../../lib/imo3d/model";
 import {decodeSurfaceModel,surfaceHeaderBytes,surfaceRecordBytes,maxSurfacePoints} from "../../lib/imo3d/surface-model";
+import {storedAssetPath} from "../../lib/imo3d/base-path";
 
 export type PhotographicState={status:"unavailable"|"loading"|"ready"|"error";active:boolean};
 type Decoded=ReturnType<typeof decodeSurfaceModel>;
@@ -8,7 +9,7 @@ const abortError=()=>new DOMException("أُلغي تحميل العرض.","Abort
 
 /** The private asset must fit both the wire-format bound and its current plan metadata. */
 export async function loadPhotographicSamples(model:SurfaceModel,signal:AbortSignal,fetcher:typeof fetch=fetch):Promise<Decoded>{
-  if(!/^\/api\/imo3d\/assets\/[\w-]{1,80}$/.test(model.url)||!Number.isInteger(model.pointCount)||model.pointCount<1||model.pointCount>maxSurfacePoints||!Number.isFinite(model.floorHeight))throw new Error("بيانات العرض من الصور غير صالحة.");
+  if(!/^\/api\/imo3d\/assets\/[\w-]{1,80}$/.test(storedAssetPath(model.url))||!Number.isInteger(model.pointCount)||model.pointCount<1||model.pointCount>maxSurfacePoints||!Number.isFinite(model.floorHeight))throw new Error("بيانات العرض من الصور غير صالحة.");
   if(signal.aborted)throw abortError();
   const expected=surfaceHeaderBytes+surfaceRecordBytes*model.pointCount;
   const response=await fetcher(model.url,{signal,credentials:"same-origin",cache:"no-store",redirect:"error"});

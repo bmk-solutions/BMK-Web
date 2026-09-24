@@ -5,12 +5,13 @@ import { z } from "zod";
 import { isAdmin, sameOrigin } from "@/lib/imo3d/auth";
 import { brandingForProject, brandingPatchSchema, brandingProjectExists, brandingProjectReadable, saveProjectBranding } from "@/lib/imo3d/branding";
 import { integrationForRequest } from "@/lib/imo3d/integrations";
+import {servePayloadPaths} from "@/lib/imo3d/base-path";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 type Context = { params: Promise<{ id: string }> };
 const maxLogoBytes = 5 * 1024 * 1024;
-const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } });
+const json = (value: unknown, status = 200) => Response.json(servePayloadPaths(value), { status, headers: { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } });
 
 class BrandingError extends Error {
   constructor(message: string, readonly status = 400) { super(message); }
@@ -36,7 +37,7 @@ async function handle(request: Request, context: Context) {
   const { id } = await context.params;
   const hasAuthorization = request.headers.has("authorization"), integration = integrationForRequest(request);
   if (hasAuthorization && !integration) return json({ error: "مفتاح API غير صالح أو ملغى." }, 401);
-  const admin = !hasAuthorization && isAdmin(request);
+  const admin = !hasAuthorization && await isAdmin(request);
   if (request.method === "GET") {
     const readable = integration ? integration.projectId === id && integration.scopes.includes("read") && brandingProjectExists(id) : brandingProjectReadable(id, admin);
     return readable ? json(brandingForProject(id)) : json({ error: "المشروع غير متاح." }, 404);

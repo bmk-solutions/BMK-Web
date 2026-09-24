@@ -1,8 +1,9 @@
 import { DeveloperError } from "./developer-management";
 import { z } from "zod";
 import { ManagementError } from "./project-management";
+import {servePayloadPaths} from "./base-path.ts";
 
-export const managementJSON=(value:unknown,status=200)=>Response.json(value,{status,headers:{"Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff"}});
+export const managementJSON=(value:unknown,status=200)=>Response.json(servePayloadPaths(value),{status,headers:{"Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff"}});
 export async function readManagementJSON(request:Request){
   if(Number(request.headers.get("content-length"))>2000)throw new Error("INVALID_INPUT");
   const reader=request.body?.getReader();if(!reader)throw new Error("INVALID_INPUT");

@@ -11,6 +11,8 @@ import {panoramaEvidenceSheet,sceneEvidenceSchema,floorplanAuditSchema,floorplan
 import {cloudIsAdmin,cloudSameOrigin} from './auth';
 import {furnishedPlanInstructions,furnishedPlanStyle} from '../furnished-plan';
 import {planLabelsSchema,labeledPlanSVG,type PlanLabel} from '../plan-labels';
+import {IMO3D_BASE_PATH} from '../base-path';
+import {suiteOrigin} from '../suite';
 const identifier=z.string().min(1).max(100);
 const inputs={
  list_tours:z.object({}).strict(),
@@ -63,7 +65,8 @@ export async function callChatGPTTool(connection:ChatGPTConnection,name:keyof ty
  const id=randomUUID();
  const result={source:'chatgpt-mcp',evidence:input.evidence.map(({receipt,...item})=>{void receipt;return item;}),layout,audit:input.audit,limitations:['Photo-derived draft; dimensions, unseen walls and connectivity may be uncertain. Visual inspection receipts prove image retrieval, not architectural accuracy.']};
  await cloudQuery('chatgpt_drafts','','POST',{id,project_id:connection.project_id,tour_id:tour.id,floor:input.floor,input_hash:hash,result});
- return textResult({id,status:'draft',previewUrl:chatgptOrigin()+'/api/imo3d-chatgpt/drafts?tourId='+encodeURIComponent(tour.id)+'&id='+id,notice:'Saved separately for administrator review. The current tour and approved plan were not changed.',nextStep:'For a furnished image, call inspect_floorplan_draft and use its guide, original photos and furniture inventory in image creation. An empty geometry guide is not the finished furnished deliverable.'});
+ return textResult({id,status:'draft',// The owner reviews drafts signed in to the studio suite, so the link opens there.
+ previewUrl:suiteOrigin()+IMO3D_BASE_PATH+'/api/imo3d-chatgpt/drafts?tourId='+encodeURIComponent(tour.id)+'&id='+id,notice:'Saved separately for administrator review. The current tour and approved plan were not changed.',nextStep:'For a furnished image, call inspect_floorplan_draft and use its guide, original photos and furniture inventory in image creation. An empty geometry guide is not the finished furnished deliverable.'});
 }
 export async function chatgptMCP(request:Request){
  if(request.method!=='POST')return new Response(null,{status:405,headers:{Allow:'POST'}});

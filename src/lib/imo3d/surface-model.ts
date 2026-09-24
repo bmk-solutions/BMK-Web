@@ -1,5 +1,6 @@
 import type {Plan,Scene,SurfaceModel} from "./model";
 import type {JointPoint} from "./joint-depth";
+import {storedAssetPath} from "./base-path.ts";
 
 export const surfaceModelMime="application/vnd.imo3d.points";
 export const surfaceHeaderBytes=16,surfaceRecordBytes=20,maxSurfacePoints=150_000;
@@ -35,7 +36,7 @@ export function decodeSurfaceModel(buffer:ArrayBuffer):{count:number;floorHeight
 /** A moved, replaced or deleted source camera invalidates its photographic model. */
 export function currentSurfaceModel(plan:Pick<Plan,"floor"|"surfaceModel">,scenes:readonly Scene[]):SurfaceModel|undefined{
   const model=plan.surfaceModel;
-  if(!model||model.source!=="da3-base-pose-conditioned-multiview"||model.units!=="camera_height"||!/^\/api\/imo3d\/assets\/[\w-]{1,80}$/.test(model.url)||!Number.isInteger(model.pointCount)||model.pointCount<1||model.pointCount>maxSurfacePoints||!finiteCoordinate(model.floorHeight)||!Array.isArray(model.cameras)||model.cameras.length<2||model.cameras.length>300||model.cameras.some(camera=>!camera||typeof camera!=="object")||new Set(model.cameras.map(camera=>camera.id)).size!==model.cameras.length)return;
+  if(!model||model.source!=="da3-base-pose-conditioned-multiview"||model.units!=="camera_height"||!/^\/api\/imo3d\/assets\/[\w-]{1,80}$/.test(storedAssetPath(model.url))||!Number.isInteger(model.pointCount)||model.pointCount<1||model.pointCount>maxSurfacePoints||!finiteCoordinate(model.floorHeight)||!Array.isArray(model.cameras)||model.cameras.length<2||model.cameras.length>300||model.cameras.some(camera=>!camera||typeof camera!=="object")||new Set(model.cameras.map(camera=>camera.id)).size!==model.cameras.length)return;
   const byId=new Map(scenes.map(scene=>[scene.id,scene]));
   for(const camera of model.cameras){const scene=byId.get(camera.id);if(!scene||scene.floor!==plan.floor||scene.image!==camera.image||!scene.position||!camera.position||![camera.position.x,camera.position.y,camera.position.z,camera.yaw].every(Number.isFinite)||scene.yaw!==camera.yaw||["x","y","z"].some(axis=>scene.position![axis as "x"|"y"|"z"]!==camera.position[axis as "x"|"y"|"z"]))return;}
   return model;

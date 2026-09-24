@@ -8,10 +8,11 @@ import { dataDirectory, db, getTour } from "@/lib/imo3d/store";
 import { deleteSceneRecord } from "@/lib/imo3d/scene-deletion";
 import { cleanupPrivateAssetFiles } from "@/lib/imo3d/private-asset-cleanup";
 import { cleanupProcessingArtifacts } from "@/lib/imo3d/processing-cleanup";
+import {servePayloadPaths} from "@/lib/imo3d/base-path";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } });
+const json = (value: unknown, status = 200) => Response.json(servePayloadPaths(value), { status, headers: { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } });
 type Context = { params: Promise<{ id: string; sceneId: string }> };
 const bodySchema = z.object({ revision: z.number().int().nonnegative() });
 
@@ -34,7 +35,7 @@ export async function DELETE(request: Request, context: Context) {
   try {
     const hasAuthorization = request.headers.has("authorization"), integration = integrationForRequest(request);
     if (hasAuthorization && !integration) return json({ error: "مفتاح API غير صالح أو ملغى." }, 401);
-    const admin = !hasAuthorization && isAdmin(request);
+    const admin = !hasAuthorization && await isAdmin(request);
     if (!admin && !integration) return json({ error: "تسجيل دخول الإدارة مطلوب." }, 401);
     if (!integration && !sameOrigin(request)) return json({ error: "المصدر غير مسموح." }, 403);
     const { id, sceneId } = await context.params;

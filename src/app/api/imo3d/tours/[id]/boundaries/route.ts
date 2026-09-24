@@ -6,11 +6,12 @@ import {integrationForRequest} from "@/lib/imo3d/integrations";
 import {db,getTour,dataDirectory} from "@/lib/imo3d/store";
 import {boundarySchema,BoundaryError,saveFloorBoundaries} from "@/lib/imo3d/floor-boundaries";
 import {cleanupPrivateAssetFiles} from "@/lib/imo3d/private-asset-cleanup";
+import {servePayloadPaths} from "@/lib/imo3d/base-path";
 export const runtime="nodejs";export const dynamic="force-dynamic";
-const json=(body:unknown,status=200)=>Response.json(body,{status,headers:{"Cache-Control":"private, no-store"}});
+const json=(body:unknown,status=200)=>Response.json(servePayloadPaths(body),{status,headers:{"Cache-Control":"private, no-store"}});
 export async function PUT(request:Request,{params}:{params:Promise<{id:string}>}){
   if(cloudEnabled())return cloudRoute(request);
-  try{const auth=integrationForRequest(request),hasAuth=request.headers.has("authorization"),admin=!hasAuth&&isAdmin(request);
+  try{const auth=integrationForRequest(request),hasAuth=request.headers.has("authorization"),admin=!hasAuth&&await isAdmin(request);
     if(hasAuth&&!auth)return json({error:"مفتاح API غير صالح."},401);if(!admin&&!auth)return json({error:"دخول الإدارة مطلوب."},401);
     if(!auth&&!sameOrigin(request))return json({error:"المصدر غير مسموح."},403);
     const{id}=await params,tour=getTour(id);if(!tour)return json({error:"الجولة غير موجودة."},404);if(auth&&(auth.projectId!==tour.projectId||!auth.scopes.includes("write")))return json({error:"الجولة خارج صلاحية المفتاح."},403);

@@ -3,13 +3,17 @@ import {cloudQuery} from "./client";
 import {withinRateLimit} from "./repository";
 import {hashAdminPassword,verifyAdminPassword} from '../admin-password';
 import {CloudHTTPError} from './http';
+import {IMO3D_BASE_PATH} from '../base-path';
+import {suiteBrowserOrigins,suiteSession} from '../suite';
 export type CloudScope="read"|"write"|"leads";
 export type CloudAccess={sessionAdmin:boolean;integration:{id:string;projectId:string;scopes:CloudScope[]}|null;allowed:(projectId:string,scope?:CloudScope)=>boolean};
 export const secureEqual=(a:string,b:string)=>{const x=Buffer.from(a),y=Buffer.from(b);return x.length===y.length&&timingSafeEqual(x,y);};
 type Credential={id:string;password_hash:string;version:string};
 const signingSecret=()=>process.env.IMO3D_SESSION_SECRET||process.env.IMO3D_ADMIN_SECRET;
 async function credential(){return (await cloudQuery<Credential[]>('admin_credentials','select=password_hash,version&id=eq.administrator&limit=1'))[0]??null;}
-export async function cloudIsAdmin(request:Request){
+/** The owner: a studio-suite session (his login), or the legacy IMO3D password session, still honoured by the API. */
+export async function cloudIsAdmin(request:Request){return await legacySessionAdmin(request)||!!await suiteSession(request);}
+async function legacySessionAdmin(request:Request){
   const secret=signingSecret();if(!secret||secret.length<32)return false;
   const cookie=request.headers.get("cookie")?.split(";").map(v=>v.trim()).find(v=>v.startsWith("imo3d_session="))?.slice(14);
   const match=/^(\d{13})\.(?:([a-z0-9-]{1,40})\.)?([a-f0-9]{64})$/.exec(cookie??"");if(!match||Number(match[1])<Date.now()||Number(match[1])>Date.now()+8*60*60_000)return false;
@@ -19,7 +23,8 @@ export async function cloudIsAdmin(request:Request){
 }
 export function cloudSameOrigin(request:Request){
   const origin=request.headers.get("origin");if(!origin||request.headers.get("sec-fetch-site")==="cross-site")return false;
-  try{return new URL(origin).origin===new URL(process.env.IMO3D_PUBLIC_ORIGIN||request.url).origin;}catch{return false;}
+  // Pages served through the suite (os.bmk.solutions/media-support/tour) post from the suite's origin.
+  try{const value=new URL(origin).origin;return value===new URL(process.env.IMO3D_PUBLIC_ORIGIN||request.url).origin||suiteBrowserOrigins().includes(value);}catch{return false;}
 }
 export async function cloudLogin(request:Request,password:string){
   if(!await withinRateLimit("login",15,5*60_000))return null;
@@ -31,7 +36,8 @@ function sessionCookie(request:Request,version:string){
   const secret=signingSecret();if(!secret||secret.length<32)throw new Error('Admin signing key unavailable');
   const expiry=String(Date.now()+8*60*60_000),value=`${expiry}.${version}`,signature=createHmac("sha256",secret).update(value).digest("hex");
   const secure=new URL(process.env.IMO3D_PUBLIC_ORIGIN||request.url).protocol==="https:";
-  return `imo3d_session=${value}.${signature}; Path=/; HttpOnly; SameSite=Strict; Max-Age=28800${secure?"; Secure":""}`;
+  // Scoped to this app: on the suite's domain a Path=/ cookie would reach every other app there.
+  return `imo3d_session=${value}.${signature}; Path=${IMO3D_BASE_PATH}; HttpOnly; SameSite=Strict; Max-Age=28800${secure?"; Secure":""}`;
 }
 export async function cloudChangePassword(request:Request,currentPassword:string,newPassword:string){
   if(!await withinRateLimit('change-password',5,5*60_000))throw new CloudHTTPError('محاولات كثيرة. انتظر خمس دقائق ثم حاول مجددًا.',429);

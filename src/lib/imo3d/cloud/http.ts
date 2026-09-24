@@ -1,6 +1,8 @@
 import {z} from "zod";
+import {servePayloadPaths} from "../base-path";
 export class CloudHTTPError extends Error{constructor(message:string,readonly status=400){super(message);}}
-export const json=(value:unknown,status=200)=>Response.json(value,{status,headers:{"Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff"}});
+/** Stored asset paths leave in their served form (under the suite basePath); rows are never rewritten. */
+export const json=(value:unknown,status=200)=>Response.json(servePayloadPaths(value),{status,headers:{"Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff"}});
 export const fail=(message:string,status=400)=>json({error:message},status);
 export const eq=(value:string)=>encodeURIComponent(value);
 export async function readBytes(request:Request,max:number){

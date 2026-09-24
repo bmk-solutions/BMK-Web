@@ -17,7 +17,7 @@ async function handle(request:Request,context:Context){
   const {id}=await context.params;
   const integration=integrationForRequest(request),hasAuthorization=request.headers.has("authorization");
   if(hasAuthorization&&!integration)return json({error:"مفتاح API غير صالح أو أُلغي."},401);
-  const admin=!hasAuthorization&&isAdmin(request);
+  const admin=!hasAuthorization&&await isAdmin(request);
   if(request.method==="GET"){
     if(!admin&&!integration)return json({error:"تسجيل دخول الإدارة مطلوب."},401);
     if(integration&&(integration.projectId!==id||!integration.scopes.includes("read")))return json({error:"المشروع خارج صلاحية مفتاح API."},403);

@@ -1,14 +1,16 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { withinRateLimit } from "./store";
+import { IMO3D_BASE_PATH } from "./base-path.ts";
+import { localDevelopmentRequest, suiteBrowserOrigins, suiteSession } from "./suite.ts";
 export function secureEqual(a:string,b:string) {
   const x=Buffer.from(a),y=Buffer.from(b);return x.length===y.length&&timingSafeEqual(x,y);
 }
-function localDevelopment(request:Request) {
-  const url=new URL(request.url);
-  return process.env.NODE_ENV==="development"&&["127.0.0.1","localhost","[::1]"].includes(url.hostname);
+/** The owner: a studio-suite session (his login), or the legacy password session, still honoured by the API. */
+export async function isAdmin(request:Request) {
+  if(localDevelopmentRequest(request))return true;
+  return legacySessionAdmin(request)||!!await suiteSession(request);
 }
-export function isAdmin(request:Request) {
-  if(localDevelopment(request))return true;
+function legacySessionAdmin(request:Request) {
   const secret=process.env.IMO3D_ADMIN_SECRET;if(!secret||secret.length<32)return false;
   const cookie=request.headers.get("cookie")?.split(";").map(v=>v.trim()).find(v=>v.startsWith("imo3d_session="))?.split("=")[1];
   if(!cookie)return false;const [expiry,signature]=cookie.split(".");
@@ -19,7 +21,8 @@ export function sameOrigin(request:Request) {
   const origin=request.headers.get("origin");
   if(!origin||request.headers.get("sec-fetch-site")==="cross-site")return false;
   try {const expected=process.env.IMO3D_PUBLIC_ORIGIN??`${new URL(request.url).protocol}//${request.headers.get("host")??new URL(request.url).host}`;
-    return new URL(origin).origin===new URL(expected).origin;
+    // Pages served through the suite (os.bmk.solutions/media-support/tour) post from the suite's origin.
+    const value=new URL(origin).origin;return value===new URL(expected).origin||suiteBrowserOrigins().includes(value);
   }catch{return false;}
 }
 export function login(request:Request,password:string) {
@@ -29,5 +32,5 @@ export function login(request:Request,password:string) {
   // The public HTTPS origin remains authoritative behind an internal HTTP proxy.
   let secure=new URL(request.url).protocol==="https:";
   try{if(process.env.IMO3D_PUBLIC_ORIGIN)secure||=new URL(process.env.IMO3D_PUBLIC_ORIGIN).protocol==="https:";}catch{/* sameOrigin rejects malformed configuration. */}
-  return `imo3d_session=${expiry}.${signature}; Path=/; HttpOnly; SameSite=Strict; Max-Age=28800${secure?"; Secure":""}`;
+  return `imo3d_session=${expiry}.${signature}; Path=${IMO3D_BASE_PATH}; HttpOnly; SameSite=Strict; Max-Age=28800${secure?"; Secure":""}`;
 }

@@ -26,7 +26,7 @@ export async function DELETE(request:Request,context:Context){
   try{
     const integration=integrationForRequest(request),hasAuthorization=request.headers.has("authorization");
     if(hasAuthorization&&!integration)return json({error:"مفتاح API غير صالح أو أُلغي."},401);
-    const admin=!hasAuthorization&&isAdmin(request);
+    const admin=!hasAuthorization&&await isAdmin(request);
     if(!admin&&!integration)return json({error:"تسجيل دخول الإدارة مطلوب."},401);
     if(!integration&&!sameOrigin(request))return json({error:"المصدر غير مسموح."},403);
     const {id}=await context.params,tour=getTour(id);

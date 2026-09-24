@@ -1,7 +1,6 @@
 "use client";
 import {PhotoEditPanel} from "./PhotoEditPanel";
 import {HotspotEditor} from "./HotspotEditor";
-import {PasswordInput} from './PasswordInput';
 /* eslint-disable @next/next/no-img-element */
 import {useEffect,useRef,useState} from "react";
 import {AdminSettings} from './AdminSettings';
@@ -31,6 +30,7 @@ import {unnamedRoom} from "./room-labels";
 import {parseProcessingJob,processingActive,processingWorkflowSteps,tourWorkflowCoverage,type ProcessingJob} from "@/lib/imo3d/processing-model";
 import "./studio-workflows.css";
 import "./liquid-glass.css";
+import {suiteLoginPath,withBasePath} from "@/lib/imo3d/base-path";
 
 type Dashboard={features?:{cloud?:boolean;privateExample:{id:string;title:string;thumbnail:string}|null};developers:Developer[];projects:Project[];tours:Tour[];leads:Lead[];leadTotal?:number};
 export default function Studio(){
@@ -44,18 +44,18 @@ export default function Studio(){
   const [preview,setPreview]=useState<{projectId:string;tourId?:string;sceneId?:string}|null>(null);
   const [editorBlocked,setEditorBlocked]=useState(false),[settings,setSettings]=useState<{kind:"branding"|"api";projectId:string}|null>(null);
   const refresh=async()=>{const next=await api<Dashboard>("dashboard");setData(next);setAuth(false);};
-  useEffect(()=>{let alive=true;api<{admin:boolean}>("session").then(session=>{if(!alive)return;if(!session.admin){setAuth(true);return;}return api<Dashboard>("dashboard").then(result=>{if(alive)setData(result);});}).catch(e=>{if(alive)setError(e.message);});return()=>{alive=false;};},[]);
+  useEffect(()=>{let alive=true;api<{admin:boolean}>("session").then(session=>{if(!alive)return;if(!session.admin){setAuth(true);window.location.replace(suiteLoginPath(window.location.pathname+window.location.search));return;}return api<Dashboard>("dashboard").then(result=>{if(alive)setData(result);});}).catch(e=>{if(alive)setError(e.message);});return()=>{alive=false;};},[]);
   const run=async(action:()=>Promise<void>)=>{setWorking(true);setError("");try{await action();}catch(e){setError(e instanceof Error?e.message:"تعذر تنفيذ العملية");}finally{setWorking(false);}};
   const openTour=(tour:Tour)=>void run(async()=>setSelected(await api<Tour>(`tours/${tour.id}`)));
   const requestTourRemoval=(tour:Tour)=>void run(async()=>setTourRemoval(await api<Tour>(`tours/${tour.id}`)));
   const changeView=(next:"projects"|"leads")=>{if(editorBlocked){setError("احفظ تعديلات الجولة وانتظر اكتمال الرفع قبل مغادرة المحرر.");return;}setView(next);if(next==="projects"){setDeveloperId(null);setProjectId("");}setSelected(null);void refresh().catch(e=>setError(e.message));};
-  if(auth)return <main className="imo-shell imo-login"><div className="imo-login-card"><Brand/><h1>دخول الاستوديو</h1><p>إدارة مشاريعك وجولاتك من مكان واحد.</p><form className="imo-form" onSubmit={e=>{e.preventDefault();const password=String(new FormData(e.currentTarget).get("password"));void run(async()=>{await api("session",{method:"POST",body:JSON.stringify({password})});await refresh();});}}><label>رمز الإدارة<PasswordInput name="password" autoComplete="current-password" required/></label>{error&&<p className="imo-error" role="alert">{error}</p>}<button className="imo-button primary" disabled={working}>دخول</button></form></div></main>;
+  if(auth)return <main className="imo-shell imo-login"><div className="imo-login-card"><Brand/><h1>دخول الاستوديو</h1><p>إدارة مشاريعك وجولاتك من مكان واحد.</p><div className="imo-form"><p>يتم الدخول بحساب استوديو BMK نفسه.</p>{error&&<p className="imo-error" role="alert">{error}</p>}<a className="imo-button primary" href={suiteLoginPath(withBasePath("/"))}>الدخول إلى الاستوديو</a></div></div></main>;
   if(!data)return <main className="imo-shell imo-load">{error?<><p role="alert">{error}</p><button className="imo-button primary" onClick={()=>window.location.reload()}>إعادة المحاولة</button></>:<><span className="imo-spinner"/><p>جارٍ فتح الاستوديو…</p></>}</main>;
   const scopedProjects=data.projects.filter(project=>developerId===null||(project.developerId??"")===developerId);
   const visibleTours=data.tours.filter(t=>scopedProjects.some(project=>project.id===t.projectId)).filter(t=>(!projectId||t.projectId===projectId)&&`${t.title} ${data.projects.find(p=>p.id===t.projectId)?.name}`.includes(query));
   const scopedTours=data.tours.filter(tour=>scopedProjects.some(project=>project.id===tour.projectId));
   const activeProject=scopedProjects.find(project=>project.id===projectId)||scopedProjects[0];
-  return <main className="imo-shell imo-studio"><aside className="imo-sidebar"><a href="/imo3d" onClick={event=>{if(editorBlocked){event.preventDefault();setError("احفظ تعديلات الجولة قبل العودة إلى الاستوديو.");}}}><Brand/></a><div className="imo-sidebar-label">مساحة العمل</div><nav><button aria-label="المطورون" className={view==="projects"?"active":""} onClick={()=>changeView("projects")}><Icon name="grid"/>المطورون<span>{data.developers?.length??0}</span></button><button aria-label="طلبات الاهتمام" className={view==="leads"?"active":""} onClick={()=>changeView("leads")}><Icon name="people"/>طلبات الاهتمام<span>{(data.leadTotal??data.leads.length)}</span></button>{data.features?.cloud&&<button aria-label="الإعدادات" onClick={()=>setAdminSettings(true)}><Icon name="settings"/>الإعدادات</button>}</nav><div className="imo-sidebar-bottom"><div className="imo-brand-avatar">B</div><div><strong>BMK Solutions</strong><small>IMO 3D Studio</small></div></div></aside>
+  return <main className="imo-shell imo-studio"><aside className="imo-sidebar"><a href={withBasePath("/")} onClick={event=>{if(editorBlocked){event.preventDefault();setError("احفظ تعديلات الجولة قبل العودة إلى الاستوديو.");}}}><Brand/></a><div className="imo-sidebar-label">مساحة العمل</div><nav><button aria-label="المطورون" className={view==="projects"?"active":""} onClick={()=>changeView("projects")}><Icon name="grid"/>المطورون<span>{data.developers?.length??0}</span></button><button aria-label="طلبات الاهتمام" className={view==="leads"?"active":""} onClick={()=>changeView("leads")}><Icon name="people"/>طلبات الاهتمام<span>{(data.leadTotal??data.leads.length)}</span></button>{data.features?.cloud&&<button aria-label="الإعدادات" onClick={()=>setAdminSettings(true)}><Icon name="settings"/>الإعدادات</button>}</nav><div className="imo-sidebar-bottom"><div className="imo-brand-avatar">B</div><div><strong>BMK Solutions</strong><small>IMO 3D Studio</small></div></div></aside>
     <div className="imo-workspace"><header className="imo-studio-top"><div><span className="imo-breadcrumb">الاستوديو</span><span>/</span><b>{selected?selected.title:view==="leads"?"طلبات الاهتمام":"المطورون"}</b></div><span className="imo-private"><span className="imo-status-dot"/> مساحة الإدارة</span></header>
       {error&&<div className="imo-banner error" role="alert">{error}<button aria-label="إغلاق الرسالة" onClick={()=>setError("")}><Icon name="close"/></button></div>}
       {notice&&<div className="imo-banner" role="status">{notice}<button aria-label="إغلاق الرسالة" onClick={()=>setNotice("")}><Icon name="close"/></button></div>}
@@ -167,7 +167,7 @@ function Editor({initial,onChange,onBack,onError,onNotice,onBlockedChange,onSett
       if(failed.length)onError(`تعذر رفع ${number(failed.length)} ملفات. اللقطات الناجحة محفوظة؛ يمكنك إعادة محاولة الملفات الموضحة أدناه.`);
     });
   };
-  const processing=processingActive(job),link=`/imo3d/t/${tour.id}`;
+  const processing=processingActive(job),link=withBasePath(`/t/${tour.id}`);
   const estimated=tour.spatialSource==="images";
   const coverage=tourWorkflowCoverage(tour,job),planActive=!processing&&(planStatus?.job?.status==='queued'||planStatus?.job?.status==='running');
   const photoStages=processingWorkflowSteps(job,coverage,number);

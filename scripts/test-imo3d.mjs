@@ -62,6 +62,9 @@ testFiles.push('tests/imo3d-room-analysis.test.ts');
 managementFiles.push('src/lib/imo3d/panorama-measurement.ts');
 testFiles.push('tests/imo3d-panorama-measurement.test.ts');
 testFiles.push('tests/imo3d-floor-assignment.test.ts');
+// The suite basePath, the read-time path mapping, the old-host redirects and the suite-session gate.
+managementFiles.push('src/lib/imo3d/base-path.ts','src/lib/imo3d/suite.ts','src/proxy.ts','next.config.ts');
+testFiles.push('tests/imo3d-suite-basepath.test.ts');
 managementFiles.push(...['project-usage','usage-estimate','lead-query'].map(name=>`src/lib/imo3d/${name}.ts`));
 testFiles.push('tests/imo3d-project-usage.test.ts','tests/imo3d-lead-query.test.ts');
 for(const file of ['src/lib/imo3d/model.ts','src/lib/imo3d/spatial.ts','src/lib/imo3d/navigation.ts','src/components/imo3d/floorplan-geometry.ts','src/lib/imo3d/lead-validation.ts','src/lib/imo3d/tour-merge.ts','src/lib/imo3d/processing-model.ts','src/lib/imo3d/processing-jobs.ts','src/lib/imo3d/store.ts','src/lib/imo3d/branding.ts','src/lib/imo3d/reconstruction-layout.ts','src/lib/imo3d/integrations.ts','src/lib/imo3d/auth.ts',...managementFiles,...testFiles]){

@@ -9,13 +9,14 @@ import {Icon} from "./Icon";
 import type {ViewerPlanCache} from "./viewer-plan-cache";
 import {RasterPlanMap} from "./RasterPlanMap";
 import "./viewer-floorplan.css";
+import {withBasePath} from "@/lib/imo3d/base-path";
 
 
 
 // The private endpoint remains authoritative: public visitors get the existing
 // published architecture, while administrators can see their latest draft here.
 export function ViewerFloorPlan({cache,tourId,floor,children,hasInteractivePlan=false,compact=false,current,scenes=[],yaw=0,sceneIds=[],onSelect,onExpand,onIntent}:{cache:ViewerPlanCache;tourId:string;floor:number;children?:ReactNode;hasInteractivePlan?:boolean;compact?:boolean;current?:string;scenes?:Scene[];yaw?:number;sceneIds?:string[];onSelect?:(id:string)=>void;onExpand?:()=>void;onIntent?:(id:string)=>void}){
- const url=`/api/imo3d/tours/${tourId}/ai-plan`;
+ const url=withBasePath(`/api/imo3d/tours/${tourId}/ai-plan`);
  const key=url+'?viewer=1&floor='+floor;
  const [entry,setEntry]=useState(()=>cache.peek(key)),[error,setError]=useState("");
  const [showInteractive,setShowInteractive]=useState(false),[retry,setRetry]=useState(0),[collapsed,setCollapsed]=useState(false);

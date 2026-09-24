@@ -3,11 +3,12 @@ import {cloudRoute} from "@/lib/imo3d/cloud/handlers";
 import { z } from "zod";
 import { isAdmin, sameOrigin } from "@/lib/imo3d/auth";
 import { createIntegrationKey, integrationForRequest, integrationKeysForProject, integrationProjectExists, revokeIntegrationKey } from "@/lib/imo3d/integrations";
+import {servePayloadPaths} from "@/lib/imo3d/base-path";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 type Context = { params: Promise<{ id: string }> };
-const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } });
+const json = (value: unknown, status = 200) => Response.json(servePayloadPaths(value), { status, headers: { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } });
 const createSchema = z.object({ name: z.string().trim().min(1, "أدخل اسمًا للمفتاح.").max(80, "اسم المفتاح لا يزيد على 80 حرفًا."), scopes: z.array(z.enum(["read", "write", "leads"])).min(1, "اختر صلاحية واحدة على الأقل.").max(3) });
 
 async function input(request: Request) {
@@ -24,7 +25,7 @@ async function handle(request: Request, context: Context) {
   if(cloudEnabled())return cloudRoute(request);
   // Sending a key never falls back to the administrator's cookie or localhost bypass.
   if (request.headers.has("authorization")) return json({ error: "إدارة مفاتيح التكامل تتطلب جلسة الاستوديو، ولا تتاح بمفتاح API." }, integrationForRequest(request) ? 403 : 401);
-  if (!isAdmin(request)) return json({ error: "تسجيل دخول الإدارة مطلوب." }, 401);
+  if (!await isAdmin(request)) return json({ error: "تسجيل دخول الإدارة مطلوب." }, 401);
   if (request.method !== "GET" && !sameOrigin(request)) return json({ error: "المصدر غير مسموح." }, 403);
   const { id } = await context.params;
   if (!integrationProjectExists(id)) return json({ error: "المشروع غير موجود." }, 404);

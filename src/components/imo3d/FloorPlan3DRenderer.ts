@@ -9,6 +9,7 @@ import {roomIdentity} from "./room-labels";
 import {currentTexturedMesh} from "../../lib/imo3d/mesh-model";
 import {TexturedApartmentModel,type ApartmentModelState} from "./TexturedApartmentModel";
 import {floorPlan3DDisplay,floorPlan3DFitDistance,type Plan3DLayout,type Plan3DSegment} from "./floorplan3d-geometry";
+import {storedAssetPath} from "../../lib/imo3d/base-path";
 
 export class FloorPlan3DRenderer{
   private renderer:THREE.WebGLRenderer;
@@ -86,7 +87,7 @@ export class FloorPlan3DRenderer{
         const floor=new THREE.Mesh(geometry,[material,edge]);floor.receiveShadow=true;floor.castShadow=true;floor.position.y=-slabThickness;this.diagram.add(floor);
       }
     }
-    if(plan.image&&/^\/(?:imo3d\/example\/|api\/imo3d\/assets\/)[\w/.-]+$/.test(plan.image)&&!plan.image.includes("..")){
+    if(plan.image&&/^\/(?:imo3d\/example\/|api\/imo3d\/assets\/)[\w/.-]+$/.test(storedAssetPath(plan.image))&&!plan.image.includes("..")){
       const projection=floorPlanProjection(plan,scenes),width=plan.width,height=plan.height;
       if(projection&&width&&height){
         const positions=baseGeometry.getAttribute("position"),uv=baseGeometry.getAttribute("uv");

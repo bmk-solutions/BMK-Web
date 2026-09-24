@@ -22,7 +22,9 @@ if (-not (Test-Path -LiteralPath $Python -PathType Leaf)) { throw "Python not fo
 $node = (Get-Command node -ErrorAction Stop).Source
 $envFile = Join-Path $repo '.env.cloud.local'
 
-$running = @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf($Target, [StringComparison]::OrdinalIgnoreCase) -ge 0 })
+# A worker runs a script from inside the folder; this build's own command line only names the folder.
+$inside = (Join-Path $Target 'scripts')
+$running = @(Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.IndexOf($inside, [StringComparison]::OrdinalIgnoreCase) -ge 0 })
 if ($running.Count) { throw "a worker runs from $Target (pid $(($running | ForEach-Object ProcessId) -join ', ')); stop it first with stop-device-workers.ps1" }
 
 # Junctions are unlinked one by one before any folder is removed: a recursive delete must never

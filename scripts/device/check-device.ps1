@@ -8,6 +8,8 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'device-env.ps1')
 $failed = 0
 function Invoke-Check([string]$Name, [string[]]$Arguments) {
+  # Windows PowerShell turns a native command's stderr (Node warnings) into a terminating error under 'Stop'.
+  $ErrorActionPreference = 'Continue'
   $output = & $node @Arguments 2>$null
   $code = $LASTEXITCODE
   $line = @($output | Where-Object { $_ -match '^\{' } | Select-Object -Last 1)

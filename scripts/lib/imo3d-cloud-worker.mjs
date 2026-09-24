@@ -103,12 +103,20 @@ function cancelLocalMirror(directory,jobId){
   try{database.prepare("UPDATE processing_jobs SET cancel_requested=1,status='cancelled' WHERE id=? AND status IN ('queued','running')").run(jobId);}finally{database.close();}
 }
 
+// The Python children read uploaded images: they get no cloud setting and no credential. Besides the
+// named keys, any credential-shaped name is dropped, so a secret added to the env file later is too.
+const childDeniedKeys=new Set(['SUPABASE_URL','SUPABASE_SERVICE_ROLE_KEY','SUPABASE_DATABASE_PASSWORD','IMO3D_CLOUD_PROJECT_REF','IMO3D_CLOUD','OPENAI_API_KEY','GEMINI_API_KEY','HIGGSFIELD_API_KEY','IMO3D_PLAN_RUNNER_SECRET','IMO3D_ADMIN_SECRET','IMO3D_SESSION_SECRET','CRON_SECRET']);
+const credentialName=/(?:^|_)(?:SECRETS?|TOKENS?|PASSWORDS?|PASSWD|CREDENTIALS?|KEYS?)(?:_|$)|API_?KEY|ACCESS_?KEY|PRIVATE_?KEY|SERVICE_ROLE/i;
+export function reconstructionChildEnvironment(source,directory){
+  const kept=Object.entries(source).filter(([key,value])=>value!==undefined&&!childDeniedKeys.has(key.toUpperCase())&&!credentialName.test(key));
+  return {...Object.fromEntries(kept),IMO3D_DATA_DIR:directory,HF_HUB_OFFLINE:'1',TRANSFORMERS_OFFLINE:'1',HF_HUB_DISABLE_TELEMETRY:'1',PYTHONDONTWRITEBYTECODE:'1'};
+}
+
 export async function runLocalReconstruction({root,directory,job,signal,onProgress,maxJobMs=3*60*60_000}){
   signal.throwIfAborted();
   const database=new DatabaseSync(path.join(directory,'imo3d.sqlite'),{readOnly:true});
   const log=[];let logBytes=0,killTimer,timeout;
-  const childEnv={...process.env,IMO3D_DATA_DIR:directory,HF_HUB_OFFLINE:'1',TRANSFORMERS_OFFLINE:'1',HF_HUB_DISABLE_TELEMETRY:'1',PYTHONDONTWRITEBYTECODE:'1'};
-  for(const key of ['SUPABASE_URL','SUPABASE_SERVICE_ROLE_KEY','SUPABASE_DATABASE_PASSWORD','IMO3D_CLOUD_PROJECT_REF','IMO3D_CLOUD','OPENAI_API_KEY','GEMINI_API_KEY','HIGGSFIELD_API_KEY','IMO3D_PLAN_RUNNER_SECRET','IMO3D_ADMIN_SECRET','IMO3D_SESSION_SECRET','CRON_SECRET'])delete childEnv[key];
+  const childEnv=reconstructionChildEnvironment(process.env,directory);
   const child=spawn(process.execPath,[path.join(root,'scripts','imo3d-worker.mjs')],{
     cwd:root,windowsHide:true,stdio:['ignore','pipe','pipe'],
     env:childEnv,

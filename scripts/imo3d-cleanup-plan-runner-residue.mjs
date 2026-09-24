@@ -7,8 +7,10 @@
 //   node --env-file=.env.cloud.local scripts/imo3d-cleanup-plan-runner-residue.mjs            (dry run: lists, changes nothing)
 //   node --env-file=.env.cloud.local scripts/imo3d-cleanup-plan-runner-residue.mjs --apply    (deletes exactly the listed items)
 //
-// Every delete repeats its guard in the request itself (expired lease; failed status + unpublished
-// tour; the plan-runner/ prefix), so a row or object that changed after the listing is not touched.
+// The lock delete repeats its guard in the request (expired lease), and the job SQL repeats its own
+// (failed status + unpublished tour), so a row that changed after the listing is not touched. Objects
+// are deleted by the exact keys listed, each re-checked against the plan-runner/ prefix: one written
+// again at a listed key between the listing and --apply would still be removed.
 // The service role holds no DELETE on imo3d_subscription_plan_jobs (migration 20260915110000):
 // the two job rows are listed with the scoped SQL a postgres session needs, never forced.
 // Prints no credential.

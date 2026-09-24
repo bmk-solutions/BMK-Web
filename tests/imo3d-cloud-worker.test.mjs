@@ -5,7 +5,7 @@ import {DatabaseSync} from 'node:sqlite';
 import path from 'node:path';
 import {readPlanSpatialEvidence} from '../src/lib/imo3d/plan-spatial-evidence.ts';
 import {imageFingerprint} from '../src/lib/imo3d/processing-jobs.ts';
-import {buildLocalInputPlan,createJobWorkspace,createWorkerTransport,hashBytes,pollCloudJobs as pollCloudJobsImpl,processCloudJob as processCloudJobImpl,runLocalReconstruction,seedLocalMirror,validateLocalResult,verifyDownloadedObject} from '../scripts/lib/imo3d-cloud-worker.mjs';
+import {buildLocalInputPlan,createJobWorkspace,createWorkerTransport,hashBytes,reconstructionChildEnvironment,pollCloudJobs as pollCloudJobsImpl,processCloudJob as processCloudJobImpl,runLocalReconstruction,seedLocalMirror,validateLocalResult,verifyDownloadedObject} from '../scripts/lib/imo3d-cloud-worker.mjs';
 const processCloudJob=options=>processCloudJobImpl({checkRuntime:async()=>({ok:true}),...options});
 const pollCloudJobs=options=>pollCloudJobsImpl({checkRuntime:async()=>({ok:true}),...options});
 
@@ -203,4 +203,13 @@ for(const conflict of [false,true])test(`reconstruction evidence reaches the pla
  const result=await processCloudJob({root,transport:run.transport,job:data.job,owner,signal:new AbortController().signal,executeLocal:async options=>({...await run.executeLocal(options),spatialEvidence:geometry})});
  assert.equal(result.status,conflict?'stale':'committed');const saved=await readPlanSpatialEvidence(root,data.tour);
  if(conflict)assert.equal(saved,null);else {assert.ok(saved);assert.equal(saved.geometry.scenes.length,2);assert.equal(saved.tourId,data.tour.id);}
+});
+
+test('the reconstruction child gets no cloud setting and no credential-shaped variable, named or not',()=>{
+  const source={Path:'C:/Windows',SystemRoot:'C:/Windows',IMO3D_PYTHON:'python.exe',IMO3D_CV_PATH:'cv',HF_HOME:'hf',TOKENIZERS_PARALLELISM:'false',OPENCV_IO_MAX_IMAGE_PIXELS:'1',
+    SUPABASE_URL:'https://x.supabase.co',supabase_service_role_key:'s',IMO3D_CLOUD:'1',GEMINI_API_KEY:'s',CRON_SECRET:'s',
+    FUTURE_VENDOR_API_KEY:'s',NEW_SERVICE_TOKEN:'s',GITHUB_TOKEN:'s',SIGNING_KEY:'s',DB_PASSWORD:'s',AWS_ACCESS_KEY_ID:'s',AWS_SECRET_ACCESS_KEY:'s',GOOGLE_APPLICATION_CREDENTIALS:'s',UNDEFINED_VALUE:undefined};
+  const env=reconstructionChildEnvironment(source,'D:/data');
+  assert.deepEqual(Object.keys(env).sort(),['HF_HOME','HF_HUB_DISABLE_TELEMETRY','HF_HUB_OFFLINE','IMO3D_CV_PATH','IMO3D_DATA_DIR','IMO3D_PYTHON','OPENCV_IO_MAX_IMAGE_PIXELS','PYTHONDONTWRITEBYTECODE','Path','SystemRoot','TOKENIZERS_PARALLELISM','TRANSFORMERS_OFFLINE']);
+  assert.equal(env.IMO3D_DATA_DIR,'D:/data');assert.equal(env.HF_HUB_OFFLINE,'1');
 });

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import WebsiteChrome from "@/components/WebsiteChrome";
 import "./globals.css";
 import Frag from "@/components/Frag";
+import { withBasePath } from "@/lib/imo3d/base-path";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://www.bmk.solutions"),
@@ -11,7 +12,8 @@ export const metadata: Metadata = {
   },
   description:
     "BMK Solutions — منظومة بصرية ورقمية متكاملة لمشاريع العقار والإنشاء في السعودية: توثيق التنفيذ، إنتاج تسويقي، تقارير الإدارة والمستثمرين، منصّات بيع 3D، وجولات وزيارات افتراضية.",
-  icons: { icon: "/assets/brand/mark-black.png" },
+  // Under the suite basePath: metadata icon URLs are not prefixed by Next, public files are.
+  icons: { icon: withBasePath("/assets/brand/mark-black.png") },
   openGraph: {
     type: "website",
     siteName: "BMK Solutions",

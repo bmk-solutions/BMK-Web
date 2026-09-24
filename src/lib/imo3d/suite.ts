@@ -24,6 +24,13 @@ export const zoneOrigin=()=>origin(process.env.MS_ZONE_ORIGIN,'https://bmk-media
 /** This app's own host. Embeds and the ChatGPT connector live here: the suite's domain refuses framing. */
 export const appOrigin=(fallback='https://bmk-imo3d.vercel.app')=>origin(process.env.IMO3D_APP_ORIGIN,fallback);
 
+/**
+ * The old IMO3D password login (POST /api/imo3d/session and its imo3d_session cookie) is closed: the
+ * suite's login replaced it, and a second door that the suite's logout cannot shut is not kept open.
+ * IMO3D_PASSWORD_LOGIN=1 reopens it as a break-glass while the suite's login is unavailable.
+ */
+export function passwordLoginEnabled(){return process.env.IMO3D_PASSWORD_LOGIN==='1';}
+
 /** `next dev` on loopback is the developer's own machine: no suite, no login (unchanged local-mode rule). */
 export function localDevelopmentRequest(request:Request){
   return process.env.NODE_ENV==='development'&&['127.0.0.1','localhost','[::1]'].includes(new URL(request.url).hostname);

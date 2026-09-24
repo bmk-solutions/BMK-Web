@@ -38,7 +38,7 @@ const adminCookie=()=>{const expiry=String(Date.now()+60_000);return `imo3d_sess
 const req=(url:string,options:RequestInit={},admin=false)=>new Request(origin+'/api/imo3d/'+url,{...options,headers:{...(admin?{cookie:adminCookie()}:{}),...(options.method&&options.method!=='GET'?{Origin:origin,'Content-Type':'application/json'}:{}),...Object.fromEntries(new Headers(options.headers))}});
 const result=(value:unknown,status=200)=>new Response(JSON.stringify(value),{status,headers:{'Content-Type':'application/json'}});
 type Call={url:URL;method:string;body:Record<string,unknown>|null};let storedCredential:Record<string,unknown>|null=null;let calls:Call[]=[];let mock:(call:Call)=>Response|Promise<Response>;
-beforeEach(()=>{Object.assign(process.env,{IMO3D_CLOUD:'1',SUPABASE_URL:'https://synthetic.supabase.co',SUPABASE_SERVICE_ROLE_KEY:'synthetic-key',IMO3D_ADMIN_SECRET:secret,IMO3D_PUBLIC_ORIGIN:origin,IMO3D_DATA_DIR:path.resolve('work/cloud-test-must-not-create-database')});storedCredential=null;calls=[];mock=call=>{throw Error('Unexpected cloud request '+call.url.pathname);};globalThis.fetch=async(input,init)=>{const call={url:new URL(String(input)),method:init?.method??'GET',body:typeof init?.body==='string'?JSON.parse(init.body):null};if(call.url.pathname.endsWith("/imo3d_admin_credentials")&&call.method==="GET")return result(storedCredential?[storedCredential]:[]);calls.push(call);return mock(call);};});
+beforeEach(()=>{Object.assign(process.env,{IMO3D_CLOUD:'1',SUPABASE_URL:'https://synthetic.supabase.co',SUPABASE_SERVICE_ROLE_KEY:'synthetic-key',IMO3D_ADMIN_SECRET:secret,IMO3D_PASSWORD_LOGIN:'1',IMO3D_PUBLIC_ORIGIN:origin,IMO3D_DATA_DIR:path.resolve('work/cloud-test-must-not-create-database')});storedCredential=null;calls=[];mock=call=>{throw Error('Unexpected cloud request '+call.url.pathname);};globalThis.fetch=async(input,init)=>{const call={url:new URL(String(input)),method:init?.method??'GET',body:typeof init?.body==='string'?JSON.parse(init.body):null};if(call.url.pathname.endsWith("/imo3d_admin_credentials")&&call.method==="GET")return result(storedCredential?[storedCredential]:[]);calls.push(call);return mock(call);};});
 afterEach(()=>{globalThis.fetch=fetchOriginal;for(const key of Object.keys(process.env))if(!(key in envOriginal))delete process.env[key];Object.assign(process.env,envOriginal);});
 
 test('focused plan repair covers every known room and floor without repeating all 100 photographs',()=>{
@@ -767,4 +767,20 @@ test('the legacy password session cookie is scoped to this app, not to the whole
  mock=call=>call.url.pathname.endsWith('/imo3d_rate_limit')?result(true):(()=>{throw Error('Unexpected request');})();
  const response=await cloudRoute(req('session',{method:'POST',body:JSON.stringify({password:secret})}));
  assert.equal(response.status,200);assert.match(response.headers.get('set-cookie')!,/; Path=\/media-support\/tour; /);
+});
+
+test('by default the old password login is closed: its cookie is not admin and POST session is refused before any check',async()=>{
+ delete process.env.IMO3D_PASSWORD_LOGIN;const token='suite-token.'+'d'.repeat(40);process.env.MS_ZONE_ORIGIN='https://zone.example.test';
+ mock=call=>{
+  if(call.url.origin==='https://zone.example.test')return result({ok:true,uid:'owner',email:'owner@example.test'});
+  throw Error('Unexpected cloud request '+call.url.pathname);
+ };
+ assert.equal(await cloudIsAdmin(req('session',{},true)),false,'a valid legacy cookie opens nothing');
+ assert.deepEqual(await (await cloudRoute(req('session',{},true))).json(),{admin:false,local:false,cloud:true,uploadMode:'signed'});
+ assert.equal((await cloudRoute(req('dashboard',{},true))).status,401);
+ const login=await cloudRoute(req('session',{method:'POST',body:JSON.stringify({password:secret})}));
+ assert.equal(login.status,403);assert.equal(login.headers.has('set-cookie'),false);
+ assert.deepEqual(calls,[],'no rate-limit call and no credential lookup: the password is never checked');
+ assert.equal(await cloudIsAdmin(new Request(origin+'/media-support/tour/api/imo3d/session',{headers:{cookie:'ms_session='+token}})),true,'the suite session still opens the API');
+ process.env.IMO3D_PASSWORD_LOGIN='1';assert.equal(await cloudIsAdmin(req('session',{},true)),true,'the break-glass switch reopens it');
 });

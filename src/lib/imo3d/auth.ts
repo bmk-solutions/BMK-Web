@@ -1,14 +1,14 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { withinRateLimit } from "./store";
 import { IMO3D_BASE_PATH } from "./base-path.ts";
-import { localDevelopmentRequest, suiteBrowserOrigins, suiteSession } from "./suite.ts";
+import { localDevelopmentRequest, passwordLoginEnabled, suiteBrowserOrigins, suiteSession } from "./suite.ts";
 export function secureEqual(a:string,b:string) {
   const x=Buffer.from(a),y=Buffer.from(b);return x.length===y.length&&timingSafeEqual(x,y);
 }
-/** The owner: a studio-suite session (his login), or the legacy password session, still honoured by the API. */
+/** The owner: a studio-suite session (his login); the legacy password session only while IMO3D_PASSWORD_LOGIN=1. */
 export async function isAdmin(request:Request) {
   if(localDevelopmentRequest(request))return true;
-  return legacySessionAdmin(request)||!!await suiteSession(request);
+  return passwordLoginEnabled()&&legacySessionAdmin(request)||!!await suiteSession(request);
 }
 function legacySessionAdmin(request:Request) {
   const secret=process.env.IMO3D_ADMIN_SECRET;if(!secret||secret.length<32)return false;

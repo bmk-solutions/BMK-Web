@@ -11,7 +11,7 @@ const path: typeof import("node:path") = process.getBuiltinModule("node:path");
 import { addLead,dataDirectory,db,getTour,installExample,newProject,newTour,projects,saveTour,toursSummary,withinRateLimit } from "@/lib/imo3d/store";
 import { isAdmin,login,sameOrigin } from "@/lib/imo3d/auth";
 import {servePayloadPaths} from "@/lib/imo3d/base-path";
-import {embedTourURL} from "@/lib/imo3d/suite";
+import {embedTourURL,passwordLoginEnabled} from "@/lib/imo3d/suite";
 import {privateExamplePreview,PrivateExampleUnavailableError} from "@/lib/imo3d/private-example";
 import { cameraBundleSchema,type Scene,type Tour } from "@/lib/imo3d/model";
 import {initialRoomSemantic} from "@/lib/imo3d/room-semantics";
@@ -66,6 +66,7 @@ async function handle(request:Request,context:Context) {
   if(resource==="session"){
     if(method==="GET")return json({admin:sessionAdmin,local:process.env.NODE_ENV==="development"});
     if(integration)return fail("استخدم دخول الاستوديو لإدارة الجلسة",403);
+    if(!passwordLoginEnabled())return fail("الدخول بكلمة المرور متوقف. سجّل الدخول بحساب استوديو BMK.",403);
     const {password}=z.object({password:z.string().max(256)}).parse(await readJSON(request,2000));
     const cookie=login(request,password);return cookie?NextResponse.json({ok:true},{headers:{"Set-Cookie":cookie,"Cache-Control":"no-store"}}):fail("تعذر تسجيل الدخول. تحقق من رمز الإدارة.",401);
   }

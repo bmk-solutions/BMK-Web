@@ -32,7 +32,7 @@ Observed runtime baseline: Node **24.19.0**, npm **10.9.2**, Python **3.12.14**,
 ```powershell
 npm ci
 npm run dev -- --hostname 127.0.0.1 --port 3000
-npm run build
+$env:IMO3D_SUITE_BUILD='1'; npm run build   # branch claude/media-support-tour: see docs/imo3d-media-support.md, never merge into main
 npm run start -- --hostname 127.0.0.1 --port 3000
 npm run lint
 npx tsc --noEmit

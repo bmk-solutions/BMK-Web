@@ -4,15 +4,15 @@ import {withinRateLimit} from "./repository";
 import {hashAdminPassword,verifyAdminPassword} from '../admin-password';
 import {CloudHTTPError} from './http';
 import {IMO3D_BASE_PATH} from '../base-path';
-import {suiteBrowserOrigins,suiteSession} from '../suite';
+import {passwordLoginEnabled,suiteBrowserOrigins,suiteSession} from '../suite';
 export type CloudScope="read"|"write"|"leads";
 export type CloudAccess={sessionAdmin:boolean;integration:{id:string;projectId:string;scopes:CloudScope[]}|null;allowed:(projectId:string,scope?:CloudScope)=>boolean};
 export const secureEqual=(a:string,b:string)=>{const x=Buffer.from(a),y=Buffer.from(b);return x.length===y.length&&timingSafeEqual(x,y);};
 type Credential={id:string;password_hash:string;version:string};
 const signingSecret=()=>process.env.IMO3D_SESSION_SECRET||process.env.IMO3D_ADMIN_SECRET;
 async function credential(){return (await cloudQuery<Credential[]>('admin_credentials','select=password_hash,version&id=eq.administrator&limit=1'))[0]??null;}
-/** The owner: a studio-suite session (his login), or the legacy IMO3D password session, still honoured by the API. */
-export async function cloudIsAdmin(request:Request){return await legacySessionAdmin(request)||!!await suiteSession(request);}
+/** The owner: a studio-suite session (his login); the legacy IMO3D password session only while IMO3D_PASSWORD_LOGIN=1. */
+export async function cloudIsAdmin(request:Request){return passwordLoginEnabled()&&await legacySessionAdmin(request)||!!await suiteSession(request);}
 async function legacySessionAdmin(request:Request){
   const secret=signingSecret();if(!secret||secret.length<32)return false;
   const cookie=request.headers.get("cookie")?.split(";").map(v=>v.trim()).find(v=>v.startsWith("imo3d_session="))?.slice(14);

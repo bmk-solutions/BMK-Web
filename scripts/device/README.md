@@ -10,7 +10,8 @@ outward (claim, lease, heartbeat, commit), so nothing listens for the internet. 
 | `plans` | the local Codex (`codex exec`, the owner's ChatGPT subscription) for plans and photo retouch (`scripts/imo3d-subscription-worker.mjs`) | `IMO3D_PLAN_PROVIDER=codex` (Gemini is not injected), `IMO3D_CODEX_BIN` = newest `codex.exe` under `%LOCALAPPDATA%\OpenAI\Codex\bin` by modification time, re-read at every start |
 
 Both get `IMO3D_ENV_FILE` = this repository's `.env.cloud.local` (the only copy of the secrets).
-Child processes never receive them: Python gets a scrubbed environment, Codex an allow-list.
+Child processes never receive them: Python gets a scrubbed environment (the named keys plus any
+credential-shaped name: `*_SECRET`, `*_TOKEN`, `*_PASSWORD`, `*API_KEY`, `*_KEY` …), Codex an allow-list.
 
 ## Deploy folder (built from a commit, like the studio's `studio-live`)
 
@@ -23,6 +24,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\device\build-device-
 paths), `work\reconstruction-runtime.json` for this PC, and junctions (no copies) to this
 repository's `node_modules` and bundled runtimes under `work\`. The previous build is kept as
 `device-live.old`; junctions are unlinked before any folder is removed.
+
+**Only `scripts\` and `src\` are pinned to the commit.** `node_modules` and the runtimes under `work\`
+are the repository's own, live: an `npm install`/`npm ci` in the repository, or a checkout of a
+branch with other dependencies, changes what a running worker loads. Stop the workers before either
+and start them again after.
 
 ## Operate (from the deploy folder)
 
@@ -37,4 +43,7 @@ Get-Content D:\BMK\tour360\device-live\work\device-workers\plans.log -Tail 20
 
 `ensure-device-workers.ps1` is idempotent; each role runs through the repository's
 `start-imo3d-device-worker.ps1` (one supervisor per role, named mutex) and the supervisor restarts
-its worker with a 2-60 s backoff. Nothing here starts on its own: the cutover decides when.
+its worker with a 2-60 s backoff. That mutex is per folder, so `ensure-device-workers.ps1` also
+refuses a role (exit 1) while that role's supervisor or worker runs from anywhere else, e.g. the
+repository's `Start-IMO3D-Plan-Worker.ps1` or a supervisor started by hand.
+Nothing here starts on its own: the cutover decides when.

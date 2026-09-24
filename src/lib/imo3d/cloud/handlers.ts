@@ -21,7 +21,7 @@ import {editTourConnection,type ConnectionEdit} from "../connection-editing";
 import {removeTourScene} from "../scene-removal";
 import {mergeTourSpatial} from "../tour-merge";
 import {withoutBasePath} from "../base-path";
-import {embedTourURL} from "../suite";
+import {embedTourURL,passwordLoginEnabled} from "../suite";
 import {currentSurfaceModel,surfaceModelMime} from "../surface-model";
 import {currentTexturedMesh,meshModelMime,maxMeshBytes} from "../mesh-model";
 const tourSummary=(tour:Tour)=>{const {photoEdits,...safe}=tour;void photoEdits;return({...safe,scenes:tour.scenes.map(({depth,displayDepth,...scene})=>{void depth;void displayDepth;return scene;})});};
@@ -48,6 +48,8 @@ async function handle(request:Request){
   if(method==="GET")return json({admin:access.sessionAdmin,local:false,cloud:true,uploadMode:"signed"});
   if(access.integration)return fail("استخدم دخول الاستوديو لإدارة الجلسة.",403);
   if(method!=="POST")return fail("العملية غير متاحة.",405);
+  // The suite's login replaced the password; it is checked only while the break-glass switch is on.
+  if(!passwordLoginEnabled())return fail("الدخول بكلمة المرور متوقف. سجّل الدخول بحساب استوديو BMK.",403);
   const{password}=z.object({password:z.string().max(256)}).parse(await readJSON(request,2000)),cookie=await cloudLogin(request,password);
   return cookie?new Response(JSON.stringify({ok:true}),{headers:{"Content-Type":"application/json","Set-Cookie":cookie,"Cache-Control":"private, no-store"}}):fail("تعذر تسجيل الدخول. تحقق من رمز الإدارة.",401);
  }

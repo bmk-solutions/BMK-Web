@@ -255,13 +255,35 @@ async function send(body: Record<string, unknown>, options: GeminiCallOptions, c
   }
 }
 
+/** Gemini rejects `$schema` and item-count bounds on the pipeline's nested schemas
+ * (HTTP 400). Send those bounds as description text instead; the full schema is
+ * still enforced locally by `parse` on every response. */
+export function geminiResponseSchema(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(geminiResponseSchema);
+  if (!record(node)) return node;
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(node)) {
+    if (key === '$schema' || key === 'minItems' || key === 'maxItems') continue;
+    // Property names are data, not schema keywords.
+    result[key] = key === 'properties' && record(value)
+      ? Object.fromEntries(Object.entries(value).map(([name, child]) => [name, geminiResponseSchema(child)]))
+      : geminiResponseSchema(value);
+  }
+  const min = typeof node.minItems === 'number' ? node.minItems : undefined;
+  const max = typeof node.maxItems === 'number' ? node.maxItems : undefined;
+  if (min !== undefined || max !== undefined) {
+    const bound = min !== undefined && max !== undefined ? `between ${min} and ${max} items` : min !== undefined ? `at least ${min} item${min === 1 ? '' : 's'}` : `at most ${max} items`;
+    result.description = [typeof node.description === 'string' ? node.description : '', `Array must contain ${bound}.`].filter(Boolean).join(' ');
+  }
+  return result;
+}
 function schemaParts<T>(schema: GeminiSchema<T>) {
   try {
     if (schema instanceof z.ZodType) {
-      return {jsonSchema: z.toJSONSchema(schema), parse: (value: unknown) => schema.parse(value)};
+      return {jsonSchema: geminiResponseSchema(z.toJSONSchema(schema)) as Record<string, unknown>, parse: (value: unknown) => schema.parse(value)};
     }
     if (!record(schema) || !record(schema.jsonSchema) || typeof schema.parse !== 'function') fail('INVALID_ARGUMENT');
-    return schema;
+    return {jsonSchema: geminiResponseSchema(schema.jsonSchema) as Record<string, unknown>, parse: schema.parse};
   } catch {fail('INVALID_ARGUMENT');}
 }
 

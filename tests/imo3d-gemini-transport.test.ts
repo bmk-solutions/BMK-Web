@@ -333,3 +333,9 @@ test('accepts opaque current authorization keys but rejects header injection', a
  await transport.structuredJson({...base,apiKey:'synthetic.authorization-key='+ 'x'.repeat(600)});
  await rejectsCode(transport.structuredJson({...base,apiKey:'synthetic-key\r\nx-evil: value'}),'INVALID_ARGUMENT');
 });
+test('response schema sent to Gemini drops item bounds it rejects but keeps them as guidance',async()=>{
+ const {geminiResponseSchema}=await import('../src/lib/imo3d/gemini-transport');
+ const sent=geminiResponseSchema({$schema:'x',type:'object',properties:{minItems:{type:'array',minItems:1,maxItems:3,items:{type:'string'}}},required:['minItems']}) as {$schema?:string;properties:{minItems:{minItems?:number;description?:string;items:unknown}}};
+ assert.equal(sent.$schema,undefined);assert.equal(sent.properties.minItems.minItems,undefined,'property named like a keyword is kept as data');
+ assert.equal(sent.properties.minItems.description,'Array must contain between 1 and 3 items.');
+});

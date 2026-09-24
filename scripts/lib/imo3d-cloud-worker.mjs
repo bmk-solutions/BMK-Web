@@ -108,7 +108,7 @@ export async function runLocalReconstruction({root,directory,job,signal,onProgre
   const database=new DatabaseSync(path.join(directory,'imo3d.sqlite'),{readOnly:true});
   const log=[];let logBytes=0,killTimer,timeout;
   const childEnv={...process.env,IMO3D_DATA_DIR:directory,HF_HUB_OFFLINE:'1',TRANSFORMERS_OFFLINE:'1',HF_HUB_DISABLE_TELEMETRY:'1',PYTHONDONTWRITEBYTECODE:'1'};
-  for(const key of ['SUPABASE_URL','SUPABASE_SERVICE_ROLE_KEY','IMO3D_CLOUD_PROJECT_REF','IMO3D_CLOUD','OPENAI_API_KEY'])delete childEnv[key];
+  for(const key of ['SUPABASE_URL','SUPABASE_SERVICE_ROLE_KEY','SUPABASE_DATABASE_PASSWORD','IMO3D_CLOUD_PROJECT_REF','IMO3D_CLOUD','OPENAI_API_KEY','GEMINI_API_KEY','HIGGSFIELD_API_KEY','IMO3D_PLAN_RUNNER_SECRET','IMO3D_ADMIN_SECRET','IMO3D_SESSION_SECRET','CRON_SECRET'])delete childEnv[key];
   const child=spawn(process.execPath,[path.join(root,'scripts','imo3d-worker.mjs')],{
     cwd:root,windowsHide:true,stdio:['ignore','pipe','pipe'],
     env:childEnv,

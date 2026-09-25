@@ -26,4 +26,6 @@ export async function getBranding(projectId:string){
   const row=(await cloudQuery<{name:string;accent:string;logo_asset_id:string|null;logo_style:string}[]>('project_branding',`project_id=eq.${eq(projectId)}&limit=1`))[0];
   return row?{name:row.name,accent:row.accent,...(row.logo_asset_id?{logo:`/api/imo3d/branding-assets/${row.logo_asset_id}`}:{ }),logoStyle:row.logo_style as 'clean'|'original'}:{name:'IMO 3D',accent:'#24b18b'};
 }
+/** The project's own name and place, for the buyer's title and the shared card. */
+export async function getProjectCard(projectId:string):Promise<{name:string;location:string}|null>{return (await cloudQuery<{name:string;location:string}[]>('projects',`id=eq.${eq(projectId)}&select=name,location&limit=1`))[0]??null;}
 export async function withinRateLimit(key:string,limit:number,windowMs:number){return cloudRpc<boolean>('rate_limit',{p_key:key,p_limit:limit,p_window_ms:windowMs});}

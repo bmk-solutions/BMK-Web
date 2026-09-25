@@ -4,12 +4,13 @@ import {useMemo,useRef,useState} from "react";
 import type {Architecture} from "@/lib/imo3d/architecture";
 import {wallPolygon,formatArchitectureLength,roomMetrics,architectureIssues} from "@/lib/imo3d/architecture";
 import type {Scene} from "@/lib/imo3d/model";
+import {architectureLayers,type ArchitectureLayers,type ArchitecturePresentation} from "@/lib/imo3d/architecture-visibility";
 import {ArchitecturalModel3D} from "./ArchitecturalModel3D";
 import "./architectural-plan.css";
 
 type P={x:number;z:number};
-export type ArchitecturalPlanViewProps={architecture:Architecture;scenes:Scene[];current:string;yaw:number;onSelect:(id:string)=>void;mode?:"2d"|"3d";compact?:boolean};
-export type ArchitectureLayers={walls:boolean;doors:boolean;windows:boolean;columns:boolean;rooms:boolean;names:boolean;areas:boolean;dimensions:boolean;cameras:boolean;direction:boolean;confidence:boolean};
+export type ArchitecturalPlanViewProps={architecture:Architecture;scenes:Scene[];current:string;yaw:number;onSelect:(id:string)=>void;mode?:"2d"|"3d";compact?:boolean;presentation?:ArchitecturePresentation};
+export type {ArchitectureLayers};
 function inside(p:P,polygon:P[]){let yes=false;for(let i=0,j=polygon.length-1;i<polygon.length;j=i++){const a=polygon[i],b=polygon[j];if((a.z>p.z)!==(b.z>p.z)&&p.x<(b.x-a.x)*(p.z-a.z)/(b.z-a.z)+a.x)yes=!yes;}return yes;}
 /** Draw each wall independently with its own hosted openings; never erase a neighbour at a junction. */
 export function architecturalWallPlanPolygons(model:Architecture,wall:Architecture["walls"][number]):P[][]{
@@ -38,8 +39,8 @@ export function architectureCaptures(model:Architecture,scenes:Scene[]){
 function anchor(polygon:P[]){const xs=polygon.map(p=>p.x),zs=polygon.map(p=>p.z),minX=Math.min(...xs),minZ=Math.min(...zs),w=Math.max(...xs)-minX,h=Math.max(...zs)-minZ;let best=polygon[0],score=-1;for(let x=0;x<19;x++)for(let z=0;z<19;z++){const p={x:minX+w*(x+.5)/19,z:minZ+h*(z+.5)/19};if(!inside(p,polygon))continue;const clearance=Math.min(...polygon.map((a,i)=>{const b=polygon[(i+1)%polygon.length],dx=b.x-a.x,dz=b.z-a.z,t=Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.z-a.z)*dz)/(dx*dx+dz*dz||1)));return Math.hypot(p.x-a.x-t*dx,p.z-a.z-t*dz);}));if(clearance>score){score=clearance;best=p;}}return {...best,clearance:Math.max(0,score)};}
 const points=(p:P[])=>p.map(v=>`${v.x},${v.z}`).join(" ");
 
-export function ArchitecturalPlanView({architecture,scenes,current,yaw,onSelect,mode="2d",compact=false}:ArchitecturalPlanViewProps){
- const [layers,setLayers]=useState<ArchitectureLayers>({walls:true,doors:true,windows:true,columns:true,rooms:true,names:true,areas:true,dimensions:false,cameras:true,direction:true,confidence:false});
+export function ArchitecturalPlanView({architecture,scenes,current,yaw,onSelect,mode="2d",compact=false,presentation="tour"}:ArchitecturalPlanViewProps){
+ const [layers,setLayers]=useState<ArchitectureLayers>(()=>architectureLayers(presentation));
  const [zoom,setZoom]=useState(1),[pan,setPan]=useState({x:0,z:0});
  const drag=useRef<{x:number;y:number;pan:P;moved:boolean}|null>(null);
  const captures=useMemo(()=>architectureCaptures(architecture,scenes),[architecture,scenes]);

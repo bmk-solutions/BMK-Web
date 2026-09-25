@@ -91,7 +91,8 @@ export type Tour = {
   /** Operator-recorded lens height, scoped to the captures present when saved.
    * Sets relative-depth scale only; does not certify inferred geometry. */
   measurementScale?: {heightMeters:number;source:"operator_measured";sceneIds:string[]};
-  branding?: {name:string;logo?:string;accent:string;logoStyle?:"clean"|"original"};
+  /** projectName: the project's own name, which the buyer's title uses while the brand is the platform default. */
+  branding?: {name:string;logo?:string;accent:string;logoStyle?:"clean"|"original";projectName?:string};
   unit: { code: string; area: number | null; price: number | null; bedrooms: number | null; bathrooms: number | null };
   quality: { positioned: number; depthScenes: number; components: number; warnings: string[] };
 };

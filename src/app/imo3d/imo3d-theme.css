@@ -136,5 +136,17 @@ html[data-imo-theme=light] .imo-shell.imo-viewer .imo-mobile-dock{background:#f5
 html[data-imo-theme=light] .imo-shell.imo-viewer .imo-mobile-dock>.imo-glass{color:#17372f!important;background:transparent!important;border-color:transparent!important;backdrop-filter:none}
 html[data-imo-theme=light] .imo-shell.imo-viewer .imo-mobile-dock>.imo-glass:is(:hover,[aria-expanded=true],.active){background:#17372f14!important}
 html[data-imo-theme=light] .imo-shell.imo-viewer .imo-mobile-dock button:focus-visible{outline-color:#17372f}
+/* The rest of the viewer's controls over the panorama do the same: the controls toggle, the compact
+   plan's header, the unit summary, and the plan dialog's tools and close button. */
+html[data-imo-theme=light] .imo-shell.imo-viewer .imo-controls-toggle{background:#f5f8f6eb!important;color:#17372f;border-color:#ffffff;box-shadow:0 4px 20px #0b1f1a33}
+html[data-imo-theme=light] .imo-shell.imo-viewer .imo-controls-toggle:hover{background:#ffffff!important}
+html[data-imo-theme=light] .imo-shell.imo-viewer .imo-controls-toggle:focus-visible{outline-color:#17372f}
+html[data-imo-theme=light] .imo-viewer .imo-draft-minimap .imo-plan-header{background:#f5f8f6eb;border-radius:22px;box-shadow:0 4px 18px #0b1f1a26}
+html[data-imo-theme=light] .imo-viewer .imo-draft-minimap .imo-plan-header button{color:#17372f;text-shadow:none}
+html[data-imo-theme=light] .imo-viewer .imo-draft-minimap .imo-plan-header button:hover{background:#17372f14}
+html[data-imo-theme=light] .imo-viewer .imo-unit-summary{background:#f5f8f6eb;color:#17372f;text-shadow:none;border-radius:16px;padding:10px 6px;box-shadow:0 4px 18px #0b1f1a26}
+html[data-imo-theme=light] .imo-viewer .imo-unit-summary-stats svg{filter:none}
+html[data-imo-theme=light] .imo-viewer :is(.imo-draft-minimap button,.imo-unit-summary):focus-visible{outline-color:#17372f}
+html[data-imo-theme=light] .imo-viewer .imo-map-dialog .imo-viewer-draft-tools :is(button,a),html[data-imo-theme=light] .imo-viewer .imo-map-dialog>header button{background:#f5f8f6eb!important;color:#17372f!important;border:1px solid #ffffff;box-shadow:0 4px 18px #0b1f1a26}
 @media(max-width:900px){.imo-sidebar .imo-theme-toggle{width:auto;justify-content:center;padding:10px}.imo-sidebar .imo-theme-toggle span{display:none}}
 @media(max-width:600px){.imo-sidebar .imo-theme-toggle{margin:0;border:0}}

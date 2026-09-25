@@ -77,8 +77,9 @@ Supervisors load `.env.cloud.local` for children. The old root `Start-IMO3D-Plan
 
 | Path | Responsibility |
 |---|---|
-| `src/app/layout.tsx`, `globals.css` | Metadata, RTL root, global fonts/themes and marketing CSS |
-| `src/app/page.tsx`, about/contact/services/packages/legal routes | Public BMK marketing pages |
+| `src/app/layout.tsx`, `globals.css` | RTL document shell, global fonts/themes and marketing CSS |
+| `src/app/(site)/layout.tsx` | Marketing metadata, Organization JSON-LD, header and footer; the IMO3D routes (studio, `/t/<id>`) carry none of it |
+| `src/app/(site)/page.tsx`, about/contact/services/packages/legal routes | Public BMK marketing pages |
 | `src/content/frags.ts`, `src/components/Frag.tsx` | Prebuilt marketing HTML fragments rendered on server; not disposable generated output |
 | `public/assets/js/site.js`, `WebsiteChrome.tsx` | Marketing interactions/language/theme; excludes marketing chrome from IMO3D |
 | `src/app/imo3d/page.tsx`, `layout.tsx`, `imo3d.css` | Studio entry and shared styling |
@@ -149,7 +150,7 @@ All paths below are relative to the repository root; parent-folder responsibilit
 ```text
 src/app/.well-known/oauth-authorization-server/route.ts
 src/app/.well-known/oauth-protected-resource/route.ts
-src/app/about/page.tsx
+src/app/(site)/about/page.tsx
 src/app/api/imo3d/[...path]/route.ts
 src/app/api/imo3d/branding-assets/[id]/route.ts
 src/app/api/imo3d/developers/[[...id]]/route.ts
@@ -165,9 +166,9 @@ src/app/api/imo3d/tours/[id]/connections/route.ts
 src/app/api/imo3d/tours/[id]/route.ts
 src/app/api/imo3d/tours/[id]/scenes/[sceneId]/route.ts
 src/app/api/imo3d-chatgpt/[action]/route.ts
-src/app/contact/page.tsx
+src/app/(site)/contact/page.tsx
 src/app/globals.css
-src/app/icon.svg
+src/app/(site)/icon.svg
 src/app/imo3d/api/page.tsx
 src/app/imo3d/connect-chatgpt/page.tsx
 src/app/imo3d/imo3d.css
@@ -175,14 +176,15 @@ src/app/imo3d/layout.tsx
 src/app/imo3d/page.tsx
 src/app/imo3d/t/[id]/page.tsx
 src/app/layout.tsx
-src/app/packages/page.tsx
-src/app/page.tsx
-src/app/privacy/page.tsx
-src/app/refund-policy/page.tsx
+src/app/(site)/layout.tsx
+src/app/(site)/packages/page.tsx
+src/app/(site)/page.tsx
+src/app/(site)/privacy/page.tsx
+src/app/(site)/refund-policy/page.tsx
 src/app/robots.ts
-src/app/services/page.tsx
+src/app/(site)/services/page.tsx
 src/app/sitemap.ts
-src/app/terms/page.tsx
+src/app/(site)/terms/page.tsx
 ```
 
 ### `src/components`

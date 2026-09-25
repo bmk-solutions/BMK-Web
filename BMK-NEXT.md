@@ -17,9 +17,10 @@ npm start          # serve the production build
 Deploy: push to Git and import into **Vercel** (zero config for Next.js), or `vercel` CLI.
 
 ## How it's structured
-- `src/app/layout.tsx` — `<html lang=ar dir=rtl data-theme=dark>`, metadata, loads global CSS,
-  renders shared chrome + header + footer, and loads `/public/assets/js/site.js` via `next/script`.
-- Routes: `src/app/page.tsx` (home), `/services`, `/about`, `/packages`, `/contact` — each composes
+- `src/app/layout.tsx` — `<html lang=ar dir=rtl data-theme=dark>` and global CSS only.
+- `src/app/(site)/layout.tsx` — the marketing pages' metadata and Organization JSON-LD; renders shared
+  chrome + header + footer and loads `/public/assets/js/site.js` via `next/script`.
+- Routes: `src/app/(site)/page.tsx` (home), `/services`, `/about`, `/packages`, `/contact` — each composes
   section fragments via the `Frag` component and exports per-page `metadata`.
 - `src/components/Frag.tsx` — renders a section from `src/content/frags.ts` (a bundled string map
   generated from the verified static site, so content is guaranteed included in the serverless build).

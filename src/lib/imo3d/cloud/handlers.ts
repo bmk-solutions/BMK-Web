@@ -7,7 +7,7 @@ import {tourMedia} from './media';
 import {z} from "zod";
 import {cloudAccess,cloudChangePassword,cloudLogin,cloudSameOrigin} from "./auth";
 import {cloudQuery,cloudRpc,cloudSignedDownload} from "./client";
-import {createProject,deleteTour,getAsset,getBranding,getTour,listProjects,listTourSummaries,saveTour,withinRateLimit} from "./repository";
+import {createProject,deleteTour,getAsset,getBranding,getProjectCard,getTour,listProjects,listTourSummaries,saveTour,withinRateLimit} from "./repository";
 import {cloudManagement,cloudDevelopers} from "./management";
 import {cloudAIPlan,cloudLeadsPage,cloudProcessing} from "./jobs";
 import {cloudFailure,fail,json,publicJSON,readJSON,signedRedirect} from "./http";
@@ -68,9 +68,9 @@ async function handle(request:Request){
   if(action==='media')return json(await tourMedia(tour));
   if(action==='og-image')return tourShareImage(tour);
   if(action==='depth'){const depth=sceneDisplayDepth(tour,last!);return depth?publicJSON(depth,tour.published):fail("لا يتوفر عمق عرض لهذه اللقطة.",404);}
-  const [branding,media]=await Promise.all([getBranding(tour.projectId),new URL(request.url).searchParams.get('media')==='1'?tourMedia(tour).catch(()=>undefined):undefined]);
+  const [branding,project,media]=await Promise.all([getBranding(tour.projectId),getProjectCard(tour.projectId).catch(()=>null),new URL(request.url).searchParams.get('media')==='1'?tourMedia(tour).catch(()=>undefined):undefined]);
   // A buyer's arrival carries no display depth: the viewer fetches each scene's with its panorama.
-  return json({...publicTourPayload(tour,{presentation:!access.sessionAdmin,deferDepth:!access.sessionAdmin&&!access.integration}),...(access.sessionAdmin?{photoEdits:tour.photoEdits}:{}),branding,...(media?{media}:{})});
+  return json({...publicTourPayload(tour,{presentation:!access.sessionAdmin,deferDepth:!access.sessionAdmin&&!access.integration}),...(access.sessionAdmin?{photoEdits:tour.photoEdits}:{}),branding:{...branding,...(project?.name?{projectName:project.name}:{})},...(media?{media}:{})});
  }
  if(resource==="tours"&&id&&action==="ai-plan"){
   if(last&&last!=="image")return fail("المسار غير موجود.",404);

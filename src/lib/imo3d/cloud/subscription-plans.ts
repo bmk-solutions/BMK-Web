@@ -3,10 +3,22 @@ import {aiPlanFingerprint} from '../ai-plan-jobs';
 import {cloudQuery,cloudRpc,CloudError} from './client';
 import {eq,json,fail} from './http';
 import {cloudSameOrigin} from './auth';
-import {engineState,onlinePlanProvider,planWorkerLabel,PHOTOS_WORKER_ID,PLANS_WORKER_ID,type WorkerRow} from '../worker-presence';
+import {engineState,onlinePlanProvider,planWorkerLabel,PHOTOS_WORKER_ID,PLANS_WORKER_ID,type EngineState,type WorkerRow} from '../worker-presence';
 /** Every engine heartbeat on the owner's PC; the table holds a handful of rows. */
 export const workerRows=()=>cloudQuery<WorkerRow[]>('plan_workers','select=id,seen_at&limit=50');
-export async function photosEngineState(){try{return engineState(await workerRows(),PHOTOS_WORKER_ID);}catch{return 'unknown' as const;}}
+/**
+ * The photos engine as the studio reports it. A stale heartbeat is not the last word: a device-live
+ * rolled back to a build that does not beat still holds a live lease on the job it is running, and
+ * that engine is up (it takes the queued upload next). A read that fails says nothing: unknown.
+ */
+export async function photosEngineState(now=Date.now()):Promise<EngineState>{
+ try{
+  const state=engineState(await workerRows(),PHOTOS_WORKER_ID,now);
+  if(state!=='offline')return state;
+  const working=await cloudQuery<{id:string}[]>('processing_jobs',`status=eq.running&lease_until=gt.${now}&select=id&limit=1`);
+  return working.length?'online':'offline';
+ }catch{return 'unknown';}
+}
 export type SubscriptionJob={id:string;tour_id:string;project_id:string;input_hash:string;status:string;stage:string;error:string|null;created_at:string;draft_ids:string[]|null;lease_until:string|null;worker_id:string|null};
 export const sceneSnapshot=(tour:Tour)=>tour.scenes.map(({id,image,floor})=>({id,image,floor})).sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);
 export async function subscriptionPlanStatus(tour:Tour){

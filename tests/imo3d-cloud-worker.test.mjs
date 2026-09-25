@@ -5,6 +5,7 @@ import {DatabaseSync} from 'node:sqlite';
 import path from 'node:path';
 import {readPlanSpatialEvidence} from '../src/lib/imo3d/plan-spatial-evidence.ts';
 import {imageFingerprint} from '../src/lib/imo3d/processing-jobs.ts';
+import {WORKER_ONLINE_MS} from '../src/lib/imo3d/worker-presence.ts';
 import {startPresence,PHOTOS_WORKER_ID,buildLocalInputPlan,createJobWorkspace,createWorkerTransport,hashBytes,reconstructionChildEnvironment,pollCloudJobs as pollCloudJobsImpl,processCloudJob as processCloudJobImpl,runLocalReconstruction,seedLocalMirror,validateLocalResult,verifyDownloadedObject} from '../scripts/lib/imo3d-cloud-worker.mjs';
 const processCloudJob=options=>processCloudJobImpl({checkRuntime:async()=>({ok:true}),...options});
 const pollCloudJobs=options=>pollCloudJobsImpl({checkRuntime:async()=>({ok:true}),...options});
@@ -228,4 +229,12 @@ test('the photos role heartbeats its presence row by upsert, beside the job loop
   const loop={upsert:async(table,row)=>{polled.push(row.id);},rpc:async()=>{controller.abort();return null;}};
   await pollCloudJobs({root:'.',transport:loop,signal:controller.signal,pollMs:1000});assert.deepEqual(polled,['photos'],'a long-running worker beats; a one-shot run does not');
   const once=[];await pollCloudJobs({root:'.',transport:{upsert:async(table,row)=>{once.push(row.id);},rpc:async()=>null},signal:new AbortController().signal,once:true});assert.deepEqual(once,[]);
+});
+test('the photos heartbeat beats at least twice inside the studio’s online window, so a healthy engine never flaps offline',async t=>{
+  t.mock.timers.enable({apis:['setInterval']});
+  const beats=[];const presence=startPresence({upsert:async(table,row)=>{beats.push(row.id);}});
+  const flush=()=>new Promise(resolve=>setImmediate(resolve));
+  for(let elapsed=0;elapsed<WORKER_ONLINE_MS/2;elapsed+=1000){t.mock.timers.tick(1000);await flush();}
+  presence.stop();
+  assert.ok(beats.length>=2,`${beats.length} beat(s) in ${WORKER_ONLINE_MS/2} ms`);
 });

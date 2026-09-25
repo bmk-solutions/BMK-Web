@@ -17,7 +17,8 @@ import {PanoramaBlobCache} from '../src/components/imo3d/PanoramaBlobCache';
 import {cloudSignedDownloads} from '../src/lib/imo3d/cloud/client';
 import {chatgptOAuth,chatgptResource,signedValue,authorization,digest,chatgptConnection} from '../src/lib/imo3d/cloud/chatgpt-auth';
 import {chatgptMCP,callChatGPTTool,chatgptDrafts} from '../src/lib/imo3d/cloud/chatgpt-mcp';
-import {translatePlanIds,planFailureMessage,subscriptionChildEnvironment,validateSubscriptionAnalysis,validateImageReview,mergeSubscriptionReview} from '../src/lib/imo3d/subscription-plan-worker';
+import {translatePlanIds,planFailureMessage,subscriptionChildEnvironment,validateSubscriptionAnalysis,validateImageReview,mergeSubscriptionReview,ping} from '../src/lib/imo3d/subscription-plan-worker';
+import {onlinePlanProvider} from '../src/lib/imo3d/worker-presence';
 import {planCheckpointDirectory,readPlanCheckpoint,savePlanCheckpoint,preparePlanPhotos,selectPlanRepairPhotos,analyzePlanPhotoBatches} from '../src/lib/imo3d/plan-checkpoints';
 import {buildPlanSpatialEvidence,savePlanSpatialEvidence,readPlanSpatialEvidence} from '../src/lib/imo3d/plan-spatial-evidence';
 import {mkdtemp,mkdir,writeFile} from 'node:fs/promises';
@@ -790,7 +791,7 @@ test('by default the old password login is closed: its cookie is not admin and P
 const buyerDepth=()=>({width:32,height:16,values:Array.from({length:512},(_,i)=>i<64?0:3+i/1e5),confidence:.6,coverage:.875,source:'monocular-multiview-floor-aligned' as const,units:'camera_height' as const,purpose:'display_only' as const});
 test('a buyer arrival omits display depth and names the scenes that have it; the administrator keeps it',async()=>{
  const tour={...syntheticTour(),published:true};tour.scenes=tour.scenes.map((scene,index)=>index<2?{...scene,displayDepth:buyerDepth()}:scene);
- mock=call=>{if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);if(call.url.pathname.endsWith('/imo3d_project_branding'))return result([]);throw Error('unexpected '+call.url.pathname);};
+ mock=call=>{if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);if(call.url.pathname.endsWith('/imo3d_project_branding')||call.url.pathname.endsWith('/imo3d_projects'))return result([]);throw Error('unexpected '+call.url.pathname);};
  const buyer=await (await cloudRoute(req(`tours/${tour.id}`))).json();
  assert.ok(buyer.scenes.every((scene:Record<string,unknown>)=>!('displayDepth' in scene)));assert.deepEqual(buyer.deferredDepth,[tour.scenes[0].id,tour.scenes[1].id]);
  const admin=await (await cloudRoute(req(`tours/${tour.id}`,{},true))).json();
@@ -835,7 +836,7 @@ test('a shared link’s picture is the first scene, 1200×630 JPEG, for publishe
 test('a queued upload reports the photos engine: offline when its heartbeat is stale, unknown when it never beat',async()=>{
  const tour=syntheticTour();let photos:{id:string;seen_at:string}[]=[{id:'photos',seen_at:new Date(Date.now()-5*60_000).toISOString()}];
  const job={id:'job',tour_id:tour.id,status:'queued',progress:0,stage:'في انتظار المعالجة',created_at:new Date(Date.now()-3*60_000).toISOString(),updated_at:new Date(Date.now()-3*60_000).toISOString(),input_hash:'h',lease_until:0,error:null,result:null,warnings:[]};
- mock=call=>{if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);if(call.url.pathname.endsWith('/imo3d_processing_jobs'))return result([job]);if(call.url.pathname.endsWith('/imo3d_plan_workers'))return result(photos);throw Error('unexpected '+call.url.pathname);};
+ mock=call=>{if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);if(call.url.pathname.endsWith('/imo3d_processing_jobs'))return result(call.url.searchParams.get('status')==='eq.running'?[]:[job]);if(call.url.pathname.endsWith('/imo3d_plan_workers'))return result(photos);throw Error('unexpected '+call.url.pathname);};
  const offline=parseProcessingJob(await (await cloudRoute(req(`tours/${tour.id}/processing`,{},true))).json());assert.equal(offline?.photosEngine,'offline');
  photos=[];assert.equal(parseProcessingJob(await (await cloudRoute(req(`tours/${tour.id}/processing`,{},true))).json())?.photosEngine,'unknown');
  photos=[{id:'photos',seen_at:new Date().toISOString()}];assert.equal(parseProcessingJob(await (await cloudRoute(req(`tours/${tour.id}/processing`,{},true))).json())?.photosEngine,'online');
@@ -854,4 +855,75 @@ test('the shared-link card is read on the server from the published tour, its br
  tour.published=false;assert.deepEqual((await tourShareMetadata(tour.id)).title,{absolute:'جولة افتراضية 360°'});
  mock=()=>{throw Error('outage');};assert.deepEqual((await tourShareMetadata('synthetic-tour')).title,{absolute:'جولة افتراضية 360°'});
  assert.deepEqual((await tourShareMetadata('../x')).title,{absolute:'جولة افتراضية 360°'});
+});
+
+test('ENG-1: the plans worker heartbeat creates exactly its presence row and its provider row, then only refreshes them',async()=>{
+ const rows=new Map<string,string>(),writes:string[]=[];
+ mock=call=>{
+  assert.ok(call.url.pathname.endsWith('/imo3d_plan_workers'),call.url.pathname);
+  if(call.method==='PATCH'){const id=decodeURIComponent(call.url.searchParams.get('id')!.replace(/^eq\./,''));writes.push('PATCH '+id);if(!rows.has(id))return result([]);rows.set(id,String(call.body!.seen_at));return result([{id}]);}
+  assert.equal(call.method,'POST');const id=String(call.body!.id);writes.push('POST '+id);rows.set(id,String(call.body!.seen_at));return result([{id}],201);
+ };
+ await ping('codex');
+ assert.deepEqual([...rows.keys()].sort(),['subscription','subscription:codex']);
+ assert.deepEqual(writes,['PATCH subscription','POST subscription','PATCH subscription:codex','POST subscription:codex']);
+ writes.length=0;await ping('codex');assert.deepEqual(writes,['PATCH subscription','PATCH subscription:codex'],'a second beat only refreshes');
+ writes.length=0;await ping();assert.deepEqual(writes,['PATCH subscription'],'a worker that names no provider writes only presence');
+ const now=Date.now();assert.equal(onlinePlanProvider([...rows].map(([id,seen_at])=>({id,seen_at})),now),'codex');
+});
+test('ENG-2 / ENG-3: the photos engine is not called offline while a job holds a live lease, and a failed read says unknown',async()=>{
+ const tour=syntheticTour(),stale=[{id:'photos',seen_at:new Date(Date.now()-6*3_600_000).toISOString()}];let running:{id:string}[]=[{id:'other-tour-job'}],workersFail=false;
+ const job={id:'job',tour_id:tour.id,status:'queued',progress:0,stage:'في انتظار المعالجة',created_at:new Date(Date.now()-3*60_000).toISOString(),updated_at:new Date(Date.now()-3*60_000).toISOString(),input_hash:'h',lease_until:0,error:null,result:null,warnings:[]};
+ mock=call=>{
+  if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);
+  if(call.url.pathname.endsWith('/imo3d_plan_workers'))return workersFail?result({code:'PGRST000'},503):result(stale);
+  if(call.url.pathname.endsWith('/imo3d_processing_jobs')){
+   if(call.url.searchParams.get('status')==='eq.running'){assert.match(call.url.searchParams.get('lease_until')!,/^gt\.\d{13}$/);assert.ok(Number(call.url.searchParams.get('lease_until')!.slice(3))>=Date.now()-5_000,'the lease must be live now');return result(running);}
+   return result([job]);
+  }
+  throw Error('unexpected '+call.url.pathname);
+ };
+ const engine=async()=>parseProcessingJob(await (await cloudRoute(req(`tours/${tour.id}/processing`,{},true))).json())?.photosEngine;
+ assert.equal(await engine(),'online','an engine rolled back to a build that does not beat is working on another tour');
+ running=[];assert.equal(await engine(),'offline');
+ workersFail=true;assert.equal(await engine(),'unknown','a PostgREST hiccup is not an outage');
+});
+test('ENG-3: an unpublished tour’s plan WebP and share picture are never cached publicly, even for the administrator',async()=>{
+ const tour={...syntheticTour(),published:false},png=await sharp({create:{width:900,height:1200,channels:3,background:'white'}}).png().toBuffer(),panorama=await sharp({create:{width:2048,height:1024,channels:3,background:'#8aa'}}).webp().toBuffer();tour.scenes[0].preview='/api/imo3d/assets/preview-0';
+ mock=call=>{
+  if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);
+  if(call.url.pathname.endsWith('/imo3d_approved_plan_refs'))return result([{tour_id:tour.id,floor:0,job_id:'job',input_hash:aiPlanFingerprint(tour.scenes),scene_ids:[],storage_key:'private/plan.png'}]);
+  if(call.url.pathname==='/storage/v1/object/authenticated/imo3d-private/private/plan.png')return new Response(new Uint8Array(png));
+  if(call.url.pathname.endsWith('/imo3d_assets'))return result([{id:'preview-0',tour_id:tour.id,file:'p.webp',mime:'image/webp',storage_key:'tour/preview.webp'}]);
+  if(call.url.pathname==='/storage/v1/object/authenticated/imo3d-private/tour/preview.webp')return new Response(new Uint8Array(panorama));
+  throw Error('unexpected '+call.url.pathname);
+ };
+ for(const variant of ['webp','mini']){const image=await cloudRoute(req(`tours/${tour.id}/ai-plan/image?job=job&floor=0&variant=${variant}`,{},true));assert.equal(image.status,200);assert.equal(image.headers.get('cache-control'),'private, no-store',variant);}
+ const card=await cloudRoute(req(`tours/${tour.id}/og-image`,{},true));assert.equal(card.status,200);assert.equal(card.headers.get('cache-control'),'private, no-store');
+ tour.published=true;
+ assert.equal((await cloudRoute(req(`tours/${tour.id}/og-image`))).headers.get('cache-control'),'public, max-age=3600, s-maxage=86400');
+});
+test('ENG-3: an integration key reads the whole tour, display depth included; only an anonymous arrival defers it',async()=>{
+ const token='imo3d_'+'b'.repeat(43),tour={...syntheticTour(),published:true};tour.scenes[0]={...tour.scenes[0],displayDepth:buyerDepth()};
+ mock=call=>{
+  if(call.url.pathname.endsWith('/imo3d_integration_keys'))return result([{id:'key',project_id:tour.projectId,scopes:['read'],last_used_at:new Date().toISOString()}]);
+  if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);
+  if(call.url.pathname.endsWith('/imo3d_project_branding')||call.url.pathname.endsWith('/imo3d_projects'))return result([]);
+  throw Error('unexpected '+call.url.pathname);
+ };
+ const data=await (await cloudRoute(req(`tours/${tour.id}`,{headers:{Authorization:'Bearer '+token}}))).json();
+ assert.equal(data.scenes[0].displayDepth.width,32);assert.equal(data.deferredDepth,undefined);
+});
+test('BUY-4: a buyer’s tour names its project, so the tab title matches the shared card',async()=>{
+ const tour={...syntheticTour(),published:true};
+ mock=call=>{
+  if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);
+  if(call.url.pathname.endsWith('/imo3d_project_branding'))return result([]);
+  if(call.url.pathname.endsWith('/imo3d_projects')){assert.equal(call.url.searchParams.get('id'),'eq.'+tour.projectId);return result([{name:'Aved',location:'جدة'}]);}
+  throw Error('unexpected '+call.url.pathname);
+ };
+ const data=await (await cloudRoute(req(`tours/${tour.id}`))).json();
+ assert.deepEqual(data.branding,{name:'IMO 3D',accent:'#24b18b',projectName:'Aved'});
+ mock=call=>{if(call.url.pathname.endsWith('/imo3d_projects'))throw Error('outage');if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);return result([]);};
+ assert.deepEqual((await (await cloudRoute(req(`tours/${tour.id}`))).json()).branding,{name:'IMO 3D',accent:'#24b18b'},'the tour still opens when the project read fails');
 });

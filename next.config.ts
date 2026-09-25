@@ -26,6 +26,16 @@ export function assertSuiteBuild(env: BuildEnv = process.env) {
   throw new Error("This branch serves IMO3D at /media-support/tour and is built only for the bmk-imo3d Vercel project. Never merge it into main (the marketing site). For a local verification build set IMO3D_SUITE_BUILD=1.");
 }
 
+/**
+ * User agents that get the shared-link card in <head>. Next streams metadata into <body> for every
+ * agent outside its own short list, and a link-preview crawler reads only <head>: Snapchat, Viber,
+ * Signal and Teams (all used to share a tour in KSA) saw no title, picture or name. This keeps
+ * Next's list (WhatsApp, Telegram, Facebook/iMessage, X, Slack, Discord, LinkedIn…) and adds every
+ * agent that calls itself a bot, crawler, spider or preview. A browser keeps streamed metadata.
+ */
+export const LINK_PREVIEW_BOTS =
+  /[\w-]+-Google|Google-[\w-]+|Chrome-Lighthouse|Slurp|DuckDuckBot|baiduspider|yandex|sogou|bitlybot|tumblr|vkShare|quora link preview|redditbot|ia_archiver|Bingbot|BingPreview|applebot|facebookexternalhit|facebookcatalog|Twitterbot|LinkedInBot|Slackbot|Discordbot|WhatsApp|SkypeUriPreview|Yeti|googleweblight|bot|crawler|spider|preview|snapchat|viber|telegram|signal|teams|skype|pinterest|kakaotalk|line-poker|embedly|iframely/i;
+
 export function imo3dConfig(env: BuildEnv = process.env): NextConfig {
   // This deployment's own host. The old public URLs, the ChatGPT connector (its OAuth issuer)
   // and every embed stay here; the suite (os.bmk.solutions) forwards /media-support/tour/* to it.
@@ -46,6 +56,7 @@ export function imo3dConfig(env: BuildEnv = process.env): NextConfig {
     // Keep production verification separate from the running local preview.
     distDir: env.IMO3D_BUILD_DIR || ".next",
     devIndicators: false,
+    htmlLimitedBots: LINK_PREVIEW_BOTS,
     async redirects() {
       return [
         // Inside the basePath: one address per page (the studio is the root, a tour is /t/<id>).

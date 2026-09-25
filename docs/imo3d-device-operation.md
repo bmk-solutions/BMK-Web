@@ -67,12 +67,20 @@ its row is younger than 90 s. No column was added: the provider is a second row.
 |---|---|---|
 | `subscription` | plans role, every poll and every 20 s during a job | plans worker online |
 | `subscription:codex` / `subscription:gemini-local` | plans role, beside the row above | «عامل Codex» / «عامل Gemini» in the studio; no row = «عامل المخططات» |
-| `photos` | photos role, every 30 s beside its job loop (`startPresence`), best effort | a queued upload older than 90 s with a stale row shows «محرك الصور على جهازك غير متصل…» |
+| `photos` | photos role, every 30 s beside its job loop (`startPresence`), best effort | a queued upload older than 90 s with a stale row, and no processing job holding a live lease, shows «محرك الصور على جهازك غير متصل…» |
 
 A role that has never written its row is `unknown`, not offline: a folder built before this change keeps
 working and is simply not reported. The rows appear once `device-live` is rebuilt from a commit that
 contains this change (`build-device-live.ps1 -Commit <sha>`, workers stopped first). Photo retouch runs in
 the plans role, so the retouch panel reads the plans row.
+
+**Rolling `device-live` back to a build older than 2fa98e2.** The rows stay behind and go stale while the
+old build keeps working, so after the rollback (workers stopped first) delete them:
+`DELETE FROM public.imo3d_plan_workers WHERE id IN ('photos','subscription:codex','subscription:gemini-local');`
+(`subscription` itself stays: every build writes it). The studio is also safe if this step is missed: a
+stale `photos` row is not called offline while any processing job holds a live lease (the old engine is
+working and takes the queued upload next), and a stale `subscription:<provider>` row is ignored, so the
+panel falls back to «عامل المخططات».
 
 ## Plan: make `device-live` self-contained (design only, 2026-09-25 — nothing changed yet)
 

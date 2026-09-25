@@ -5,7 +5,7 @@ import {useEffect,useState} from "react";
 import type {AIPlanJob} from "@/lib/imo3d/ai-plan-jobs";
 import {ChatGPTDrafts} from './ChatGPTDrafts';
 import {withBasePath} from "@/lib/imo3d/base-path";
-import {planWorkerLabel,type PlanProvider} from "@/lib/imo3d/worker-presence";
+import {planPanelStatusText,type PlanProvider} from "@/lib/imo3d/worker-presence";
 export type AIPlanPanelStatus={configured:boolean;provider?:PlanProvider|null;workerOnline?:boolean;job:AIPlanJob|null;stale:boolean};
 export function AIPlanPanel({tourId,sceneCount,disabled,processing=false,compact=false,onOpenPlan,onStatusChange}:{tourId:string;sceneCount:number;disabled:boolean;processing?:boolean;compact?:boolean;onOpenPlan?:()=>void;onStatusChange?:(status:AIPlanPanelStatus|null)=>void}){
  const [status,setStatus]=useState<AIPlanPanelStatus|null>(null),[error,setError]=useState(''),[pollError,setPollError]=useState(''),[busy,setBusy]=useState(false);
@@ -20,7 +20,7 @@ export function AIPlanPanel({tourId,sceneCount,disabled,processing=false,compact
  return <section className="imo-form" style={{padding:20,border:'1px solid #dce6e0',borderRadius:16,marginBottom:20}}>
   <div><h3>مخطط 2D من تحليل الصور</h3><p>مسار متتابع لكل جولة: رفع اللقطات، فحص الصور، ربط المواقع، ثم مراجعة توزيع الغرف ورسم المخطط المفروش. النتائج تقديرية وتحتاج مراجعة؛ لا تتحول إلى قياسات أو مخطط منشور تلقائيًا.</p></div>
   {sceneCount>100&&<p>توليد المخطط يدعم حتى 100 لقطة لكل جولة؛ الربط المكاني يدعم حتى 300. يمكنك إنشاء عدة جولات داخل المشروع.</p>}
-  {status&&<p role="status">{planWorkerLabel(status.provider,!!status.workerOnline)} {status.workerOnline?`تُحلل صور هذه الجولة ويُنشأ مخطط مفروش خاص بها؛ يمكنك تعديل أسماء الغرف قبل النشر. ${status.provider==='codex'?'يعمل باشتراك ChatGPT المسجّل على الجهاز.':status.provider==='gemini-local'?'يستخدم حساب Gemini API المهيّأ على الجهاز.':''}`:'زر التحليل يعمل عند اتصاله.'} أبقِ الجهاز متصلًا أثناء العمل.</p>}
+  {status&&<p role="status">{planPanelStatusText(status)}</p>}
   <div className="imo-dialog-actions"><button type="button" className="imo-button primary" disabled={disabled||processing||busy||active||!status?.configured||sceneCount<2||sceneCount>100} onClick={()=>void run('POST')}>{processing?'بانتظار تحليل الصور والربط…':active?'جارٍ إنشاء المسودة…':'تحليل الصور وإنشاء مخطط'}</button>{active&&<button type="button" className="imo-button secondary" disabled={busy} onClick={()=>void run('DELETE')}>إيقاف المعالجة</button>}</div>
   {processing&&<p role="status">تُجهّز أدلة الصور والربط أولًا. يبدأ تحليل المخطط تلقائيًا بعدها، وتظهر المناطق التي لم تُحسم للمراجعة.</p>}
   {active&&<div role="status" style={{padding:16,borderRadius:12,background:'#eef6f2',display:'grid',gap:10}}>

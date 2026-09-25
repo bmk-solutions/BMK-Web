@@ -33,6 +33,17 @@ export function onlinePlanProvider(rows:readonly WorkerRow[],now=Date.now()):Pla
  seen.sort((a,b)=>Date.parse(b.row!.seen_at)-Date.parse(a.row!.seen_at));
  return seen[0]?.provider??null;
 }
+/**
+ * The status line of the studio's plan panel. The cloud lane reports its PC worker (`workerOnline`);
+ * a desk copy has no worker and says whether the server's own API key is set.
+ */
+export type PlanPanelStatus={configured:boolean;provider?:PlanProvider|null;workerOnline?:boolean};
+export function planPanelStatusText(status:PlanPanelStatus){
+ if(typeof status.workerOnline!=='boolean')return status.configured?'يستخدم هذا المسار حساب API المهيّأ على الخادم.':'التوليد التلقائي غير مهيّأ على هذه النسخة.';
+ if(!status.workerOnline)return `${planWorkerLabel(status.provider,false)} زر التحليل يعمل عند اتصاله.`;
+ const account=status.provider==='codex'?' يعمل باشتراك ChatGPT المسجّل على الجهاز.':status.provider==='gemini-local'?' يستخدم حساب Gemini API المهيّأ على الجهاز.':'';
+ return `${planWorkerLabel(status.provider,true)} تُحلل صور هذه الجولة ويُنشأ مخطط مفروش خاص بها؛ يمكنك تعديل أسماء الغرف قبل النشر.${account} أبقِ الجهاز متصلًا أثناء العمل.`;
+}
 /** The studio's label for the plans worker, true to what it reported. */
 export function planWorkerLabel(provider:PlanProvider|null|undefined,online:boolean){
  const name=provider==='codex'?'عامل Codex':provider==='gemini-local'?'عامل Gemini':'عامل المخططات';

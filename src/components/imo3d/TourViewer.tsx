@@ -30,6 +30,7 @@ import "./viewer-clean.css";
 import "./viewer-presentation.css";
 import {defaultPlanView,hasReviewedArchitecture} from "@/lib/imo3d/architecture-visibility";
 import {studioLink} from "@/lib/imo3d/viewer-chrome";
+import {tourShareTitle} from "@/lib/imo3d/share-card";
 import {ThemeToggle} from "./ThemeToggle";
 import {withBasePath} from "@/lib/imo3d/base-path";
 type ViewerMedia={expiresAt:number;urls:Record<string,string>};
@@ -174,7 +175,8 @@ function Viewer({tour,studio,initialSceneId}:{tour:ViewerTour;studio:string|null
     updateViewport();updateFullscreen();viewport.addEventListener("change",updateViewport);document.addEventListener("fullscreenchange",updateFullscreen);
     return()=>{viewport.removeEventListener("change",updateViewport);document.removeEventListener("fullscreenchange",updateFullscreen);};
   },[]);
-  useEffect(()=>{document.title=`${tour.title} — ${tour.branding?.name||"IMO 3D"}`;},[tour]);
+  // The same title as the shared card: the developer's name, never the platform's.
+  useEffect(()=>{document.title=tourShareTitle({title:tour.title,brandName:tour.branding?.name,projectName:tour.branding?.projectName});},[tour]);
   useEffect(()=>{panelRef.current=panel;measureRef.current=measure;pointsRef.current=points;engine.current?.invalidate();},[panel,measure,points]);
   async function navigate(target:Scene,walk=true,entry=false) {
     const viewer=engine.current;if(!viewer||!initialized.current)return;
@@ -379,7 +381,7 @@ function Viewer({tour,studio,initialSceneId}:{tour:ViewerTour;studio:string|null
       </div>
     </Dialog>}
     {panel==="rooms"&&<Dialog title="الغرف" className="imo-rooms-dialog" onClose={()=>openPanel(null)}><div className="imo-room-titles">{choices.map(choice=><button key={choice.id} onPointerEnter={()=>warmTarget(choice.scene.id)} onFocus={()=>warmTarget(choice.scene.id)} onClick={()=>chooseRoom(choice.scene)}>{choice.name}</button>)}</div></Dialog>}
-    {panel==="map"&&<Dialog title="مخطط الشقة" wide className="imo-map-dialog" onClose={()=>openPanel(null)}>{tour.plans.length>1&&<div className="imo-floor-tabs">{tour.plans.map(p=><button key={p.floor} className={p.floor===floor?"selected":""} onClick={()=>setFloor(p.floor)}>{p.label}</button>)}</div>}<ViewerFloorPlan cache={planCache} onIntent={warmTarget} scenes={tour.scenes} yaw={yaw} key={`${tour.id}/${floor}`} tourId={tour.id} floor={floor} current={current.id} sceneIds={tour.scenes.filter(s=>s.floor===floor).map(s=>s.id)} onSelect={id=>{const target=scenesById.current.get(id);if(target){void navigate(target,false);openPanel(null);}}} hasInteractivePlan={defaultPlanView(plan)==="architecture"}>{plan?<InteractiveFloorPlan tourTitle={tour.title} brandingName={branding?.name} mode={mapMode} onModeChange={setMapMode} spatialScale={tour.spatialScale} onMeasure={toggleMeasurement} plan={plan} scenes={tour.scenes} current={current.id} yaw={yaw} position={current.floor===floor?position??undefined:undefined} onSelect={id=>{const next=scenesById.current.get(id);if(next){void navigate(next,false);openPanel(null);}}}/>:<p role="status">لا يوجد مخطط جاهز لهذا الدور بعد.</p>}{hasReviewedArchitecture(plan)&&<p className="imo-muted">اختر موقعًا من المخطط للانتقال إليه.</p>}</ViewerFloorPlan></Dialog>}
+    {panel==="map"&&<Dialog title="مخطط الشقة" wide className="imo-map-dialog" onClose={()=>openPanel(null)}>{tour.plans.length>1&&<div className="imo-floor-tabs">{tour.plans.map(p=><button key={p.floor} className={p.floor===floor?"selected":""} onClick={()=>setFloor(p.floor)}>{p.label}</button>)}</div>}<ViewerFloorPlan cache={planCache} onIntent={warmTarget} scenes={tour.scenes} yaw={yaw} key={`${tour.id}/${floor}`} tourId={tour.id} floor={floor} current={current.id} sceneIds={tour.scenes.filter(s=>s.floor===floor).map(s=>s.id)} onSelect={id=>{const target=scenesById.current.get(id);if(target){void navigate(target,false);openPanel(null);}}} hasInteractivePlan={defaultPlanView(plan)==="architecture"}>{plan?<InteractiveFloorPlan presentation="clean" tourTitle={tour.title} brandingName={branding?.name} mode={mapMode} onModeChange={setMapMode} spatialScale={tour.spatialScale} onMeasure={toggleMeasurement} plan={plan} scenes={tour.scenes} current={current.id} yaw={yaw} position={current.floor===floor?position??undefined:undefined} onSelect={id=>{const next=scenesById.current.get(id);if(next){void navigate(next,false);openPanel(null);}}}/>:<p role="status">لا يوجد مخطط جاهز لهذا الدور بعد.</p>}{hasReviewedArchitecture(plan)&&<p className="imo-muted">اختر موقعًا من المخطط للانتقال إليه.</p>}</ViewerFloorPlan></Dialog>}
     {(panel==="info"||panel==="lead")&&<Dialog title={panel==="lead"?"سجّل اهتمامك":"تفاصيل الوحدة"} onClose={()=>openPanel(null)}><UnitCard tour={tour} lead={panel==="lead"} onLead={()=>openPanel("lead")}/></Dialog>}
   </div>;
 }

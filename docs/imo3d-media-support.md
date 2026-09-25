@@ -131,3 +131,41 @@ suite, and the cookie scope.
 - Light/dark: `data-imo-theme` on `<html>` from the suite's own `bmk-theme` key, before the first paint
   (`src/lib/imo3d/theme.ts`); toggles in the studio sidebar and the viewer's options. The panorama keeps its
   dark frame; the viewer's dock, dialogs and plan panels follow the theme (`src/app/imo3d/imo3d-theme.css`).
+
+## «سجّل اهتمامك» goes to VERA and Developer OS (2026-09-25)
+
+The buyer's request is no longer kept here. `POST /api/imo3d/leads` forwards it, signed, to VERA
+(bmk-spatial under `/imo3d`), which routes it to the linked Developer OS project, the linked developer,
+or BMK's own inbox (unlinked). Code: `src/lib/imo3d/vera-integration.ts` (signer, requests, context cache),
+`src/lib/imo3d/tour-lead.ts` (accept → limits → forward → masked audit), `src/lib/imo3d/tour-interest.ts`
+(what the buyer's page shows), `src/lib/imo3d/cloud/vera-links.ts` (the studio's link selects).
+
+| Variable (Production only) | Purpose |
+|---|---|
+| `VERA_INTEGRATION_SECRET` | VERA's «tour360» secret (≥ 32 random bytes; the same value as bmk-spatial `VERA_INTEGRATION_SECRET_TOUR360`). Unset = feature off: no button, a request answers 503 |
+| `VERA_INTEGRATION_ORIGIN` | bmk-spatial's own production origin (not os.bmk.solutions); `/imo3d` is added by the code |
+
+- Signature: headers `x-vera-app: tour360`, `x-vera-ts` (Unix **seconds**), `x-vera-nonce` (16 random
+  bytes, base64url), `x-vera-signature: v1=<base64url HMAC-SHA256(secret, canonical)>`, canonical =
+  `vera-int-v1\n<app>\n<ts>\n<nonce>\n<METHOD>\n<path after /imo3d>?<query as sent>\n<base64url sha256(raw body)>`.
+  Fixed vectors: `tests/imo3d-vera-federation.test.ts` (VERA-SIG) carries bmk-spatial's four contract vectors
+  verbatim (`tests/unit/integration-signature.test.mjs` there), so the two signers are one function.
+  A Vercel preview never forwards (`VERCEL_ENV` other than `production` turns the feature off).
+- The lead body carries the tour's own ids (`ref.project` = tour project, `ref.developer` = its tour developer read
+  on the server, `ref.item` = tour), `unit.code`, consent `vera-consent-2026-09-25`, the public URL and
+  `client.ipHash` (HMAC of the IP; VERA never sees the address). VERA normalises the phone.
+- `GET /api/imo3d/tours/<id>` adds `interest: {enabled, developerName, whatsapp, unitOffMarket, privacyUrl, beacon}`
+  from VERA's context (`GET /api/integrations/v1/context?project=&developer=&unit=`, cached 60 s, failures too). A sold/reserved unit hides the button; the WhatsApp button uses
+  the developer's number and counts `wa_click`. Beacons (`tour_view`, `wa_click`, `mortgage_use`) go to
+  `/imo3d/api/events` only when the page is on the suite's origin, with ids only.
+- Edge protection: honeypot → silent 201; per-IP 10 / 10 min and 30 / h; per-phone-per-tour 3 / h; per-tour 100 / h.
+  Every key is a keyed hash, never an address or a number.
+- `imo3d_leads` is a masked audit (`05••••123`, tour, time, `forwarded_at`, `vera_routed`), written only after VERA
+  holds the lead: `supabase/migrations/20260925120000_imo3d_lead_audit.sql` drops `name` and `note` and refuses a full
+  number. **Written, not applied** — apply it before (or with) the deploy of this code.
+- Studio: «ربط بمشروع في Developer OS» in the project dialog, «ربط بمطوّر في Developer OS» in the developer dialog,
+  the chip «غير مربوط — الطلبات تذهب إلى صندوق BMK» when requests fall back. Publishing or unpublishing re-states a
+  linked project's URL in VERA's registry (best effort; the tour is saved either way). VERA's context names the linked
+  developer and project without ids, so the tour finds the ids by exact name in VERA's catalogue; two entries with one
+  name resolve to nothing (no write). A tour developer's own link is read with the probe project `developer-link:<id>`.
+- The local SQLite adapter forwards the same way only when the secret is set; without it, it keeps its old behaviour.

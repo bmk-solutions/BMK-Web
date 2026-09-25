@@ -45,6 +45,11 @@ export function embedTourURL(tourId:string,fallbackOrigin?:string){
   return appOrigin(fallbackOrigin)+IMO3D_BASE_PATH+'/t/'+encodeURIComponent(tourId);
 }
 
+/** The buyer's own address for a published tour: through the suite, where it is shared. */
+export function publicTourURL(tourId:string){
+  return suiteOrigin()+IMO3D_BASE_PATH+'/t/'+encodeURIComponent(tourId);
+}
+
 /** Browser origins that serve this app's pages through the suite (same-origin writes from them are the owner's). */
 export function suiteBrowserOrigins(){
   const values:string[]=[];

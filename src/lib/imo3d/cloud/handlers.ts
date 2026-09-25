@@ -14,7 +14,8 @@ import {cloudFailure,fail,json,publicJSON,readJSON,signedRedirect} from "./http"
 import {applyArchitecture,applyBoundaries,applyMetadata,requireRevision} from "./geometry";
 import {handleCloudUpload} from "./uploads";
 import {cameraBundleSchema,type Tour} from "../model";
-import {leadPhoneSchema} from "../lead-validation";
+import {buyerInterest,forwardTourLead,honeypotFilled,leadAuditRow,leadLimitRefusal,syncProjectLink,tourLeadSchema} from "../tour-lead";
+import {cloudVeraStudio} from "./vera-links";
 import {tourMetadataSchema} from "../floor-assignment";
 import {boundarySchema} from "../floor-boundaries";
 import {architectureSaveSchema} from "../architecture-storage";
@@ -25,6 +26,8 @@ import {withoutBasePath} from "../base-path";
 import {embedTourURL,passwordLoginEnabled} from "../suite";
 import {currentSurfaceModel,surfaceModelMime} from "../surface-model";
 import {currentTexturedMesh,meshModelMime,maxMeshBytes} from "../mesh-model";
+/** The tour developer of a project, read on the server: VERA routes by it, the buyer's page never names it. */
+const projectDeveloper=async(projectId:string)=>(await cloudQuery<{developer_id:string}[]>("project_developers",`project_id=eq.${encodeURIComponent(projectId)}&select=developer_id&limit=1`))[0]?.developer_id??null;
 const tourSummary=(tour:Tour)=>{const {photoEdits,...safe}=tour;void photoEdits;return({...safe,scenes:tour.scenes.map(({depth,displayDepth,...scene})=>{void depth;void displayDepth;return scene;})});};
 const revisionBody=z.object({revision:z.number().int().nonnegative()}).strict();
 const pair=z.object({revision:z.number().int().nonnegative(),fromId:z.string().regex(/^[\w-]{1,80}$/),toId:z.string().regex(/^[\w-]{1,80}$/)});
@@ -68,22 +71,26 @@ async function handle(request:Request){
   if(action==='media')return json(await tourMedia(tour));
   if(action==='og-image')return tourShareImage(tour);
   if(action==='depth'){const depth=sceneDisplayDepth(tour,last!);return depth?publicJSON(depth,tour.published):fail("لا يتوفر عمق عرض لهذه اللقطة.",404);}
-  const [branding,project,media]=await Promise.all([getBranding(tour.projectId),getProjectCard(tour.projectId).catch(()=>null),new URL(request.url).searchParams.get('media')==='1'?tourMedia(tour).catch(()=>undefined):undefined]);
+  const [branding,project,media,interest]=await Promise.all([getBranding(tour.projectId),getProjectCard(tour.projectId).catch(()=>null),new URL(request.url).searchParams.get('media')==='1'?tourMedia(tour).catch(()=>undefined):undefined,access.integration?undefined:projectDeveloper(tour.projectId).then(developer=>buyerInterest(tour,developer)).catch(()=>undefined)]);
   // A buyer's arrival carries no display depth: the viewer fetches each scene's with its panorama.
-  return json({...publicTourPayload(tour,{presentation:!access.sessionAdmin,deferDepth:!access.sessionAdmin&&!access.integration}),...(access.sessionAdmin?{photoEdits:tour.photoEdits}:{}),branding:{...branding,...(project?.name?{projectName:project.name}:{})},...(media?{media}:{})});
+  return json({...publicTourPayload(tour,{presentation:!access.sessionAdmin,deferDepth:!access.sessionAdmin&&!access.integration}),...(access.sessionAdmin?{photoEdits:tour.photoEdits}:{}),branding:{...branding,...(project?.name?{projectName:project.name}:{})},...(media?{media}:{}),...(interest?{interest}:{})});
  }
  if(resource==="tours"&&id&&action==="ai-plan"){
   if(last&&last!=="image")return fail("المسار غير موجود.",404);
   const tour=await getTour(id);if(!tour)return fail("الجولة غير متاحة.",404);return cloudAIPlan(request,tour,last,access);
  }
  if(resource==="leads"&&segments.length===1&&method==="POST"){
-  const input=z.object({tourId:z.string().max(80),name:z.string().trim().min(2).max(100),phone:leadPhoneSchema,note:z.string().max(2000).default(""),consent:z.literal(true),website:z.string().max(100).default("")}).parse(await readJSON(request,8000));
-  if(input.website)return fail("تعذر إرسال الطلب.");const tour=await getTour(input.tourId);
+  const raw=await readJSON(request,8000);if(honeypotFilled(raw))return json({ok:true},201);
+  const input=tourLeadSchema.parse(raw),tour=await getTour(input.tourId);
   if(!tour||!tour.published&&!access.allowed(tour.projectId)||access.integration&&!access.allowed(tour.projectId,"write"))return fail("الجولة غير متاحة.",404);
-  if(!await withinRateLimit(`lead:${input.phone}:${tour.id}`,3,60*60_000)||!await withinRateLimit(`lead-global:${tour.id}`,100,60*60_000))return fail("تم إرسال طلبك سابقًا. حاول لاحقًا.",429);
-  await cloudQuery("leads","","POST",{id:randomUUID(),tour_id:tour.id,name:input.name,phone:input.phone,note:input.note,created_at:new Date().toISOString()});return json({ok:true},201);
+  const refusal=await leadLimitRefusal(withinRateLimit,request,tour.id,input.phone);if(refusal)return fail(refusal,429);
+  // The lead lives in VERA (and through it Developer OS); this project keeps a masked audit row only once VERA holds it.
+  const sent=await forwardTourLead(request,tour,await projectDeveloper(tour.projectId),input);if(!sent.ok)return fail(sent.message,sent.status);
+  try{await cloudQuery("leads","","POST",leadAuditRow(randomUUID(),tour.id,input.phone,sent.routed));}catch(error){console.error("IMO3D lead audit failed",error instanceof Error?error.name:"unknown");}
+  return json({ok:true},201);
  }
  const management=await cloudManagement(request,segments,access);if(management)return management;
+ if(resource==="vera"){if(!access.sessionAdmin||access.integration)return fail("دخول الإدارة مطلوب.",401);return cloudVeraStudio(request,segments);}
  if(!access.sessionAdmin&&!access.integration)return fail("تسجيل دخول الإدارة مطلوب.",401);
  if(resource==="dashboard"&&segments.length===1&&method==="GET"){
   const[projects,tours,developers,page]=await Promise.all([listProjects(),listTourSummaries(access.integration?.projectId),access.sessionAdmin?cloudDevelopers():Promise.resolve([]),access.sessionAdmin||access.integration?.scopes.includes("leads")?cloudLeadsPage({projectId:access.integration?.projectId,limit:100}):Promise.resolve({leads:[],total:0})]);
@@ -142,7 +149,10 @@ async function handle(request:Request){
   const scenes=tour.scenes.map(scene=>{const camera=bundle.cameras.find(camera=>normalize(camera.file)===normalize(scene.sourceName));return camera?{...scene,position:camera.position,yaw:camera.yaw,floor:camera.floor,room:camera.room||scene.room,depth:camera.depth}:scene;});return json(await saveTour({...tour,...mergeTourSpatial(tour,scenes),spatialSource:"calibrated",spatialScale:"metric"},tour.revision));
  }
  if(action==="rebuild"&&method==="POST"){if(!tour.scenes.some(scene=>scene.depth))return fail("يلزم استيراد بيانات العمق لإعادة الربط وتوليد حدود الشقة. مواقع الصور وحدها لا تثبت الجدران.",422);return json(await saveTour({...tour,...mergeTourSpatial(tour,tour.scenes)},tour.revision));}
- if(!action&&method==="PATCH"){const input=tourMetadataSchema.parse(await readJSON(request,4_000_000));if(input.hotspots){for(const url of new Set(input.hotspots.flatMap(h=>[h.url,h.link]).filter(u=>u.startsWith('/api/imo3d/assets/')))){const a=await getAsset(url.split('/').pop()!);if(!a||a.tour_id!==tour.id)return fail('الملف ليس تابعًا لهذه الجولة.',400);}}return json(await saveTour(applyMetadata(tour,input),input.revision));}
+ if(!action&&method==="PATCH"){const input=tourMetadataSchema.parse(await readJSON(request,4_000_000));if(input.hotspots){for(const url of new Set(input.hotspots.flatMap(h=>[h.url,h.link]).filter(u=>u.startsWith('/api/imo3d/assets/')))){const a=await getAsset(url.split('/').pop()!);if(!a||a.tour_id!==tour.id)return fail('الملف ليس تابعًا لهذه الجولة.',400);}}
+  const saved=await saveTour(applyMetadata(tour,input),input.revision);
+  if(saved.published!==tour.published){const [project,tours]=await Promise.all([getProjectCard(saved.projectId).catch(()=>null),listTourSummaries(saved.projectId).catch(()=>[saved])]);await syncProjectLink(saved.projectId,project?.name??saved.title,tours);}
+  return json(saved);}
  if(!action&&method==="DELETE"){const{revision}=revisionBody.parse(await readJSON(request,2000));requireRevision(tour,revision);await deleteTour(id,revision);return json({ok:true});}
  return fail("العملية غير متاحة.",405);
 }

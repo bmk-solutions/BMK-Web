@@ -150,3 +150,4 @@ html[data-imo-theme=light] .imo-viewer :is(.imo-draft-minimap button,.imo-unit-s
 html[data-imo-theme=light] .imo-viewer .imo-map-dialog .imo-viewer-draft-tools :is(button,a),html[data-imo-theme=light] .imo-viewer .imo-map-dialog>header button{background:#f5f8f6eb!important;color:#17372f!important;border:1px solid #ffffff;box-shadow:0 4px 18px #0b1f1a26}
 @media(max-width:900px){.imo-sidebar .imo-theme-toggle{width:auto;justify-content:center;padding:10px}.imo-sidebar .imo-theme-toggle span{display:none}}
 @media(max-width:600px){.imo-sidebar .imo-theme-toggle{margin:0;border:0}}
+html[data-imo-theme=dark] .imo-dialog .imo-vera-link{border-top-color:var(--imo-d-line)}html[data-imo-theme=dark] .imo-dialog .imo-vera-chip{background:#3a2c12;color:#f3d49a}

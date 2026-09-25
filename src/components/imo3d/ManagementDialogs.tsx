@@ -4,9 +4,10 @@ import type {Developer,Project,Tour} from "@/lib/imo3d/model";
 import {api,number} from "./client";
 import {Dialog} from "./Dialog";
 import {Icon} from "./Icon";
+import {VeraLinkPicker} from "./VeraLinkPicker";
 
 type RemovalResult={ok:true;cleanupWarning?:string};
-export function ProjectManagementDialog({project,developers=[],tours,onClose,onSaved,onDeleted}:{project:Project;developers?:Developer[];tours:Tour[];onClose:()=>void;onSaved:(project:Project)=>void;onDeleted:(warning?:string)=>void}){
+export function ProjectManagementDialog({project,developers=[],vera=false,tours,onClose,onSaved,onDeleted}:{project:Project;developers?:Developer[];vera?:boolean;tours:Tour[];onClose:()=>void;onSaved:(project:Project)=>void;onDeleted:(warning?:string)=>void}){
   const [developerId,setDeveloperId]=useState(project.developerId??"");
   const [name,setName]=useState(project.name),[location,setLocation]=useState(project.location);
   const [deleting,setDeleting]=useState(false),[confirmation,setConfirmation]=useState(""),[working,setWorking]=useState(false),[error,setError]=useState("");
@@ -25,6 +26,7 @@ export function ProjectManagementDialog({project,developers=[],tours,onClose,onS
         <p className="imo-muted">{number(tours.length)} جولات · {number(tours.reduce((count,tour)=>count+tour.scenes.length,0))} صور</p>
         {error&&<p className="imo-error" role="alert">{error}</p>}<button className="imo-button primary" disabled={working||!dirty}>{working?"جارٍ الحفظ…":"حفظ بيانات المشروع"}</button>
       </form>
+      {vera&&<VeraLinkPicker kind="project" refId={project.id}/>}
       <section className="imo-danger-zone"><div><h3>حذف المشروع</h3><p>يحذف جميع الجولات والصور وطلبات الاهتمام التابعة لهذا المشروع.</p></div><button className="imo-button danger-outline" disabled={working} onClick={()=>{setDeleting(true);setError("");}}><Icon name="trash" size={17}/>حذف المشروع</button></section>
     </>}
   </Dialog>;

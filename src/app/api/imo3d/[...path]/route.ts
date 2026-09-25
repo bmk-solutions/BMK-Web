@@ -16,7 +16,8 @@ import {privateExamplePreview,PrivateExampleUnavailableError} from "@/lib/imo3d/
 import { cameraBundleSchema,type Scene,type Tour } from "@/lib/imo3d/model";
 import {initialRoomSemantic} from "@/lib/imo3d/room-semantics";
 import {AuthoredPlanCalibrationError,mergeTourSpatial} from "@/lib/imo3d/tour-merge";
-import {leadPhoneSchema} from "@/lib/imo3d/lead-validation";
+import {forwardTourLead,honeypotFilled,leadLimitRefusal,tourLeadSchema} from "@/lib/imo3d/tour-lead";
+import {maskLeadPhone,veraConfig} from "@/lib/imo3d/vera-integration";
 import {getLeads,LeadQueryError} from "@/lib/imo3d/lead-query";
 import {cancelJob,enqueueJob,imageFingerprint,latestJob} from "@/lib/imo3d/processing-jobs";
 import {wakeProcessingWorker} from "@/lib/imo3d/processing-launcher";
@@ -84,11 +85,14 @@ async function handle(request:Request,context:Context) {
     const tour=getTour(id);if(!tour||(!tour.published&&!allowed(tour.projectId))||(integration&&!allowed(tour.projectId)))return fail("الجولة غير متاحة",404);return json({...tour,branding:brandingForProject(tour.projectId)});
   }
   if(resource==="leads"&&method==="POST"){
-    const input=z.object({tourId:z.string().max(80),name:z.string().trim().min(2).max(100),phone:leadPhoneSchema,note:z.string().max(2000).default(""),consent:z.literal(true),website:z.string().max(100).default("")}).parse(await readJSON(request,8000));
-    if(input.website)return fail("تعذر إرسال الطلب",400);
+    const raw=await readJSON(request,8000);if(honeypotFilled(raw))return json({ok:true},201);
+    const input=tourLeadSchema.parse(raw);
     const tour=getTour(input.tourId);if(!tour||(!tour.published&&!allowed(tour.projectId))||(integration&&!allowed(tour.projectId,"write")))return fail("الجولة غير متاحة",404);
-    if(!withinRateLimit(`lead:${input.phone}:${tour.id}`,3,60*60_000)||!withinRateLimit(`lead-global:${tour.id}`,100,60*60_000))return fail("تم إرسال طلبك سابقًا. حاول لاحقًا.",429);
-    addLead(tour.id,input.name,input.phone,input.note);return json({ok:true},201);
+    const refusal=await leadLimitRefusal(withinRateLimit,request,tour.id,input.phone);if(refusal)return fail(refusal,429);
+    // With VERA configured the local adapter forwards like the cloud and keeps the same masked audit; without it, the local store keeps the request as before.
+    if(!veraConfig()){addLead(tour.id,input.name,input.phone,input.note);return json({ok:true},201);}
+    const sent=await forwardTourLead(request,tour,projects().find(project=>project.id===tour.projectId)?.developerId??null,input);if(!sent.ok)return fail(sent.message,sent.status);
+    addLead(tour.id,"",maskLeadPhone(input.phone),"");return json({ok:true},201);
   }
   if(!admin)return fail("تسجيل دخول الإدارة مطلوب",401);
   if(resource==="dashboard"&&method==="GET"){

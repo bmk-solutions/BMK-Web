@@ -47,3 +47,5 @@
 @media(max-width:900px){.imo-minimap{width:185px;left:22px;bottom:167px;max-height:calc(100dvh - 280px)}}
 @media(max-width:600px){.imo-minimap{width:152px;left:16px;top:122px;bottom:auto;max-height:calc(100dvh - 335px)}.imo-minimap-collapse{font-size:10px!important;margin-bottom:2px;min-height:26px}}
 @media(max-height:560px){.imo-minimap{width:150px;left:20px;top:102px;bottom:auto;max-height:calc(100dvh - 225px)}}
+/* The studio's link to Developer OS (VeraLinkPicker): a section under the project or developer form. */
+.imo-vera-link{margin-top:22px;padding-top:18px;border-top:1px solid var(--imo-line)}.imo-vera-link h3{margin:0;font-size:15px}.imo-vera-chip{align-self:flex-start;font-size:12px;padding:4px 10px;border-radius:6px;background:#fff4e0;color:#7a4f0e}

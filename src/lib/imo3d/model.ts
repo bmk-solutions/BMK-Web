@@ -98,7 +98,8 @@ export type Tour = {
 };
 export type Developer = {id:string;name:string;createdAt:string};
 export type Project = { developerId?: string | null; id: string; name: string; location: string; createdAt: string };
-export type Lead = { id: string; tourId: string; name: string; phone: string; note: string; createdAt: string };
+/** A cloud lead is VERA's masked audit (phone «05••••123», no name or note); the local store keeps the full request. */
+export type Lead = { id: string; tourId: string; name?: string; phone: string; note?: string; createdAt: string; forwardedAt?: string | null; routed?: "project" | "developer" | "hint" | "fallback" | null };
 export const unitSchema = z.object({
   code: z.string().max(80), area: z.number().positive().max(100000).nullable(),
   price: z.number().nonnegative().max(1e12).nullable(), bedrooms: z.number().int().min(0).max(100).nullable(),

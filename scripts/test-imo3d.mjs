@@ -75,6 +75,11 @@ for(const file of ['src/lib/imo3d/model.ts','src/lib/imo3d/spatial.ts','src/lib/
   const compiled=ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,esModuleInterop:true,rewriteRelativeImportExtensions:true}});
   writeFileSync(target,compiled.outputText);
 }
+// The tour → VERA lead federation drives the cloud handler: compile the test with every relative module it reaches.
+const federation='tests/imo3d-vera-federation.test.ts',reached=new Set();
+(function collect(file){file=path.resolve(file);if(reached.has(file))return;reached.add(file);for(const match of readFileSync(file,'utf8').matchAll(/(?:from\s*|import\s*\()\s*["'](\.[^"']+)["']/g)){let dependency=path.resolve(path.dirname(file),match[1]);if(dependency.endsWith('.css'))continue;if(!/\.[cm]?tsx?$/.test(dependency))dependency+='.ts';try{collect(dependency);}catch(error){if(error.code!=='ENOENT')throw error;}}})(federation);
+for(const file of reached){const target=path.join(root,path.relative(process.cwd(),file).replace(/\.ts$/,'.js'));mkdirSync(path.dirname(target),{recursive:true});writeFileSync(target,ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,esModuleInterop:true,rewriteRelativeImportExtensions:true}}).outputText);}
+testFiles.push(federation);
 // Real apartment fixtures stay private and optional; generic tests use synthetic data.
 const result=spawnSync(process.execPath,['--test',...testFiles.map(file=>path.join(root,file.replace(/\.ts$/,'.js'))),'scripts/test-imo3d-engine.mjs'],{stdio:'inherit'});
 process.exit(result.status??1);

@@ -7,7 +7,7 @@ import ts from "typescript";
 import * as THREE from "three";
 
 const require=createRequire(import.meta.url);
-function harness({reduced=false,coarse=false,plans=[],maxTextureSize=8192,deviceMemory,pixelRatio=1,bitmap=false}={}) {
+function harness({reduced=false,coarse=false,plans=[],maxTextureSize=8192,deviceMemory,pixelRatio=1,bitmap=false,sceneDepth}={}) {
   let now=100, nextFrame=0;
   const frames=new Map(), images=[], renders=[], uploads=[], bitmapRequests=[], bitmaps=[];
   class FakeImage {
@@ -51,7 +51,7 @@ function harness({reduced=false,coarse=false,plans=[],maxTextureSize=8192,device
   }
   const {PanoramaEngine}=load("src/components/imo3d/PanoramaEngine.ts");
   const canvas={clientWidth:600,clientHeight:400,dataset:{},addEventListener(){},removeEventListener(){}};
-  const engine=new PanoramaEngine(canvas,{plans});
+  const engine=new PanoramaEngine(canvas,{plans,...(sceneDepth?{sceneDepth}:{})});
   const settle=async()=>{for(let i=0;i<10;i++)await Promise.resolve();};
   const success=async(url,width=2048,height=1024)=>{
     if(bitmap){await settle();const request=bitmapRequests.find(r=>r.url===url&&!r.done);assert.ok(request,`expected bitmap decode ${url}`);request.done=true;const decoded={width:request.options.resizeWidth??width,height:request.options.resizeHeight??height,closed:0,close(){this.closed++;}};bitmaps.push(decoded);request.resolve(decoded);await settle();return;}
@@ -763,4 +763,21 @@ test('panorama viewport cannot reveal the tripod when dragging or zooming out',a
  const h=harness();
  try{for(const fov of [40,74,95]){h.engine.fov=fov;h.engine.pitch=-Math.PI/2;h.engine.addLook(0,-10);await h.finish();assert.ok(h.engine.pitch*180/Math.PI-h.engine.fov/2>=-65-1e-8);}}
  finally{h.engine.dispose();}
+});
+
+test("deferred display depth never delays the first view and is attached when it lands",async()=>{
+ let release;const late=new Promise(resolve=>{release=resolve;}),requested=[];
+ const h=harness({sceneDepth:s=>{requested.push(s.id);return s.id==="deferred-a"?late:Promise.resolve(displayDepth());}});
+ try{
+  const a={...scene("deferred-a"),links:["deferred-b"]},b={...scene("deferred-b",2),links:["deferred-a"]};
+  await initial(h,a);const source=h.engine.cache.get(a.id);
+  assert.deepEqual(requested,[a.id]);assert.equal(source.displayMesh,undefined,"the first view is shown before its depth arrives");
+  release(displayDepth());await h.settle();
+  assert.ok(source.displayMesh,"late depth builds the display mesh");assert.equal(source.displayMesh.visible,false);
+  assert.equal(source.mesh.material.depthTest,false);assert.equal(source.mesh.geometry.userData.planProxy,false);assert.equal(source.displayMesh.material.map,source.mesh.material.map);
+  const moving=h.engine.move(b,"visual",0,{fromYaw:Math.PI/2,toYaw:-Math.PI/2});await h.success(b.preview);await h.finish();assert.equal(await moving,true);
+  assert.ok(h.engine.cache.get(b.id).displayMesh,"an arrival waits briefly and loads with its depth");assert.equal(h.canvas.dataset.motionMode,"display-depth");
+  const resources=[source.displayMesh.geometry,source.displayMesh.material],counts=resources.map(()=>0);resources.forEach((resource,index)=>resource.addEventListener("dispose",()=>counts[index]++));
+  h.engine.dispose();assert.deepEqual(counts,[1,1]);
+ }finally{h.engine.dispose();}
 });

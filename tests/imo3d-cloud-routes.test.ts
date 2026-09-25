@@ -23,6 +23,7 @@ import {buildPlanSpatialEvidence,savePlanSpatialEvidence,readPlanSpatialEvidence
 import {mkdtemp,mkdir,writeFile} from 'node:fs/promises';
 import {planEvidenceBoard} from '../src/lib/imo3d/openai-floorplan-pipeline';
 import {labeledPlanSVG} from '../src/lib/imo3d/plan-labels';
+import {tourShareMetadata} from '../src/lib/imo3d/cloud/share-metadata';
 const origin='https://imo3d.example',secret='synthetic-test-secret-is-at-least-32-characters',fetchOriginal=globalThis.fetch,envOriginal={...process.env};
 test('cloud measurement scale is capture-scoped, revision safe and does not promote inferred geometry',()=>{
  const tour=syntheticTour(),before=JSON.stringify(tour);
@@ -123,7 +124,7 @@ test('subscription queue requires admin and an online worker, and binds each job
  const tour=syntheticTour();let online=false;
  mock=call=>{
   if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);
-  if(call.url.pathname.endsWith('/imo3d_plan_workers'))return result(online?[{seen_at:new Date().toISOString()}]:[]);
+  if(call.url.pathname.endsWith('/imo3d_plan_workers'))return result(online?[{id:'subscription',seen_at:new Date().toISOString()},{id:'subscription:codex',seen_at:new Date().toISOString()},{id:'photos',seen_at:new Date(0).toISOString()}]:[]);
   if(call.url.pathname.endsWith('/imo3d_subscription_plan_jobs'))return result([]);
   if(call.url.pathname.endsWith('/imo3d_enqueue_subscription_plan')){assert.equal(call.body?.p_tour_id,tour.id);assert.equal(call.body?.p_hash,aiPlanFingerprint(tour.scenes));assert.equal((call.body?.p_scenes as unknown[]).length,tour.scenes.length);return result('job');}
   throw Error('Unexpected request');
@@ -131,7 +132,8 @@ test('subscription queue requires admin and an online worker, and binds each job
  assert.equal((await cloudRoute(req(`tours/${tour.id}/ai-plan`,{method:'POST'}))).status,404);
  assert.equal((await cloudRoute(req(`tours/${tour.id}/ai-plan`,{method:'POST'},true))).status,503);
  assert.ok(!calls.some(c=>c.method==='POST'));
- online=true;assert.equal((await cloudRoute(req(`tours/${tour.id}/ai-plan`,{method:'POST'},true))).status,200);
+ online=true;const queued=await cloudRoute(req(`tours/${tour.id}/ai-plan`,{method:'POST'},true));assert.equal(queued.status,200);
+ const queuedStatus=await queued.json();assert.equal(queuedStatus.provider,'codex');assert.equal(queuedStatus.workerOnline,true);
  assert.equal(calls.filter(c=>c.method==='POST').length,1);
 });
 test('subscription subprocess excludes database, API and session credentials',()=>{
@@ -706,13 +708,13 @@ test('plan polling labels partial drafts honestly and reads only their layout me
  const tour=syntheticTour(),draft='00000000-0000-4000-8000-000000000001';
  mock=call=>{
   if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);
-  if(call.url.pathname.endsWith('/imo3d_plan_workers'))return result([{seen_at:new Date().toISOString()}]);
+  if(call.url.pathname.endsWith('/imo3d_plan_workers'))return result([{id:'subscription',seen_at:new Date().toISOString()}]);
   if(call.url.pathname.endsWith('/imo3d_subscription_plan_jobs'))return result([{id:'job',tour_id:tour.id,status:'draft',stage:'ready',input_hash:aiPlanFingerprint(tour.scenes),draft_ids:[draft]}]);
   assert.ok(call.url.pathname.endsWith('/imo3d_chatgpt_drafts'));assert.equal(call.url.searchParams.get('tour_id'),'eq.'+tour.id);assert.equal(call.url.searchParams.get('select'),'layout:result->layout');
   return result([{layout:{rooms:[{polygon:[{}, {}, {}]},{polygon:null}]}}]);
  };
  const response=await cloudRoute(req(`tours/${tour.id}/ai-plan`,{},true));assert.equal(response.status,200);
- const data=await response.json();assert.match(data.job.stage,/1 من 2/);assert.equal(data.stale,false);
+ const data=await response.json();assert.match(data.job.stage,/1 من 2/);assert.equal(data.stale,false);assert.equal(data.provider,null);assert.equal(data.workerOnline,true);
 
 });
 
@@ -783,4 +785,73 @@ test('by default the old password login is closed: its cookie is not admin and P
  assert.deepEqual(calls,[],'no rate-limit call and no credential lookup: the password is never checked');
  assert.equal(await cloudIsAdmin(new Request(origin+'/media-support/tour/api/imo3d/session',{headers:{cookie:'ms_session='+token}})),true,'the suite session still opens the API');
  process.env.IMO3D_PASSWORD_LOGIN='1';assert.equal(await cloudIsAdmin(req('session',{},true)),true,'the break-glass switch reopens it');
+});
+
+const buyerDepth=()=>({width:32,height:16,values:Array.from({length:512},(_,i)=>i<64?0:3+i/1e5),confidence:.6,coverage:.875,source:'monocular-multiview-floor-aligned' as const,units:'camera_height' as const,purpose:'display_only' as const});
+test('a buyer arrival omits display depth and names the scenes that have it; the administrator keeps it',async()=>{
+ const tour={...syntheticTour(),published:true};tour.scenes=tour.scenes.map((scene,index)=>index<2?{...scene,displayDepth:buyerDepth()}:scene);
+ mock=call=>{if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);if(call.url.pathname.endsWith('/imo3d_project_branding'))return result([]);throw Error('unexpected '+call.url.pathname);};
+ const buyer=await (await cloudRoute(req(`tours/${tour.id}`))).json();
+ assert.ok(buyer.scenes.every((scene:Record<string,unknown>)=>!('displayDepth' in scene)));assert.deepEqual(buyer.deferredDepth,[tour.scenes[0].id,tour.scenes[1].id]);
+ const admin=await (await cloudRoute(req(`tours/${tour.id}`,{},true))).json();
+ assert.equal(admin.scenes[0].displayDepth.width,32);assert.equal(admin.deferredDepth,undefined);
+});
+test('scene depth is public and cacheable only for a published tour, and only where the scene has it',async()=>{
+ const tour={...syntheticTour(),published:true};tour.scenes[0]={...tour.scenes[0],displayDepth:buyerDepth()};
+ mock=call=>{if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);throw Error('unexpected '+call.url.pathname);};
+ const served=await cloudRoute(req(`tours/${tour.id}/depth/${tour.scenes[0].id}`));assert.equal(served.status,200);
+ assert.equal(served.headers.get('cache-control'),'public, max-age=300, s-maxage=86400');assert.equal((await served.json()).values.length,512);
+ assert.equal((await cloudRoute(req(`tours/${tour.id}/depth/${tour.scenes[1].id}`))).status,404);
+ tour.published=false;assert.equal((await cloudRoute(req(`tours/${tour.id}/depth/${tour.scenes[0].id}`))).status,404);
+ const admin=await cloudRoute(req(`tours/${tour.id}/depth/${tour.scenes[0].id}`,{},true));assert.equal(admin.status,200);assert.equal(admin.headers.get('cache-control'),'private, no-store');
+});
+test('the published plan is served as WebP and a ≤600 px mini; without a variant it stays the signed PNG',async()=>{
+ const tour={...syntheticTour(),published:true},png=await sharp({create:{width:1086,height:1448,channels:3,background:'white'}}).png().toBuffer();
+ mock=call=>{
+  if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);
+  if(call.url.pathname.endsWith('/imo3d_approved_plan_refs'))return result([{tour_id:tour.id,floor:0,job_id:'job',input_hash:aiPlanFingerprint(tour.scenes),scene_ids:[],storage_key:'private/plan.png'}]);
+  if(call.url.pathname==='/storage/v1/object/authenticated/imo3d-private/private/plan.png')return new Response(new Uint8Array(png));
+  if(call.url.pathname==='/storage/v1/object/sign/imo3d-private/private/plan.png')return result({signedURL:'/object/sign/imo3d-private/private/plan.png?token=t'});
+  throw Error('unexpected '+call.url.pathname);
+ };
+ const mini=await cloudRoute(req(`tours/${tour.id}/ai-plan/image?job=job&floor=0&variant=mini`));assert.equal(mini.status,200);assert.equal(mini.headers.get('content-type'),'image/webp');
+ assert.equal(mini.headers.get('cache-control'),'public, max-age=3600, s-maxage=86400');
+ const miniMeta=await sharp(Buffer.from(await mini.arrayBuffer())).metadata();assert.equal(miniMeta.format,'webp');assert.ok(Math.max(miniMeta.width!,miniMeta.height!)<=600);
+ const full=await cloudRoute(req(`tours/${tour.id}/ai-plan/image?job=job&floor=0&variant=webp`));assert.equal((await sharp(Buffer.from(await full.arrayBuffer())).metadata()).width,1086);
+ const original=await cloudRoute(req(`tours/${tour.id}/ai-plan/image?job=job&floor=0`));assert.equal(original.status,307);
+});
+test('a shared link’s picture is the first scene, 1200×630 JPEG, for published tours only',async()=>{
+ const tour={...syntheticTour(),published:true},panorama=await sharp({create:{width:2048,height:1024,channels:3,background:'#8aa'}}).webp().toBuffer();tour.scenes[0].preview='/api/imo3d/assets/preview-0';
+ mock=call=>{
+  if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);
+  if(call.url.pathname.endsWith('/imo3d_assets')){assert.equal(call.url.searchParams.get('id'),'eq.preview-0');return result([{id:'preview-0',tour_id:tour.id,file:'p.webp',mime:'image/webp',storage_key:'tour/preview.webp'}]);}
+  if(call.url.pathname==='/storage/v1/object/authenticated/imo3d-private/tour/preview.webp')return new Response(new Uint8Array(panorama));
+  throw Error('unexpected '+call.url.pathname);
+ };
+ const image=await cloudRoute(req(`tours/${tour.id}/og-image`));assert.equal(image.status,200);assert.equal(image.headers.get('content-type'),'image/jpeg');
+ const meta=await sharp(Buffer.from(await image.arrayBuffer())).metadata();assert.deepEqual([meta.format,meta.width,meta.height],['jpeg',1200,630]);
+ tour.published=false;assert.equal((await cloudRoute(req(`tours/${tour.id}/og-image`))).status,404);
+});
+test('a queued upload reports the photos engine: offline when its heartbeat is stale, unknown when it never beat',async()=>{
+ const tour=syntheticTour();let photos:{id:string;seen_at:string}[]=[{id:'photos',seen_at:new Date(Date.now()-5*60_000).toISOString()}];
+ const job={id:'job',tour_id:tour.id,status:'queued',progress:0,stage:'في انتظار المعالجة',created_at:new Date(Date.now()-3*60_000).toISOString(),updated_at:new Date(Date.now()-3*60_000).toISOString(),input_hash:'h',lease_until:0,error:null,result:null,warnings:[]};
+ mock=call=>{if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);if(call.url.pathname.endsWith('/imo3d_processing_jobs'))return result([job]);if(call.url.pathname.endsWith('/imo3d_plan_workers'))return result(photos);throw Error('unexpected '+call.url.pathname);};
+ const offline=parseProcessingJob(await (await cloudRoute(req(`tours/${tour.id}/processing`,{},true))).json());assert.equal(offline?.photosEngine,'offline');
+ photos=[];assert.equal(parseProcessingJob(await (await cloudRoute(req(`tours/${tour.id}/processing`,{},true))).json())?.photosEngine,'unknown');
+ photos=[{id:'photos',seen_at:new Date().toISOString()}];assert.equal(parseProcessingJob(await (await cloudRoute(req(`tours/${tour.id}/processing`,{},true))).json())?.photosEngine,'online');
+});
+test('the shared-link card is read on the server from the published tour, its branding and its project; anything else is neutral',async()=>{
+ const tour={...syntheticTour(),published:true,title:'شقة 101'};
+ mock=call=>{
+  if(call.url.pathname.endsWith('/imo3d_tours'))return result([{payload:tour}]);
+  if(call.url.pathname.endsWith('/imo3d_project_branding'))return result([{name:'مساكن الروضة',accent:'#24b18b',logo_asset_id:'logo-1',logo_style:'clean'}]);
+  if(call.url.pathname.endsWith('/imo3d_projects')){assert.equal(call.url.searchParams.get('id'),'eq.'+tour.projectId);return result([{name:'برج الروضة',location:'جدة'}]);}
+  throw Error('unexpected '+call.url.pathname);
+ };
+ const card=await tourShareMetadata(tour.id);
+ assert.deepEqual(card.title,{absolute:'شقة 101 — مساكن الروضة'});assert.equal((card.openGraph as {url:string}).url,'https://os.bmk.solutions/media-support/tour/t/synthetic-tour');
+ assert.deepEqual(card.icons,{icon:'https://os.bmk.solutions/media-support/tour/api/imo3d/branding-assets/logo-1',apple:'https://os.bmk.solutions/media-support/tour/api/imo3d/branding-assets/logo-1'});
+ tour.published=false;assert.deepEqual((await tourShareMetadata(tour.id)).title,{absolute:'جولة افتراضية 360°'});
+ mock=()=>{throw Error('outage');};assert.deepEqual((await tourShareMetadata('synthetic-tour')).title,{absolute:'جولة افتراضية 360°'});
+ assert.deepEqual((await tourShareMetadata('../x')).title,{absolute:'جولة افتراضية 360°'});
 });

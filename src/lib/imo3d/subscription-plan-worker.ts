@@ -21,6 +21,7 @@ import {readPlanSpatialEvidence} from './plan-spatial-evidence';
 import {recoverCompletePlan} from './plan-recovery';
 import {assertPlanGeometryCurrent,planImageDigest,matchesPlanImageDigest} from './plan-render-integrity';
 import type {PlanProvider} from './gemini-plan-provider';
+import {planProviderOf,planProviderWorkerId,PLANS_WORKER_ID,type PlanProvider as PlanProviderName} from './worker-presence';
 import {reviewAndRepairPlanImage} from './plan-image-review';
 
 export const subscriptionAnalysisSchema=z.object({floors:z.array(z.object({floor:z.number().int(),geometryBasis:z.enum(['image-supported','topology-only','insufficient']),geometryExplanation:z.string().min(20).max(3000),evidence:z.array(sceneEvidenceSchema),layout:floorplanLayoutSchema,audit:floorplanAuditSchema}).strict()).min(1).max(100)}).strict();
@@ -158,23 +159,25 @@ export async function execute(directory:string,prompt:string,schema:z.ZodType,ou
  });
  return JSON.parse(await readFile(outputFile,'utf8')) as unknown;
 }
-export async function ping(){
- const rows=await cloudQuery('plan_workers','id=eq.subscription','PATCH',{seen_at:new Date().toISOString()});
- if(!rows.length)try{await cloudQuery('plan_workers','','POST',{id:'subscription',seen_at:new Date().toISOString()});}catch{await cloudQuery('plan_workers','id=eq.subscription','PATCH',{seen_at:new Date().toISOString()});}
+async function touchWorker(id:string){
+ const query=`id=eq.${encodeURIComponent(id)}`,rows=await cloudQuery<unknown[]>('plan_workers',query,'PATCH',{seen_at:new Date().toISOString()});
+ if(!rows.length)try{await cloudQuery('plan_workers','','POST',{id,seen_at:new Date().toISOString()});}catch{await cloudQuery('plan_workers',query,'PATCH',{seen_at:new Date().toISOString()});}
 }
+/** The studio reads `subscription` for presence and `subscription:<provider>` for which engine answers. */
+export async function ping(provider?:PlanProviderName){await touchWorker(PLANS_WORKER_ID);if(provider)await touchWorker(planProviderWorkerId(provider));}
 export async function runSubscriptionWorker(root:string,once=false,provider?:PlanProvider){
  const executePlan=provider?.execute??execute;
  const readPlanImage=(file:string,started:number)=>generatedPlanImage(file,started,provider?.imageRoot);
  const config=cloudConfig();if(new URL(config.url).hostname!==`${process.env.IMO3D_CLOUD_PROJECT_REF}.supabase.co`)throw Error('PROJECT_MISMATCH');
- root=await realpath(root);const worker=randomUUID();
+ root=await realpath(root);const worker=randomUUID(),providerName=planProviderOf(provider?.id??'codex')??'codex',beat=()=>ping(providerName);
  do{
-  await ping();
+  await beat();
   if(await (await import("./photo-edit-worker")).runNextPhotoEdit(root,worker)){if(once)return;continue;}
   const job=await cloudRpc<SubscriptionJob|null>('claim_subscription_plan',{p_worker:worker});
   if(!job){if(once)return;await delay(10000);continue;}
   const controller=new AbortController(),deadline=setTimeout(()=>controller.abort(),2*60*60*1000);
   let heartbeatBusy=false;
-  const heartbeat=setInterval(()=>{if(heartbeatBusy)return;heartbeatBusy=true;void Promise.all([ping(),cloudQuery('subscription_plan_jobs',`id=eq.${job.id}&worker_id=eq.${worker}&status=eq.running&lease_until=gt.${encodeURIComponent(new Date().toISOString())}`,'PATCH',{lease_until:new Date(Date.now()+90000).toISOString()})]).then(([,rows])=>{if(!rows.length)controller.abort();},()=>controller.abort()).finally(()=>{heartbeatBusy=false;});},20000);
+  const heartbeat=setInterval(()=>{if(heartbeatBusy)return;heartbeatBusy=true;void Promise.all([beat(),cloudQuery('subscription_plan_jobs',`id=eq.${job.id}&worker_id=eq.${worker}&status=eq.running&lease_until=gt.${encodeURIComponent(new Date().toISOString())}`,'PATCH',{lease_until:new Date(Date.now()+90000).toISOString()})]).then(([,rows])=>{if(!rows.length)controller.abort();},()=>controller.abort()).finally(()=>{heartbeatBusy=false;});},20000);
   async function stage(text:string){
    if(controller.signal.aborted)throw Error('CANCELLED');
    const rows=await cloudQuery('subscription_plan_jobs',`id=eq.${job!.id}&worker_id=eq.${worker}&status=eq.running`,'PATCH',{stage:text});

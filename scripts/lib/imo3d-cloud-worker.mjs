@@ -158,6 +158,8 @@ export function createWorkerTransport(config,{fetchImpl=fetch}={}){
   }
   return {
     async query(table,query,options={}){return (await request(`/rest/v1/${identifier(table)}?${query}`,options)).json();},
+    /** Insert-or-refresh one row (PostgREST upsert on the primary key). */
+    async upsert(table,row,options={}){await request(`/rest/v1/${identifier(table)}`,{...options,method:'POST',headers:{'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(row)});},
     async rpc(name,args,options={}){const response=await request(`/rest/v1/rpc/${identifier(name)}`,{...options,method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(args)});const text=await response.text();return text?JSON.parse(text):null;},
     async download(key,{signal,maxBytes=MAX_IMAGE_BYTES}={}){
       const response=await request(`/storage/v1/object/authenticated/${bucket}/${objectPath(key)}`,{signal,timeoutMs:120000});
@@ -259,8 +261,27 @@ export async function processCloudJob({root,transport,job,owner,signal,executeLo
   }finally{await lease.stop();signal?.removeEventListener('abort',abort);}
 }
 
-export async function pollCloudJobs({root,transport,signal,once=false,pollMs=10000,onStatus=()=>{},owner=randomUUID(),executeLocal,checkRuntime}){
+/**
+ * The photos role says it is alive (imo3d_plan_workers id `photos`), independently of the job loop:
+ * a long reconstruction must not read as an offline engine, and the studio can tell a queued upload
+ * that no engine will pick up. Best effort: a failed beat never stops the worker.
+ */
+export function startPresence(transport,{id=PHOTOS_WORKER_ID,intervalMs=30000,signal}={}){
+  if(typeof transport.upsert!=='function')return {stop(){}};
+  let inFlight=false;
+  const beat=()=>{if(inFlight||signal?.aborted)return;inFlight=true;transport.upsert('plan_workers',{id,seen_at:new Date().toISOString()},{timeoutMs:8000}).catch(()=>{}).finally(()=>{inFlight=false;});};
+  beat();const timer=setInterval(beat,intervalMs);timer.unref?.();
+  return {stop(){clearInterval(timer);}};
+}
+export const PHOTOS_WORKER_ID='photos';
+
+export async function pollCloudJobs({root,transport,signal,once=false,pollMs=10000,onStatus=()=>{},owner=randomUUID(),executeLocal,checkRuntime,presence=!once}){
   if(!Number.isInteger(pollMs)||pollMs<1000||pollMs>60000)throw Error('INVALID_POLL_INTERVAL');
+  const alive=presence?startPresence(transport,{signal}):{stop(){}};
+  try{return await pollLoop({root,transport,signal,once,pollMs,onStatus,owner,executeLocal,checkRuntime});}
+  finally{alive.stop();}
+}
+async function pollLoop({root,transport,signal,once,pollMs,onStatus,owner,executeLocal,checkRuntime}){
   let completed=0,failures=0;
   while(!signal.aborted){
     let job;

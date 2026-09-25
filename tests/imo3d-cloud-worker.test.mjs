@@ -5,7 +5,7 @@ import {DatabaseSync} from 'node:sqlite';
 import path from 'node:path';
 import {readPlanSpatialEvidence} from '../src/lib/imo3d/plan-spatial-evidence.ts';
 import {imageFingerprint} from '../src/lib/imo3d/processing-jobs.ts';
-import {buildLocalInputPlan,createJobWorkspace,createWorkerTransport,hashBytes,reconstructionChildEnvironment,pollCloudJobs as pollCloudJobsImpl,processCloudJob as processCloudJobImpl,runLocalReconstruction,seedLocalMirror,validateLocalResult,verifyDownloadedObject} from '../scripts/lib/imo3d-cloud-worker.mjs';
+import {startPresence,PHOTOS_WORKER_ID,buildLocalInputPlan,createJobWorkspace,createWorkerTransport,hashBytes,reconstructionChildEnvironment,pollCloudJobs as pollCloudJobsImpl,processCloudJob as processCloudJobImpl,runLocalReconstruction,seedLocalMirror,validateLocalResult,verifyDownloadedObject} from '../scripts/lib/imo3d-cloud-worker.mjs';
 const processCloudJob=options=>processCloudJobImpl({checkRuntime:async()=>({ok:true}),...options});
 const pollCloudJobs=options=>pollCloudJobsImpl({checkRuntime:async()=>({ok:true}),...options});
 
@@ -212,4 +212,20 @@ test('the reconstruction child gets no cloud setting and no credential-shaped va
   const env=reconstructionChildEnvironment(source,'D:/data');
   assert.deepEqual(Object.keys(env).sort(),['HF_HOME','HF_HUB_DISABLE_TELEMETRY','HF_HUB_OFFLINE','IMO3D_CV_PATH','IMO3D_DATA_DIR','IMO3D_PYTHON','OPENCV_IO_MAX_IMAGE_PIXELS','PYTHONDONTWRITEBYTECODE','Path','SystemRoot','TOKENIZERS_PARALLELISM','TRANSFORMERS_OFFLINE']);
   assert.equal(env.IMO3D_DATA_DIR,'D:/data');assert.equal(env.HF_HUB_OFFLINE,'1');
+});
+
+test('the photos role heartbeats its presence row by upsert, beside the job loop, and a failed beat never stops it',async()=>{
+  const calls=[];
+  const transport=createWorkerTransport({url:'https://testproject.supabase.co',projectRef:'testproject',serviceRoleKey:'test-secret'},{fetchImpl:async(url,init)=>{calls.push({url,init});return new Response(null,{status:201});}});
+  await transport.upsert('plan_workers',{id:PHOTOS_WORKER_ID,seen_at:'2026-09-25T10:00:00.000Z'});
+  assert.equal(calls[0].url,'https://testproject.supabase.co/rest/v1/imo3d_plan_workers');assert.equal(calls[0].init.method,'POST');
+  assert.equal(calls[0].init.headers.get('prefer'),'resolution=merge-duplicates,return=minimal');assert.deepEqual(JSON.parse(calls[0].init.body),{id:'photos',seen_at:'2026-09-25T10:00:00.000Z'});
+  const beats=[];const failing={upsert:async(table,row)=>{beats.push([table,row.id]);throw Error('offline');}};
+  const presence=startPresence(failing,{intervalMs:20});await new Promise(resolve=>setTimeout(resolve,70));presence.stop();const count=beats.length;
+  assert.ok(count>=2,'beats keep coming after a failure');assert.deepEqual(beats[0],['plan_workers','photos']);
+  await new Promise(resolve=>setTimeout(resolve,50));assert.equal(beats.length,count,'stop() ends the heartbeat');
+  const polled=[];const controller=new AbortController();
+  const loop={upsert:async(table,row)=>{polled.push(row.id);},rpc:async()=>{controller.abort();return null;}};
+  await pollCloudJobs({root:'.',transport:loop,signal:controller.signal,pollMs:1000});assert.deepEqual(polled,['photos'],'a long-running worker beats; a one-shot run does not');
+  const once=[];await pollCloudJobs({root:'.',transport:{upsert:async(table,row)=>{once.push(row.id);},rpc:async()=>null},signal:new AbortController().signal,once:true});assert.deepEqual(once,[]);
 });

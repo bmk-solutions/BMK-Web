@@ -1,12 +1,13 @@
 import {z} from "zod";
 import {processingSourceSchema} from "../processing-model";
-import {changeSubscriptionPlan,subscriptionPlanStatus,sceneSnapshot,type SubscriptionJob} from './subscription-plans';
+import {changeSubscriptionPlan,photosEngineState,subscriptionPlanStatus,sceneSnapshot,type SubscriptionJob} from './subscription-plans';
 import type {Tour,Lead} from "../model";
 import type {CloudAccess} from "./auth";
 import type {CloudJob} from "./types";
 import {aiPlanFingerprint} from "../ai-plan-jobs";
 import {imageFingerprint} from "../processing-jobs";
-import {cloudQuery,cloudRpc,cloudSignedDownload} from "./client";
+import {cloudDownloadObject,cloudQuery,cloudRpc,cloudSignedDownload} from "./client";
+import {planImageVariant,planImageVariantOf} from "../image-variants";
 import {getPlanRefs,latestAIPlan} from "./repository";
 import {eq,fail,json,signedRedirect,CloudHTTPError} from "./http";
 const point=z.object({x:z.number().finite().min(0).max(1),y:z.number().finite().min(0).max(1)});
@@ -14,7 +15,7 @@ const navigation=z.object({width:z.number().positive().max(20000),height:z.numbe
 const floor=z.object({floor:z.number(),sceneIds:z.array(z.string()),navigation:navigation.optional(),audit:z.object({verdict:z.string(),issues:z.array(z.string()),limitations:z.array(z.string())})});
 const planResult=z.object({source:z.string().optional(),floors:z.array(floor),limitations:z.array(z.string()),sceneCount:z.number()});
 const processingResult=z.object({registered:z.number(),total:z.number(),links:z.number(),components:z.number(),scale:z.enum(["relative","metric"]),analyzedPhotos:z.number().int().min(0).max(500).optional(),analyzedSceneIds:z.array(z.string().regex(/^[\w-]+$/).max(80)).max(500).optional(),analyzedSources:z.array(processingSourceSchema).max(500).optional(),positionedLocalPhotos:z.number().int().min(0).max(500).optional(),independentFrames:z.number().int().min(0).max(500).optional(),unmatchedPhotos:z.number().int().min(0).max(500).optional(),boundaryPhotos:z.number().optional(),recognizedPhotos:z.number().optional(),rooms:z.number().optional(),jointDepthPhotos:z.number().optional(),jointPoints:z.number().optional()});
-export function publicProcessingJob(row:CloudJob|null){if(!row)return null;const result=processingResult.safeParse(row.result);return{id:row.id,tourId:row.tour_id,status:row.status,progress:row.progress,stage:row.stage,createdAt:row.created_at,updatedAt:row.updated_at,error:row.error,warnings:row.warnings??[],...(result.success?{result:result.data}:{})};}
+export function publicProcessingJob(row:CloudJob|null,photosEngine?:"online"|"offline"|"unknown"){if(!row)return null;const result=processingResult.safeParse(row.result);return{id:row.id,tourId:row.tour_id,status:row.status,progress:row.progress,stage:row.stage,createdAt:row.created_at,updatedAt:row.updated_at,error:row.error,warnings:row.warnings??[],...(photosEngine?{photosEngine}:{}),...(result.success?{result:result.data}:{})};}
 export async function cloudProcessing(request:Request,tour:Tour,action:string){
  if(action==="processing-cancel"&&request.method==="POST"){
   const row=await cloudRpc<CloudJob|null>("cancel_tour_workflow",{p_tour_id:tour.id});
@@ -44,7 +45,7 @@ export async function cloudProcessing(request:Request,tour:Tour,action:string){
   if(tour.scenes.length<=100)await cloudRpc('enqueue_subscription_plan',{p_tour_id:tour.id,p_hash:planHash,p_scenes:snapshot});
   return json(publicProcessingJob(row),202);
  }
- if(request.method==="GET"){const rows=await cloudQuery<CloudJob[]>("processing_jobs",`tour_id=eq.${eq(tour.id)}&order=created_at.desc,id.desc&limit=1`);return json(publicProcessingJob(rows[0]??null));}
+ if(request.method==="GET"){const rows=await cloudQuery<CloudJob[]>("processing_jobs",`tour_id=eq.${eq(tour.id)}&order=created_at.desc,id.desc&limit=1`),row=rows[0]??null;return json(publicProcessingJob(row,row?.status==="queued"?await photosEngineState():undefined));}
  return fail("العملية غير متاحة.",405);
 }
 export async function cloudAIPlan(request:Request,tour:Tour,action:string|undefined,access:CloudAccess){
@@ -56,7 +57,11 @@ export async function cloudAIPlan(request:Request,tour:Tour,action:string|undefi
   if(!job||!Number.isInteger(floorNumber)||!url.searchParams.has("floor"))return fail("معرّف المخطط غير صالح.");
   const reference=(await getPlanRefs(tour.id)).find(ref=>ref.job_id===job&&ref.floor===floorNumber&&ref.input_hash===hash);
   if(!reference)return fail("المخطط غير متاح لهذه الصور.",404);
-  return signedRedirect(await cloudSignedDownload(reference.storage_key));
+  const variant=planImageVariantOf(url.searchParams.get("variant"));
+  if(!variant)return signedRedirect(await cloudSignedDownload(reference.storage_key));
+  // The viewer shows WebP (and a ≤600 px copy in the compact map); the stored PNG is untouched.
+  const bytes=await planImageVariant(await cloudDownloadObject(reference.storage_key),variant);
+  return new Response(new Uint8Array(bytes),{headers:{"Content-Type":"image/webp","Content-Length":String(bytes.byteLength),"Cache-Control":tour.published?"public, max-age=3600, s-maxage=86400":"private, no-store","X-Content-Type-Options":"nosniff"}});
  }
  if(request.method!=="GET"){
   if(!access.sessionAdmin)return fail("دخول الإدارة مطلوب.",401);

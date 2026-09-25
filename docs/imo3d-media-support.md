@@ -114,3 +114,20 @@ build guard, the preview self-proxy, the local-mode gate and embeds.
 `tests/imo3d-cloud-routes.test.ts`: the suite session on the API, the closed password login (and its
 break-glass switch), basePath API paths, suite-origin writes, embeds when the public origin is the
 suite, and the cookie scope.
+
+## The buyer's tour (2026-09-25)
+
+| What | Where | Cache |
+|---|---|---|
+| Arrival payload without display depth; `deferredDepth` lists the scenes that have it | `GET /api/imo3d/tours/<id>` (anonymous) | `private, no-store` (it carries signed media URLs) |
+| One scene's display depth, fetched with its panorama | `GET /api/imo3d/tours/<id>/depth/<sceneId>?r=<revision>` | published: `public, max-age=300, s-maxage=86400` |
+| Plan image as WebP / ≤600 px mini (the stored PNG is untouched and still opens «بالحجم الكامل») | `GET …/ai-plan/image?job=&floor=&variant=webp\|mini` | published: `public, max-age=3600, s-maxage=86400` |
+| Link-preview picture: first scene, 1200×630 JPEG | `GET /api/imo3d/tours/<id>/og-image?r=<revision>` | published: `public, max-age=3600, s-maxage=86400` |
+| Share card (title, description, image, the developer's name) | `generateMetadata` in `src/app/imo3d/t/[id]/page.tsx` | server-rendered per request; neutral Arabic card when not published |
+
+- «سجّل اهتمامك» sits in the dock on every screen size; the old footer stays hidden.
+- The logo and the error page link to the studio only for a signed-in administrator (`GET session`).
+- A reviewed architectural plan opens first («المخطط النظيف»); the furnished image is «المخطط المؤثث».
+- Light/dark: `data-imo-theme` on `<html>` from the suite's own `bmk-theme` key, before the first paint
+  (`src/lib/imo3d/theme.ts`); toggles in the studio sidebar and the viewer's options. The panorama keeps its
+  dark frame; the viewer's dock, dialogs and plan panels follow the theme (`src/app/imo3d/imo3d-theme.css`).

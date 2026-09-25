@@ -1,0 +1,140 @@
+/*
+ * Light and dark (owner, 2026-09-08). `data-imo-theme` on <html> is set before the first paint by
+ * THEME_BOOT_SCRIPT (src/lib/imo3d/theme.ts) from «bmk-theme», the studio suite's own key.
+ *
+ * Light is the palette the studio was drawn in; dark re-colours every surface that carries text.
+ * Plan drawings (architecture, floor plans, 3D plan, rulers) stay on their light sheet in both
+ * themes, like a printed drawing, with their own ink. The viewer keeps its dark frame around the
+ * panorama; its dock, dialogs and plan panels follow the theme.
+ */
+html[data-imo-theme=dark]{
+  --imo-d-bg:#0e1614;--imo-d-surface:#15201d;--imo-d-raised:#1b2824;--imo-d-field:#111a18;--imo-d-line:#2a3b36;
+  --imo-d-ink:#e4ede9;--imo-d-muted:#a3b6af;--imo-d-accent:#7fd8bd;--imo-d-selected:#1d3a33;
+}
+
+/* ── Studio shell ─────────────────────────────────────────────────────────── */
+html[data-imo-theme=dark] .imo-shell{--imo-ink:var(--imo-d-ink);--imo-muted:var(--imo-d-muted);--imo-line:var(--imo-d-line);--imo-surface:var(--imo-d-bg);color-scheme:dark}
+html[data-imo-theme=dark] .imo-shell.imo-studio,html[data-imo-theme=dark] .imo-shell.imo-login,html[data-imo-theme=dark] .imo-shell.imo-load{--imo-ink:var(--imo-d-ink);--imo-line:var(--imo-d-line);background:radial-gradient(ellipse at 8% 5%,#16302a 0,transparent 48%),radial-gradient(ellipse at 95% 75%,#211d14 0,transparent 45%),var(--imo-d-bg);color:var(--imo-d-ink)}
+html[data-imo-theme=dark] .imo-studio :is(.imo-sidebar,.imo-studio-top){background:#121c1aef;border-color:var(--imo-d-line)}
+html[data-imo-theme=dark] .imo-sidebar nav button.active{background:var(--imo-d-selected);color:#c7efe1;box-shadow:none}
+html[data-imo-theme=dark] .imo-sidebar nav button span{background:#24342f;color:var(--imo-d-ink)}
+html[data-imo-theme=dark] :is(.imo-sidebar-label,.imo-breadcrumb,.imo-private,.imo-sidebar-bottom small,.imo-eyebrow,.imo-back){color:var(--imo-d-muted)!important}
+html[data-imo-theme=dark] .imo-wordmark.dark{color:var(--imo-d-ink)}
+html[data-imo-theme=dark] .imo-page-heading p,html[data-imo-theme=dark] .imo-studio .imo-page-heading p{color:var(--imo-d-muted)}
+html[data-imo-theme=dark] .imo-page-heading h1>span{color:#d6bd80}
+
+/* Cards and panels */
+html[data-imo-theme=dark] .imo-shell :is(.imo-metrics,.imo-editor-main,.imo-editor-side>section,.imo-workflow,.imo-tour-card,.imo-table-wrap,.imo-empty,.imo-login-card,.imo-reference,.imo-project-settings-row,.imo-editor-project-tools,.imo-processing-card,.imo-key-form,.imo-branding-logo-upload,.imo-usage-stats article,.imo-semantic-room-grid article,.imo-manual-preview,.imo-boundary-board,.imo-boundary-board>span){background:var(--imo-d-surface);border-color:var(--imo-d-line);color:var(--imo-d-ink);box-shadow:none}
+html[data-imo-theme=dark] .imo-studio .imo-tour-card:hover{border-color:#3c5a51}
+html[data-imo-theme=dark] .imo-shell .imo-processing-card.is-active{background:linear-gradient(110deg,#173029,var(--imo-d-surface));border-color:#2f5a4c}
+html[data-imo-theme=dark] .imo-cover-empty{background:linear-gradient(140deg,#1a2a26,#15201d);color:var(--imo-d-muted)}
+html[data-imo-theme=dark] .imo-shell :is(.imo-metrics>div>span,.imo-metrics svg,.imo-tour-card-body>small,.imo-tour-card-body>div>span,.imo-reference p,.imo-empty,.imo-login-card>p,.imo-dropzone p,.imo-dropzone small,.imo-editor-heading p,.imo-editor-side p,.imo-quality dt,.imo-scene-card>small,.imo-scene-status,.imo-project-settings-row>span,.imo-project-settings-row>span>small,.imo-processing-heading small,.imo-muted,.imo-preview-heading,.imo-manual-intro p,.imo-manual-preview header>span,.imo-manual-preview header small,.imo-semantic-room-grid span,.imo-semantic-room-grid small,.imo-usage-intro p,.imo-usage-stats article>span,.imo-usage-stats p,.imo-usage-basis,.imo-key-list small,.imo-keys-heading>span,.imo-issued-key p,.imo-hotspot-list small,.imo-floor-selector,.imo-scene-card .imo-scene-field,.imo-branding-logo-upload small,.imo-branding-color>span,.imo-danger-zone p){color:var(--imo-d-muted)}
+html[data-imo-theme=dark] .imo-shell :is(.imo-empty h3,.imo-usage-intro h3,.imo-scene-delete-preview strong,.imo-danger-zone h3,.imo-usage-stats strong,.imo-issued-key strong,.imo-key-scopes legend){color:var(--imo-d-ink)}
+html[data-imo-theme=dark] .imo-shell :is(.imo-metrics>div,.imo-workflow>div,.imo-tour-card-body>div,.imo-tabs,.imo-quality,.imo-sidebar-bottom,.imo-studio-top,.imo-finance,.imo-unit-stats,.imo-unit-stats>span){border-color:var(--imo-d-line)}
+
+/* Workflow and processing */
+html[data-imo-theme=dark] .imo-workflow>div{color:var(--imo-d-muted)}
+html[data-imo-theme=dark] .imo-workflow b{border-color:var(--imo-d-line)}
+html[data-imo-theme=dark] .imo-workflow .done b{background:#173a2e;border-color:#2e6a53;color:#9fe3c6}
+html[data-imo-theme=dark] .imo-workflow .done>span{color:#b7e6d2}
+html[data-imo-theme=dark] .imo-studio .imo-workflow-stages .is-active{background:#15302a}
+html[data-imo-theme=dark] .imo-studio .imo-workflow-stages .is-active b{background:var(--imo-d-field);border-color:#459875;color:#9fe3c6}
+html[data-imo-theme=dark] .imo-studio .imo-workflow-stages .needs-review b{background:#2a2414;border-color:#8a7240;color:#f0cf8f}
+html[data-imo-theme=dark] .imo-studio .imo-workflow-stages .needs-review small{color:#e6c585}
+html[data-imo-theme=dark] :is(.imo-processing-heading>div,.imo-side-title,.imo-quality dd,.imo-scene-status .yes,.imo-import-help,.imo-upload-progress,.imo-card-preview,.imo-key-notice){color:var(--imo-d-accent)!important}
+html[data-imo-theme=dark] .imo-processing-percent{color:#9fe3c6}
+html[data-imo-theme=dark] .imo-processing-card>progress,html[data-imo-theme=dark] .imo-processing-card>progress::-webkit-progress-bar{background:#24342f}
+html[data-imo-theme=dark] .imo-processing-card details{color:#dcc48f}
+html[data-imo-theme=dark] .imo-processing-card .imo-processing-waiting,html[data-imo-theme=dark] .imo-editor-side .imo-quality-note{color:#e6c585;border-color:#8a7240}
+
+/* Tabs, upload, scenes, tables */
+html[data-imo-theme=dark] .imo-tabs button[aria-selected=true],html[data-imo-theme=dark] .imo-studio .imo-tabs button[aria-selected=true]{background:var(--imo-d-selected);color:#c7efe1;border-bottom-color:var(--imo-d-accent)}
+html[data-imo-theme=dark] .imo-shell .imo-dropzone,html[data-imo-theme=dark] .imo-studio .imo-dropzone{background:var(--imo-d-field);border-color:#3a524b}
+html[data-imo-theme=dark] .imo-upload-symbol{background:var(--imo-d-selected);color:var(--imo-d-accent)}
+html[data-imo-theme=dark] .imo-scene-card{border-color:var(--imo-d-line)}
+html[data-imo-theme=dark] .imo-scene-card>div:first-child>span{background:#0e1614df;color:var(--imo-d-ink)}
+html[data-imo-theme=dark] .imo-shell .imo-scene-delete{background:#0e1614e0;border-color:var(--imo-d-line);color:#f0a8a0}
+html[data-imo-theme=dark] .imo-table th{background:var(--imo-d-raised);color:var(--imo-d-muted)}
+html[data-imo-theme=dark] .imo-table :is(th,td){border-color:var(--imo-d-line)}
+
+/* Fields */
+html[data-imo-theme=dark] :is(.imo-shell,.imo-dialog) :is(.imo-form input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]),.imo-form textarea,.imo-form select,.imo-finance input:not([type=range]),.imo-filter select,.imo-manual-selectors select,.imo-scene-card .imo-scene-field input,.imo-measure-scale input:not([type=checkbox])){background:var(--imo-d-field)!important;color:var(--imo-d-ink)!important;border-color:#34463f!important}
+html[data-imo-theme=dark] .imo-floor-selector :is(select,input){background:var(--imo-d-field)!important;color:var(--imo-d-ink)!important;border-color:#34463f!important}
+html[data-imo-theme=dark] :is(.imo-search,.imo-studio .imo-search){background:var(--imo-d-field);border-color:#34463f;color:var(--imo-d-muted)}
+html[data-imo-theme=dark] .imo-search input{color:var(--imo-d-ink)}
+html[data-imo-theme=dark] :is(.imo-shell,.imo-dialog) :is(.imo-form label,.imo-finance label,.imo-measure-scale label,.imo-key-scopes legend){color:#c2d3cc}
+html[data-imo-theme=dark] :is(.imo-editor-heading input,.imo-scene-card>input){color:var(--imo-d-ink)}
+html[data-imo-theme=dark] :is(.imo-shell,.imo-dialog) ::placeholder{color:#7f928b}
+html[data-imo-theme=dark] .imo-dialog :is(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]),textarea,select){background:var(--imo-d-field);color:var(--imo-d-ink);border-color:#34463f}
+html[data-imo-theme=dark] .imo-integration-help summary{color:var(--imo-d-accent)}
+html[data-imo-theme=dark] .imo-integration-help>code{background:var(--imo-d-field);color:var(--imo-d-ink)}
+
+/* Buttons */
+html[data-imo-theme=dark] :is(.imo-shell,.imo-dialog) .imo-button.secondary{background:var(--imo-d-raised);color:var(--imo-d-ink);border-color:#34463f}
+html[data-imo-theme=dark] :is(.imo-shell,.imo-dialog) .imo-button.secondary:hover{background:#243632}
+html[data-imo-theme=dark] :is(.imo-shell,.imo-dialog) .imo-button.danger-outline{background:#2a1716;color:#f3aaa0;border-color:#5a2c25}
+html[data-imo-theme=dark] .imo-shell .imo-icon:hover,html[data-imo-theme=dark] .imo-dialog .imo-icon:hover{background:#22302d}
+html[data-imo-theme=dark] .imo-editor-project-tools button{background:var(--imo-d-raised)!important;color:var(--imo-d-accent)!important;border-color:#34463f!important}
+html[data-imo-theme=dark] :is(.imo-hotspot-types button,.imo-function-tabs button,.imo-boundary-room-list button){background:var(--imo-d-raised);color:var(--imo-d-ink);border-color:#34463f}
+html[data-imo-theme=dark] .imo-delete-tour-card:hover{background:#3a1d19!important;color:#f3aaa0!important}
+
+/* Messages */
+html[data-imo-theme=dark] .imo-banner{background:#15302a;color:#bfe8d4;border-color:#24473c}
+html[data-imo-theme=dark] .imo-banner.error{background:#3a1d19;color:#f3b2a6;border-color:#5a2c25}
+html[data-imo-theme=dark] :is(.imo-inline-alert,.imo-estimated-plan-note,.imo-boundary-discard){background:#2a2414;color:#f0cf8f;border-color:#4a3d20}
+html[data-imo-theme=dark] :is(.imo-upload-failures,.imo-delete-summary){background:#2a1716;color:#f0b3a8;border-color:#5a2c25}
+html[data-imo-theme=dark] :is(.imo-shell,.imo-dialog) .imo-error{color:#f39a8d}
+html[data-imo-theme=dark] :is(.imo-success,.imo-success p){color:#a7e3c8}
+html[data-imo-theme=dark] .imo-preview-status{background:#2a2414;color:#f0cf8f}
+html[data-imo-theme=dark] .imo-preview-status.is-published{background:#173a2e;color:#9fe3c6}
+html[data-imo-theme=dark] .imo-issued-key{background:#15302a;border-color:#2e6a53}
+html[data-imo-theme=dark] .imo-issued-key code{background:var(--imo-d-field);border-color:#2e6a53;color:var(--imo-d-ink)}
+
+/* Dialogs (studio and viewer) */
+/* Light: the unit card's small labels were 2.7:1 on the dialog; darkened to read at a glance. */
+.imo-unit-card>.imo-eyebrow,.imo-unit-stats>span{color:#5b6e64}
+html[data-imo-theme=dark] .imo-dialog,html[data-imo-theme=dark] .imo-shell .imo-dialog{--imo-ink:var(--imo-d-ink);background:var(--imo-d-surface);border-color:var(--imo-d-line);color:var(--imo-d-ink);box-shadow:0 28px 100px #000a}
+html[data-imo-theme=dark] .imo-shell .imo-dialog>header .imo-icon{background:#22302d;color:var(--imo-d-ink)}
+html[data-imo-theme=dark] :is(.imo-unit-card>.imo-eyebrow,.imo-unit-card h3 small,.imo-unit-stats>span,.imo-room-grid small){color:var(--imo-d-muted)}
+html[data-imo-theme=dark] .imo-unit-stats b{color:var(--imo-d-ink)}
+html[data-imo-theme=dark] .imo-payment{background:#15302a;color:#bfe8d4}
+html[data-imo-theme=dark] .imo-room-grid button{background:var(--imo-d-raised);border-color:var(--imo-d-line)}
+html[data-imo-theme=dark] .imo-floor-tabs button:not(.selected){background:var(--imo-d-raised);border-color:var(--imo-d-line);color:var(--imo-d-ink)}
+html[data-imo-theme=dark] .imo-option-icons button{background:var(--imo-d-raised);color:#cfe9dc}
+html[data-imo-theme=dark] .imo-option-icons button:hover{background:#243632}
+html[data-imo-theme=dark] .imo-room-titles button{background:var(--imo-d-raised);color:var(--imo-d-ink)}
+html[data-imo-theme=dark] .imo-room-titles button:hover{background:#243632}
+html[data-imo-theme=dark] .imo-view-options-list>button:hover:not(:disabled){background:#1f2e2a}
+html[data-imo-theme=dark] .imo-view-options-list>button small{color:var(--imo-d-muted)}
+html[data-imo-theme=dark] .imo-shell.imo-viewer .imo-view-error{background:var(--imo-d-surface);color:#f3b2a6}
+html[data-imo-theme=dark] :is(.imo-viewer-draft-heading,.imo-plan-review-state h3){color:var(--imo-d-ink)}
+html[data-imo-theme=dark] :is(.imo-viewer-draft-heading span,.imo-plan-review-state){color:var(--imo-d-muted)}
+html[data-imo-theme=dark] .imo-plan-preparing,html[data-imo-theme=dark] .imo-viewer .imo-plan-preparing{background:var(--imo-d-raised);color:var(--imo-d-muted)}
+html[data-imo-theme=dark] .imo-plan-display-modes{background:var(--imo-d-raised);border-color:var(--imo-d-line)}
+html[data-imo-theme=dark] .imo-plan-display-modes button{color:var(--imo-d-muted)}
+html[data-imo-theme=dark] .imo-plan-display-modes button[aria-pressed=true]{background:var(--imo-d-selected);color:#c7efe1}
+
+/* Plan drawings keep a light sheet and their own ink in both themes. */
+html[data-imo-theme=dark] :is(.imo-architecture,.imo-floorplan,.imo-plan3d,.imo-ruler-canvas,.architecture-board,.imo-viewer-draft-sheet){color-scheme:light}
+
+/* The compact plan over the panorama follows the theme. */
+html[data-imo-theme=dark] .imo-viewer .imo-compact-apartment-map{background:#0f1a17d9;border-color:#ffffff26;color:var(--imo-d-ink)}
+html[data-imo-theme=dark] .imo-viewer .imo-compact-apartment-map>header{background:#15201df2;border-color:#ffffff1a}
+html[data-imo-theme=dark] .imo-viewer .imo-compact-map-review{background:#15201df2;border-color:#ffffff1a;color:var(--imo-d-muted)}
+
+/* Theme toggle */
+.imo-theme-toggle{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;min-width:44px;padding:8px 12px;border-radius:10px;font:inherit;font-size:13px;cursor:pointer}
+.imo-sidebar .imo-theme-toggle{width:100%;justify-content:flex-start;margin-top:12px;border:1px solid var(--imo-line);color:inherit;background:transparent}
+.imo-sidebar .imo-theme-toggle:hover{background:#0f2b2410}
+html[data-imo-theme=dark] .imo-sidebar .imo-theme-toggle:hover{background:#ffffff0d}
+.imo-option-icons>.imo-theme-toggle{flex-direction:column;min-height:72px;border-radius:12px;color:#315f50;background:#e6eee980}
+.imo-option-icons>.imo-theme-toggle span{font-size:11px}
+html[data-imo-theme=dark] .imo-option-icons>.imo-theme-toggle{background:var(--imo-d-raised);color:#cfe9dc}
+
+/* The viewer dock follows the theme: dark glass in dark, frosted light in light. */
+html[data-imo-theme=light] .imo-shell.imo-viewer .imo-mobile-dock{background:#f5f8f6eb!important;border-color:#ffffff!important;box-shadow:0 8px 32px #0b1f1a33!important}
+html[data-imo-theme=light] .imo-shell.imo-viewer .imo-mobile-dock>.imo-glass{color:#17372f!important;background:transparent!important;border-color:transparent!important;backdrop-filter:none}
+html[data-imo-theme=light] .imo-shell.imo-viewer .imo-mobile-dock>.imo-glass:is(:hover,[aria-expanded=true],.active){background:#17372f14!important}
+html[data-imo-theme=light] .imo-shell.imo-viewer .imo-mobile-dock button:focus-visible{outline-color:#17372f}
+@media(max-width:900px){.imo-sidebar .imo-theme-toggle{width:auto;justify-content:center;padding:10px}.imo-sidebar .imo-theme-toggle span{display:none}}
+@media(max-width:600px){.imo-sidebar .imo-theme-toggle{margin:0;border:0}}

@@ -1,4 +1,5 @@
-import {presentationScene} from '../photo-edits';
+import {publicTourPayload,sceneDisplayDepth} from '../public-tour';
+import {tourShareImage} from './share-image';
 import {hotspotMedia} from "./hotspot-media";
 import {cloudPhotoEdits} from "./photo-edits";
 import {randomUUID} from "node:crypto";
@@ -9,7 +10,7 @@ import {cloudQuery,cloudRpc,cloudSignedDownload} from "./client";
 import {createProject,deleteTour,getAsset,getBranding,getTour,listProjects,listTourSummaries,saveTour,withinRateLimit} from "./repository";
 import {cloudManagement,cloudDevelopers} from "./management";
 import {cloudAIPlan,cloudLeadsPage,cloudProcessing} from "./jobs";
-import {cloudFailure,fail,json,readJSON,signedRedirect} from "./http";
+import {cloudFailure,fail,json,publicJSON,readJSON,signedRedirect} from "./http";
 import {applyArchitecture,applyBoundaries,applyMetadata,requireRevision} from "./geometry";
 import {handleCloudUpload} from "./uploads";
 import {cameraBundleSchema,type Tour} from "../model";
@@ -62,12 +63,14 @@ async function handle(request:Request){
   if(asset.file?.startsWith("retouch-")&&!access.sessionAdmin&&!tour.scenes.some(s=>s.presentation&&Object.values(s.presentation).includes(`/api/imo3d/assets/${id}`)))return fail("الملف غير موجود.",404);
   return signedRedirect(await cloudSignedDownload(asset.storage_key));
  }
- if(resource==="tours"&&id&&method==="GET"&&(segments.length===2||segments.length===3&&action==='media')){
+ if(resource==="tours"&&id&&method==="GET"&&(segments.length===2||segments.length===3&&(action==='media'||action==='og-image')||segments.length===4&&action==='depth')){
   const tour=await getTour(id);if(!tour||!access.allowed(tour.projectId)&&(!tour.published||!!access.integration))return fail("الجولة غير متاحة.",404);
   if(action==='media')return json(await tourMedia(tour));
+  if(action==='og-image')return tourShareImage(tour);
+  if(action==='depth'){const depth=sceneDisplayDepth(tour,last!);return depth?publicJSON(depth,tour.published):fail("لا يتوفر عمق عرض لهذه اللقطة.",404);}
   const [branding,media]=await Promise.all([getBranding(tour.projectId),new URL(request.url).searchParams.get('media')==='1'?tourMedia(tour).catch(()=>undefined):undefined]);
-  const {photoEdits,...publicTour}=tour;
-  return json({...publicTour,scenes:access.sessionAdmin?tour.scenes:tour.scenes.map(presentationScene),...(access.sessionAdmin?{photoEdits}:{}),branding,...(media?{media}:{})});
+  // A buyer's arrival carries no display depth: the viewer fetches each scene's with its panorama.
+  return json({...publicTourPayload(tour,{presentation:!access.sessionAdmin,deferDepth:!access.sessionAdmin&&!access.integration}),...(access.sessionAdmin?{photoEdits:tour.photoEdits}:{}),branding,...(media?{media}:{})});
  }
  if(resource==="tours"&&id&&action==="ai-plan"){
   if(last&&last!=="image")return fail("المسار غير موجود.",404);

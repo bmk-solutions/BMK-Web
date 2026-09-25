@@ -67,6 +67,9 @@ managementFiles.push('src/lib/imo3d/base-path.ts','src/lib/imo3d/suite.ts','src/
 testFiles.push('tests/imo3d-suite-basepath.test.ts');
 managementFiles.push(...['project-usage','usage-estimate','lead-query'].map(name=>`src/lib/imo3d/${name}.ts`));
 testFiles.push('tests/imo3d-project-usage.test.ts','tests/imo3d-lead-query.test.ts');
+// The buyer's tour and the engines' presence: lead button, share card, plan views, depth on demand, theme.
+managementFiles.push(...['worker-presence','public-tour','image-variants','share-card','theme','viewer-chrome'].map(name=>`src/lib/imo3d/${name}.ts`));
+testFiles.push('tests/imo3d-tour-surfaces.test.ts');
 for(const file of ['src/lib/imo3d/model.ts','src/lib/imo3d/spatial.ts','src/lib/imo3d/navigation.ts','src/components/imo3d/floorplan-geometry.ts','src/lib/imo3d/lead-validation.ts','src/lib/imo3d/tour-merge.ts','src/lib/imo3d/processing-model.ts','src/lib/imo3d/processing-jobs.ts','src/lib/imo3d/store.ts','src/lib/imo3d/branding.ts','src/lib/imo3d/reconstruction-layout.ts','src/lib/imo3d/integrations.ts','src/lib/imo3d/auth.ts',...managementFiles,...testFiles]){
   const target=path.join(root,file.replace(/\.ts$/,'.js'));mkdirSync(path.dirname(target),{recursive:true});
   const compiled=ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,esModuleInterop:true,rewriteRelativeImportExtensions:true}});

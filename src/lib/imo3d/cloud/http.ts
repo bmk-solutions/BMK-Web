@@ -4,6 +4,8 @@ export class CloudHTTPError extends Error{constructor(message:string,readonly st
 /** Stored asset paths leave in their served form (under the suite basePath); rows are never rewritten. */
 export const json=(value:unknown,status=200)=>Response.json(servePayloadPaths(value),{status,headers:{"Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff"}});
 export const fail=(message:string,status=400)=>json({error:message},status);
+/** A published tour's derived data is public and changes only with its revision: shared caches may keep it. */
+export const publicJSON=(value:unknown,published:boolean)=>Response.json(servePayloadPaths(value),{headers:{"Cache-Control":published?"public, max-age=300, s-maxage=86400":"private, no-store","X-Content-Type-Options":"nosniff"}});
 export const eq=(value:string)=>encodeURIComponent(value);
 export async function readBytes(request:Request,max:number){
  if(Number(request.headers.get("content-length"))>max)throw new CloudHTTPError("البيانات أكبر من الحد المسموح.",413);

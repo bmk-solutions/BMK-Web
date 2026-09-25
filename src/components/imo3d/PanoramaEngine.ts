@@ -8,6 +8,8 @@ import { angleDifference,radians, sampleDepth, worldRay } from "@/lib/imo3d/spat
 import { displayDepthTriangle,displayViewPosition,motionDuration, motionProgress, motionMode, planWallDistances, proxyRadius, proxyViewPosition, rayWallDistance, smoothstep,usableDisplayDepth, type MotionMode } from "./PanoramaMotion";
 import { desiredPanoramaWidth, panoramaArrivalCandidate, panoramaDisplayPolicy, panoramaQualityCandidate, type PanoramaDisplayPolicy, type PanoramaQuality } from "./PanoramaQuality";
 
+const DEPTH_WAIT_MS=600;
+const meshBytes=(mesh?:THREE.Mesh)=>mesh?Object.values(mesh.geometry.attributes).reduce((total,attribute)=>total+attribute.array.byteLength,0)+(mesh.geometry.index?.array.byteLength??0):0;
 type Entry = {
   mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
   displayMesh?:THREE.Mesh<THREE.BufferGeometry,THREE.MeshBasicMaterial>;geometryBytes:number;
@@ -92,7 +94,8 @@ export class PanoramaEngine {
   onError?: (message: string) => void;
 
   private blobs=new PanoramaBlobCache(24*1024*1024);
-  constructor(private canvas: HTMLCanvasElement, private options: { plans?: Plan[];resolveAsset?:(url:string)=>string } = {}) {
+  /** `sceneDepth`: a buyer's tour arrives without display depth; each scene's comes with its panorama and never blocks it. */
+  constructor(private canvas: HTMLCanvasElement, private options: { plans?: Plan[];resolveAsset?:(url:string)=>string;sceneDepth?:(scene:Scene)=>Promise<Scene["displayDepth"]> } = {}) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: "high-performance" });
     this.pixelRatio=Math.min(window.devicePixelRatio, 1.5);
     this.renderer.setPixelRatio(this.pixelRatio);
@@ -279,12 +282,18 @@ export class PanoramaEngine {
     const abort = new AbortController();
     if(this.loadingDestination?.id===scene.id)this.onLoading?.(true);
     let arrivalQuality:PanoramaQuality=candidate?.quality??"preview";
+    const depthReady=!scene.displayDepth&&this.options.sceneDepth?this.options.sceneDepth(scene).catch(()=>undefined):undefined;
     const promise = this.texture(candidate?.url??scene.preview,abort.signal,candidate?.quality==="image"?candidate.width:undefined).catch(error=>{
       if(!candidate||candidate.quality==="preview"||isCancelled(error))throw error;
       arrivalQuality="preview";return this.texture(scene.preview,abort.signal);
     }).then(async texture => {
       try{await this.waitForPreparation(abort.signal,scene.id);}catch(error){this.releaseTexture(texture);throw error;}
       if (this.destroyed || abort.signal.aborted) { this.releaseTexture(texture); throw cancelled(); }
+      // The first view never waits for depth; later scenes wait briefly, then gain it when it lands.
+      const fetchedDepth=depthReady&&await Promise.race([depthReady,new Promise<undefined>(resolve=>window.setTimeout(resolve,arrival?DEPTH_WAIT_MS:0))]);
+      if (this.destroyed || abort.signal.aborted) { this.releaseTexture(texture); throw cancelled(); }
+      if(fetchedDepth&&!scene.displayDepth)scene={...scene,displayDepth:fetchedDepth};
+      else if(depthReady){const later=scene;void depthReady.then(depth=>{if(depth)this.attachDisplayDepth({...later,displayDepth:depth});});}
       const display=usableDisplayDepth(scene);
       const material = new THREE.MeshBasicMaterial({map:texture,side:THREE.DoubleSide,depthTest:!display,depthWrite:!display});
       const mesh = new THREE.Mesh(this.geometry(scene),material);
@@ -294,7 +303,7 @@ export class PanoramaEngine {
       const displayMesh=displayGeometry&&displayGeometry.userData.displayCoverage>=.5?new THREE.Mesh(displayGeometry,new THREE.MeshBasicMaterial({map:texture,side:THREE.DoubleSide,depthTest:true,depthWrite:true})):undefined;
       if(displayGeometry&&!displayMesh)displayGeometry.dispose();
       if(displayMesh){displayMesh.position.copy(mesh.position);displayMesh.visible=false;mesh.renderOrder=-1;this.world.add(displayMesh);}
-      const geometryBytes=[mesh,displayMesh].reduce((sum,item)=>sum+(item?Object.values(item.geometry.attributes).reduce((total,attribute)=>total+attribute.array.byteLength,0)+(item.geometry.index?.array.byteLength??0):0),0);
+      const geometryBytes=meshBytes(mesh)+meshBytes(displayMesh);
       const entry:Entry = {mesh,displayMesh,geometryBytes,texture,bytes:this.textureBytes(texture),quality:arrivalQuality,readinessWidth:arrival?desired:0,failedUpgrades:new Set<string>()};
       const reservation=this.pending.get(scene.id);if(reservation?.abort===abort)reservation.bytes=0;
       this.cache.set(scene.id,entry); this.world.add(mesh);
@@ -436,6 +445,22 @@ export class PanoramaEngine {
   private release(entry: Entry) {
     if(entry.displayMesh){this.world.remove(entry.displayMesh);entry.displayMesh.geometry.dispose();entry.displayMesh.material.dispose();}
     this.world.remove(entry.mesh); entry.mesh.geometry.dispose(); entry.mesh.material.dispose(); this.releaseTexture(entry.texture);
+  }
+
+  /** Depth that arrived after its panorama: rebuild the scene's meshes exactly as load() would have. */
+  private attachDisplayDepth(scene:Scene){
+    const entry=this.cache.get(scene.id);
+    if(this.destroyed||!entry||entry.displayMesh||scene.depth||!usableDisplayDepth(scene))return;
+    if(this.tween){window.setTimeout(()=>this.attachDisplayDepth(scene),250);return;}
+    const previous=entry.mesh.geometry;entry.mesh.geometry=this.geometry(scene);previous.dispose();
+    entry.mesh.material.depthTest=false;entry.mesh.material.depthWrite=false;entry.mesh.material.needsUpdate=true;
+    const displayGeometry=this.geometry(scene,true);
+    if(displayGeometry.userData.displayCoverage>=.5){
+      const displayMesh=new THREE.Mesh(displayGeometry,new THREE.MeshBasicMaterial({map:entry.texture,side:THREE.DoubleSide,depthTest:true,depthWrite:true}));
+      displayMesh.position.copy(entry.mesh.position);displayMesh.visible=false;entry.mesh.renderOrder=-1;this.world.add(displayMesh);entry.displayMesh=displayMesh;
+    }else displayGeometry.dispose();
+    entry.geometryBytes=meshBytes(entry.mesh)+meshBytes(entry.displayMesh);
+    this.dirty=true;
   }
 
   private setEntryVisible(entry:Entry,visible:boolean,display=false){entry.mesh.visible=visible;if(entry.displayMesh)entry.displayMesh.visible=visible&&display;}

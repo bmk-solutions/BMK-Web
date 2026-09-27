@@ -5,9 +5,10 @@ import {createServer,type IncomingMessage,type Server} from 'node:http';
 import {readFileSync} from 'node:fs';
 import path from 'node:path';
 import {cloudRoute} from '../src/lib/imo3d/cloud/handlers';
-import {clearVeraContextCache,maskLeadPhone,parseVeraContext,requestIp,tourInterest,veraBodyDigest,veraCanonical,veraConfig,veraIpHash,veraLeadFailure,veraSignature} from '../src/lib/imo3d/vera-integration';
-import {beaconBody,beaconTarget,consentText,interestOffered,UNLINKED_CHIP,whatsappHref,type TourInterest} from '../src/lib/imo3d/tour-interest';
-import {honeypotFilled,projectShowcase,tourLeadSchema} from '../src/lib/imo3d/tour-lead';
+import {clearVeraContextCache,maskLeadPhone,parseVeraContext,requestIp,tourInterest,VERA_CONTEXT_STALE_MS,VERA_CONTEXT_TTL_MS,veraBodyDigest,veraCanonical,veraConfig,veraIpHash,veraKeyHash,veraLeadFailure,veraSignature} from '../src/lib/imo3d/vera-integration';
+import {beaconBody,beaconTarget,consentText,interestOffered,interestProjectName,offMarketLabel,UNLINKED_CHIP,whatsappHref,type TourInterest} from '../src/lib/imo3d/tour-interest';
+import {honeypotFilled,projectShowcase,spendLeadLimits,tourLeadSchema} from '../src/lib/imo3d/tour-lead';
+import {INVALID_LEAD_PHONE,normalizeLeadPhone} from '../src/lib/imo3d/lead-validation';
 import {syntheticTour} from './fixtures/imo3d-synthetic-tour';
 import type {Tour} from '../src/lib/imo3d/model';
 
@@ -18,7 +19,7 @@ import type {Tour} from '../src/lib/imo3d/model';
  * Supabase is faked at fetch; nothing here reaches a real VERA, a real database or the network.
  */
 
-// ── VERA's contract vectors, copied verbatim from bmk-spatial tests/unit/integration-signature.test.mjs ──
+// ── VERA's contract vectors, copied verbatim from bmk-spatial docs/INTEGRATION-CONTRACT.md §2 (74c981c) and tests/unit/integration-signature.test.mjs ──
 // The same four in three repos: a green run here proves this signer and VERA's are the same function.
 const S_TOUR = 'vera-contract-test-secret-tour360-0123456789';
 const S_POI = 'vera-contract-test-secret-poi-0123456789abcdef';
@@ -110,7 +111,7 @@ test('VERA-BUYER: consent names the developer or the sales team, never BMK; the 
  assert.equal(consentText(null,'الحمراء'),'أوافق على إرسال اسمي ورقم جوالي إلى فريق مبيعات المشروع للتواصل معي بخصوص الحمراء.');
  const context=(routed:'project'|'fallback')=>parseVeraContext({ok:true,linked:routed!=='fallback',routed,developer:{name:'BMK Solutions'},project:null,whatsapp:'+966 50 000 0000',unit:{code:'A-101',status:'sold',offMarket:true},privacyUrl:'https://os.bmk.solutions/bmk/privacy',consent:{version:'vera-consent-2026-09-25'}});
  const linked=tourInterest(true,context('project'),'https://os.bmk.solutions'),unlinked=tourInterest(true,context('fallback'),'https://os.bmk.solutions');
- assert.deepEqual(linked,{enabled:true,developerName:'BMK Solutions',whatsapp:'966500000000',unitOffMarket:true,privacyUrl:'https://os.bmk.solutions/bmk/privacy',beacon:'https://os.bmk.solutions/imo3d/api/events'});
+ assert.deepEqual(linked,{enabled:true,developerName:'BMK Solutions',projectName:null,whatsapp:'966500000000',unitOffMarket:true,unitStatus:'sold',privacyUrl:'https://os.bmk.solutions/bmk/privacy',beacon:'https://os.bmk.solutions/imo3d/api/events'});
  assert.equal(unlinked.developerName,null);assert.equal(unlinked.whatsapp,null,'the fallback inbox is not the developer');
  assert.equal(interestOffered(linked),false,'a sold unit takes no request');
  assert.equal(interestOffered({...linked,unitOffMarket:false}),true);
@@ -126,7 +127,7 @@ test('VERA-BUYER: consent names the developer or the sales team, never BMK; the 
 test('VERA-WHATSAPP: the button opens wa.me with a question about the unit; the beacon carries ids only and stays on VERA\'s origin',()=>{
  assert.equal(whatsappHref('966500000000','الحمراء','A-101'),'https://wa.me/966500000000?text='+encodeURIComponent('مرحبًا، أرغب بالاستفسار عن الوحدة A-101 في الحمراء.'));
  assert.equal(whatsappHref(null,'الحمراء',''),null);assert.equal(whatsappHref('0500','الحمراء',''),null);
- const interest:TourInterest={enabled:true,developerName:null,whatsapp:null,unitOffMarket:false,privacyUrl:null,beacon:'https://os.bmk.solutions/imo3d/api/events'};
+ const interest:TourInterest={enabled:true,developerName:null,projectName:null,whatsapp:null,unitOffMarket:false,unitStatus:null,privacyUrl:null,beacon:'https://os.bmk.solutions/imo3d/api/events'};
  assert.equal(beaconTarget(interest,'https://os.bmk.solutions'),'https://os.bmk.solutions/imo3d/api/events');
  assert.equal(beaconTarget(interest,'https://bmk-imo3d.vercel.app'),null,'an embed on the tour\'s own host sends nothing');
  assert.equal(beaconTarget({...interest,beacon:null},'https://os.bmk.solutions'),null);
@@ -137,7 +138,7 @@ test('VERA-WHATSAPP: the button opens wa.me with a question about the unit; the 
  assert.match(viewer,/useEffect\(\(\)=>\{beacon\("tour_view"\);\},\[beacon\]\);/);
  assert.match(viewer,/if\(!calculated\.current\)\{calculated\.current=true;onBeacon\("mortgage_use"\);\}/);
  // Both entry points and the unit card follow the same rule; the consent is the generated text, not a fixed sentence.
- assert.match(viewer,/\{offered&&<button className="imo-interest"/);assert.match(viewer,/\{offered&&<button className="imo-dock-interest"/);
+ assert.match(viewer,/\{offered\?<button className="imo-interest"/);assert.match(viewer,/\{offered\?<button className="imo-dock-interest"/);
  assert.match(viewer,/lead=\{panel==="lead"&&offered\}/);
  assert.match(viewer,/\{consentText\(interest\?\.developerName\?\?null,projectName\)\}/);
  assert.doesNotMatch(viewer,/أوافق على حفظ بياناتي/);
@@ -202,14 +203,15 @@ const result=(value:unknown,status=200)=>new Response(JSON.stringify(value),{sta
 const adminCookie=()=>{const expiry=String(Date.now()+60_000);return `imo3d_session=${expiry}.${createHmac('sha256',adminSecret).update(expiry).digest('hex')}`;};
 const req=(url:string,options:RequestInit={},admin=false)=>new Request(origin+'/api/imo3d/'+url,{...options,headers:{'x-forwarded-for':'198.51.100.23',...(admin?{cookie:adminCookie()}:{}),...(options.method&&options.method!=='GET'?{Origin:origin,'Content-Type':'application/json'}:{}),...Object.fromEntries(new Headers(options.headers))}});
 const published=():Tour=>({...syntheticTour(),published:true,unit:{code:'A-101',area:120,price:900000,bedrooms:3,bathrooms:2}});
-let rateLimit:(key:string)=>boolean=()=>true;
+let rateLimit:(key:string,limit:number)=>boolean=()=>true,refundLimit:(key:string)=>void=()=>{};
 // Every failure path logs; each line is collected and checked for the buyer's number and name.
 const errorOriginal=console.error;let logged:unknown[][]=[];
 function standardSupabase(tour:Tour,developer:string|null='tour-dev-1'){
  let saved:Tour|null=null;
  return (call:Call)=>{
   const table=call.url.pathname.split('/').pop();
-  if(table==='imo3d_rate_limit')return rateLimit(String((call.body as {p_key:string}).p_key));
+  if(table==='imo3d_rate_limit')return rateLimit(String((call.body as {p_key:string}).p_key),Number((call.body as {p_limit:number}).p_limit));
+  if(table==='imo3d_rate_limit_refund'){refundLimit(String((call.body as {p_key:string}).p_key));return null;}
   if(table==='imo3d_tours')return[{payload:tour}];
   if(table==='imo3d_project_developers')return developer?[{developer_id:developer}]:[];
   if(table==='imo3d_leads'&&call.method==='POST')return[call.body];
@@ -223,7 +225,7 @@ function standardSupabase(tour:Tour,developer:string|null='tour-dev-1'){
 }
 beforeEach(()=>{
  Object.assign(process.env,{IMO3D_CLOUD:'1',SUPABASE_URL:'https://synthetic.supabase.co',SUPABASE_SERVICE_ROLE_KEY:'synthetic-key',IMO3D_ADMIN_SECRET:adminSecret,IMO3D_PASSWORD_LOGIN:'1',IMO3D_PUBLIC_ORIGIN:origin,MS_SUITE_ORIGIN:'https://os.bmk.solutions',VERA_INTEGRATION_SECRET:SECRET,VERA_INTEGRATION_ORIGIN:veraOrigin,IMO3D_DATA_DIR:path.resolve('work/vera-test-must-not-create-database')});
- calls=[];seen=[];logged=[];console.error=(...args:unknown[])=>{logged.push(args);};rateLimit=()=>true;clearVeraContextCache();answer=()=>({status:500,body:{ok:false,error:'UNSCRIPTED'}});
+ calls=[];seen=[];logged=[];console.error=(...args:unknown[])=>{logged.push(args);};rateLimit=()=>true;refundLimit=()=>{};clearVeraContextCache();answer=()=>({status:500,body:{ok:false,error:'UNSCRIPTED'}});
  globalThis.fetch=async(input,init)=>{
   const url=new URL(String(input instanceof Request?input.url:input));
   if(url.origin===veraOrigin)return fetchOriginal(input,init);
@@ -243,7 +245,7 @@ test('VERA-LEAD: the request reaches VERA signed, routed by the server\'s ids, a
  assert.equal(response.status,201,await response.clone().text());assert.deepEqual(await response.json(),{ok:true});
  assert.equal(seen.length,1);const [sent]=seen;
  assert.equal(sent.method,'POST');assert.equal(sent.path,'/imo3d/api/integrations/v1/leads');
- assert.deepEqual(sent.body,{app:'tour360',ref:{project:tour.projectId,developer:'tour-dev-1',developerHint:null,item:tour.id},buyer:{name:'سارة التجربة',phone:'0501234567',message:'أرغب بزيارة'},unit:{code:'A-101'},consent:{given:true,version:'vera-consent-2026-09-25'},context:{title:tour.title,url:'https://os.bmk.solutions/media-support/tour/t/synthetic-tour'},client:{ipHash:veraIpHash(SECRET,'198.51.100.23')}});
+ assert.deepEqual(sent.body,{app:'tour360',ref:{project:tour.projectId,developer:'tour-dev-1',developerHint:null,item:tour.id},buyer:{name:'سارة التجربة',phone:'+966501234567',message:'أرغب بزيارة'},unit:{code:'A-101'},consent:{given:true,version:'vera-consent-2026-09-25'},context:{title:tour.title,url:'https://os.bmk.solutions/media-support/tour/t/synthetic-tour'},client:{ipHash:veraIpHash(SECRET,'198.51.100.23')}});
  assert.doesNotMatch(sent.raw,/198\.51\.100\.23/,'VERA never sees the raw IP');
  const audit=calls.filter(call=>call.url.pathname==='/rest/v1/imo3d_leads'&&call.method==='POST');
  assert.equal(audit.length,1);
@@ -283,9 +285,10 @@ test('VERA-LEAD: the per-IP limit refuses before VERA is asked; without a secret
  const tour=published();supabase=standardSupabase(tour);rateLimit=key=>!key.startsWith('lead-ip10:');
  let response=await cloudRoute(req('leads',{method:'POST',body:leadBody(tour)}));
  assert.equal(response.status,429);assert.equal(seen.length,0);
- rateLimit=()=>true;delete process.env.VERA_INTEGRATION_SECRET;
+ rateLimit=()=>true;delete process.env.VERA_INTEGRATION_SECRET;calls=[];
  response=await cloudRoute(req('leads',{method:'POST',body:leadBody(tour)}));
  assert.equal(response.status,503);assert.equal(seen.length,0);assert.equal(calls.some(call=>call.url.pathname==='/rest/v1/imo3d_leads'),false);
+ assert.equal(calls.some(call=>call.url.pathname.includes('rate_limit')),false,'SEC-F4: no secret, no limit key is written at all');
  response=await cloudRoute(req('leads',{method:'POST',body:leadBody(tour,{consent:false})}));assert.equal(response.status,400);
 });
 
@@ -301,7 +304,7 @@ test('VERA-CONTEXT: the public tour carries interest from VERA\'s context, cache
  const tour=published();supabase=standardSupabase(tour);
  answer=()=>({status:200,body:{ok:true,linked:true,routed:'developer',developer:{name:'شركة العوالي العقارية'},project:null,whatsapp:'966500000000',privacyUrl:'https://os.bmk.solutions/alawaly/privacy',unit:null,consent:{version:'vera-consent-2026-09-25'}}});
  const first=await (await cloudRoute(req('tours/'+tour.id))).json();
- assert.deepEqual(first.interest,{enabled:true,developerName:'شركة العوالي العقارية',whatsapp:'966500000000',unitOffMarket:false,privacyUrl:'https://os.bmk.solutions/alawaly/privacy',beacon:'https://os.bmk.solutions/imo3d/api/events'});
+ assert.deepEqual(first.interest,{enabled:true,developerName:'شركة العوالي العقارية',projectName:null,whatsapp:'966500000000',unitOffMarket:false,unitStatus:null,privacyUrl:'https://os.bmk.solutions/alawaly/privacy',beacon:'https://os.bmk.solutions/imo3d/api/events'});
  assert.equal(seen.length,1);assert.equal(seen[0].method,'GET');assert.equal(seen[0].path,'/imo3d/api/integrations/v1/context');
  assert.equal(seen[0].query,`project=${tour.projectId}&developer=tour-dev-1&unit=A-101`,'the app is the signed header, never a parameter');
  await cloudRoute(req('tours/'+tour.id));assert.equal(seen.length,1,'the second arrival is served from the 60 s cache');
@@ -309,7 +312,7 @@ test('VERA-CONTEXT: the public tour carries interest from VERA\'s context, cache
  assert.equal((await (await cloudRoute(req('tours/'+tour.id))).json()).interest.unitOffMarket,true);
  clearVeraContextCache();answer=()=>({status:503,body:{ok:false}});
  const down=await (await cloudRoute(req('tours/'+tour.id))).json();
- assert.deepEqual(down.interest,{enabled:true,developerName:null,whatsapp:null,unitOffMarket:false,privacyUrl:null,beacon:'https://os.bmk.solutions/imo3d/api/events'},'VERA down: the button stays, the request will say so');
+ assert.deepEqual(down.interest,{enabled:true,developerName:null,projectName:null,whatsapp:null,unitOffMarket:false,unitStatus:null,privacyUrl:null,beacon:'https://os.bmk.solutions/imo3d/api/events'},'VERA down with no answer ever read: the button stays, the request will say so');
  delete process.env.VERA_INTEGRATION_SECRET;clearVeraContextCache();seen=[];
  assert.equal((await (await cloudRoute(req('tours/'+tour.id))).json()).interest.enabled,false);assert.equal(seen.length,0);
 });
@@ -380,8 +383,138 @@ test('VERA-PUBLISH: publishing or unpublishing re-states a linked project in VER
 test('VERA-LOCAL: the local adapter forwards only with a secret, keeps the masked audit then, and its honeypot is silent too',()=>{
  const route=readFileSync('src/app/api/imo3d/[...path]/route.ts','utf8'),lead=/if\(resource==="leads"&&method==="POST"\)\{([\s\S]*?)\n  \}/.exec(route)?.[1]??'';
  assert.match(lead,/const raw=await readJSON\(request,8000\);if\(honeypotFilled\(raw\)\)return json\(\{ok:true\},201\);/);
- assert.match(lead,/const refusal=await leadLimitRefusal\(withinRateLimit,request,tour\.id,input\.phone\);if\(refusal\)return fail\(refusal,429\);/);
+ assert.match(lead,/const limits=await spendLeadLimits\(\{spend:withinRateLimit,refund:refundRateLimit\},request,tour\.id,input\.phone\);if\(limits\.refusal\)return fail\(limits\.refusal,429\);/);
  assert.match(lead,/if\(!veraConfig\(\)\)\{addLead\(tour\.id,input\.name,input\.phone,input\.note\);return json\(\{ok:true\},201\);\}/);
- assert.match(lead,/if\(!sent\.ok\)return fail\(sent\.message,sent\.status\);\s*addLead\(tour\.id,"",maskLeadPhone\(input\.phone\),""\);/);
- assert.ok(lead.indexOf('leadLimitRefusal')<lead.indexOf('forwardTourLead'),'limits before VERA');
+ assert.match(lead,/if\(!sent\.ok\)\{await limits\.refund\(\);return fail\(sent\.message,sent\.status\);\}\s*addLead\(tour\.id,"",maskLeadPhone\(input\.phone\),""\);/,'a failed forward gives the limits back here too');
+ assert.ok(lead.indexOf('spendLeadLimits')<lead.indexOf('forwardTourLead'),'limits before VERA');
+ assert.match(readFileSync('src/lib/imo3d/store.ts','utf8'),/export function refundRateLimit\(key:string\) \{\r?\n  db\(\)\.prepare\("UPDATE request_limits SET count=max\(count-1,0\) WHERE key=\?"\)\.run\(key\);/);
+});
+
+// ── The review of 155efbb: limits, keys, the outage and the buyer's screen ──
+const counting=()=>{const counts=new Map<string,number>();return{counts,spend:(key:string,limit:number)=>{const n=(counts.get(key)??0)+1;counts.set(key,n);return n<=limit;},refund:(key:string)=>{counts.set(key,Math.max(0,(counts.get(key)??0)-1));}};};
+const fromIp=(ip:string)=>new Request('https://x',{headers:{'x-real-ip':ip}});
+
+test('SEC-F3: one Saudi number is one per-phone key, however it is spelled',async()=>{
+ const limits=counting();let accepted=0,ip=0;
+ for(const spelling of ['0501234567','501234567','+966501234567','966501234567','00966501234567','٠٥٠١٢٣٤٥٦٧'])for(let i=0;i<3;i++){
+  const phone=tourLeadSchema.parse({tourId:'tour-1',name:'سارة',phone:spelling,consent:true}).phone;
+  if(!(await spendLeadLimits(limits,fromIp(`203.0.113.${++ip}`),'tour-1',phone)).refusal)accepted++;
+ }
+ assert.equal(accepted,3,'six spellings from eighteen addresses are still three requests an hour');
+ assert.equal([...limits.counts.keys()].filter(key=>key.startsWith('lead:')).length,1);
+});
+
+test('UX-6: the tour checks the number with VERA\'s rule and refuses it in VERA\'s words',()=>{
+ for(const phone of ['0501234567','501234567','966501234567','00966501234567','+966501234567','+966 50 123 4567','٠٥٠١٢٣٤٥٦٧','۰۵۰۱۲۳۴۵۶۷'])assert.equal(normalizeLeadPhone(phone),'+966501234567',phone);
+ for(const [phone,e164] of [['+447700900123','+447700900123'],['0044 7700 900123','+447700900123'],['+971501234567','+971501234567'],['+1 (415) 555-0100','+14155550100']])assert.equal(normalizeLeadPhone(phone),e164,phone);
+ // A number VERA would refuse is refused here first: no country, a 0 after the code, too short.
+ for(const phone of ['971501234567','07911 123456','+4407700900123','12345678','+1234567','0966501234567'])assert.equal(normalizeLeadPhone(phone),null,phone);
+ const refused=tourLeadSchema.safeParse({tourId:'t',name:'سارة',phone:'12345',consent:true});
+ assert.ok(!refused.success);assert.equal(refused.error.issues[0].message,INVALID_LEAD_PHONE);
+ assert.equal(veraLeadFailure('BAD_PHONE',400).message,INVALID_LEAD_PHONE,'one sentence, whichever side refuses');
+});
+
+test('SEC-F4: without VERA the limit keys are still keyed hashes, never an enumerable sha256',async()=>{
+ delete process.env.VERA_INTEGRATION_SECRET;
+ const keys:string[]=[];await spendLeadLimits({spend:key=>{keys.push(key);return true;},refund:()=>{}},fromIp('203.0.113.7'),'tour-1','+966501234567');
+ const unkeyed=(label:string)=>createHash('sha256').update(label).digest('base64url').slice(0,22);
+ assert.deepEqual(keys.map(key=>key.split(':')[0]),['lead-ip10','lead-ip60','lead','lead-global']);
+ for(const key of keys){
+  for(const label of ['ip:203.0.113.7','phone:+966501234567'])for(const guess of [unkeyed(label),veraKeyHash('',label)])assert.equal(key.includes(guess),false,key);
+  assert.doesNotMatch(key,/203\.0|501234567/);
+ }
+});
+
+test('SEC-F5: the migration deletes the old raw-number limit keys, never a hashed one, and adds the refund',async()=>{
+ const sql=readFileSync('supabase/migrations/20260925120000_imo3d_lead_audit.sql','utf8');
+ const legacy=new RegExp(/DELETE FROM public\.imo3d_request_limits WHERE key ~ '([^']+)';/.exec(sql)![1]);
+ for(const key of ['lead:+966501234567:tour-1','lead:0501234567:synthetic-tour','lead:12345678:t'])assert.match(key,legacy,key);
+ const keys:string[]=[];
+ for(const phone of ['+966501234567','+447700900123','+966555555555'])await spendLeadLimits({spend:key=>{keys.push(key);return true;},refund:()=>{}},fromIp('198.51.100.9'),'tour-1',phone);
+ for(const key of keys)assert.doesNotMatch(key,legacy,key);
+ assert.match(sql,/CREATE FUNCTION public\.imo3d_rate_limit_refund\(p_key text\)[^;]*\$\$\s*UPDATE public\.imo3d_request_limits SET count=greatest\(count-1,0\) WHERE key=p_key;/);
+ assert.match(sql,/REVOKE ALL ON FUNCTION public\.imo3d_rate_limit_refund\(text\) FROM PUBLIC,anon,authenticated;\s*GRANT EXECUTE ON FUNCTION public\.imo3d_rate_limit_refund\(text\) TO service_role;/);
+ assert.match(readFileSync('supabase/verification/imo3d_cloud_rollback_check.sql','utf8'),/PERFORM public\.imo3d_rate_limit_refund\(rate_key\);/);
+});
+
+test('UX-1: a request VERA did not accept is not counted; «أُرسل سابقًا» comes only after three real forwards',async()=>{
+ const tour=published();supabase=standardSupabase(tour);const limits=counting();rateLimit=limits.spend;refundLimit=limits.refund;
+ const press=async()=>{const response=await cloudRoute(req('leads',{method:'POST',body:leadBody(tour,{phone:'0551110003'})}));return{status:response.status,error:(await response.json()).error as string|undefined};};
+ answer=()=>({status:503,body:{ok:false,error:'PLATFORM_UNAVAILABLE'}});
+ for(let i=0;i<4;i++)assert.deepEqual(await press(),{status:503,error:'تعذّر الإرسال، حاول مجددًا.'},`outage, try ${i+1}`);
+ answer=()=>({status:200,body:{ok:true,duplicate:false,routed:'project'}});
+ for(let i=0;i<3;i++)assert.equal((await press()).status,201,`accepted ${i+1}`);
+ assert.deepEqual(await press(),{status:429,error:'تم إرسال طلبك سابقًا. حاول لاحقًا.'});
+ assert.equal(seen.length,7,'the refusal asked VERA nothing');
+ assert.equal(calls.filter(call=>call.url.pathname.endsWith('/imo3d_rate_limit_refund')).length,8,'each failed forward gave back its phone and tour limits');
+ for(const call of calls)assert.doesNotMatch(call.raw,/551110003/);
+});
+
+test('UX-2: VERA down keeps the last good context for a day, so a linked developer keeps his name and WhatsApp',async()=>{
+ const tour=published();supabase=standardSupabase(tour);
+ const realNow=Date.now;let shift=0;Date.now=()=>realNow()+shift;
+ try{
+  answer=()=>({status:200,body:{ok:true,linked:true,routed:'project',developer:{name:'شركة العوالي العقارية'},project:{name:'العوالي هومز – المروة'},whatsapp:'966500000000',privacyUrl:null,unit:null}});
+  const interest=async()=>(await (await cloudRoute(req('tours/'+tour.id))).json()).interest;
+  const good=await interest();assert.equal(good.whatsapp,'966500000000');assert.equal(good.developerName,'شركة العوالي العقارية');
+  answer=()=>({status:503,body:{ok:false,error:'PLATFORM_UNAVAILABLE'}});
+  shift=VERA_CONTEXT_TTL_MS+1_000;assert.deepEqual(await interest(),good,'VERA asked again, failed, the last answer stands');assert.equal(seen.length,2);
+  shift+=VERA_CONTEXT_TTL_MS+1_000;assert.deepEqual(await interest(),good,'and again a minute later');assert.equal(seen.length,3);
+  shift=VERA_CONTEXT_STALE_MS+1_000;const old=await interest();
+  assert.equal(old.developerName,null);assert.equal(old.whatsapp,null,'a day-old answer is not repeated');assert.equal(old.enabled,true);
+ }finally{Date.now=realNow;}
+});
+
+test('UX-3: the consent names the Developer OS project a project link files the lead under',()=>{
+ const context=(routed:'project'|'developer'|'fallback')=>tourInterest(true,parseVeraContext({routed,developer:{name:'شركة العوالي العقارية'},project:{name:'العوالي هومز – المروة'},whatsapp:'966500000000'}),'https://os.bmk.solutions');
+ assert.equal(consentText(context('project').developerName,interestProjectName(context('project'),'Al Awaly al marwa')),'أوافق على إرسال اسمي ورقم جوالي إلى شركة العوالي العقارية للتواصل معي بخصوص العوالي هومز – المروة.');
+ assert.equal(interestProjectName(context('developer'),'Al Awaly al marwa'),'Al Awaly al marwa','a developer link names no project of its own');
+ assert.equal(interestProjectName(context('fallback'),'Al Awaly al marwa'),'Al Awaly al marwa');
+ assert.equal(interestProjectName(undefined,'Al Awaly al marwa'),'Al Awaly al marwa');
+ const viewer=readFileSync('src/components/imo3d/TourViewer.tsx','utf8');
+ assert.match(viewer,/projectName=interestProjectName\(interest,tour\.branding\?\.projectName\|\|tour\.title\)/);
+ assert.match(viewer,/const whatsapp=whatsappHref\(interest\?\.whatsapp\?\?null,projectName,u\.code\)/,'the WhatsApp question names the same project');
+});
+
+test('UX-4: the privacy policy in the consent reads as a link, in both themes',()=>{
+ const viewer=readFileSync('src/components/imo3d/TourViewer.tsx','utf8'),css=readFileSync('src/app/imo3d/imo3d.css','utf8'),theme=readFileSync('src/app/imo3d/imo3d-theme.css','utf8');
+ assert.match(viewer,/<small className="imo-muted imo-privacy-note">\{PRIVACY_NOTE\}\{interest\?\.privacyUrl&&<> — <a className="imo-privacy-link" href=\{interest\.privacyUrl\}/);
+ const link=/\.imo-dialog \.imo-privacy-link\{([^}]*)\}/.exec(css)?.[1]??'',note=/\.imo-dialog \.imo-privacy-note\{([^}]*)\}/.exec(css)?.[1]??'';
+ assert.match(link,/text-decoration:underline/);assert.match(link,/padding:8px 2px/,'a thumb-sized target');assert.match(note,/font-size:13px/);
+ const luminance=(hex:string)=>{const [r,g,b]=[1,3,5].map(i=>{const c=parseInt(hex.slice(i,i+2),16)/255;return c<=0.03928?c/12.92:((c+0.055)/1.055)**2.4;});return 0.2126*r+0.7152*g+0.0722*b;};
+ const contrast=(hex:string)=>1.05/(luminance(hex)+0.05);
+ const linkColor=/color:(#[0-9a-f]{6})/.exec(link)![1],noteColor=/color:(#[0-9a-f]{6})/.exec(note)![1];
+ assert.notEqual(linkColor,noteColor,'the link is not the colour of the text around it');
+ assert.ok(contrast(linkColor)>=4.5&&contrast(noteColor)>=4.5,'AA for small text on the white dialog');
+ assert.match(theme,/html\[data-imo-theme=dark\] \.imo-dialog \.imo-privacy-link\{color:var\(--imo-d-accent\)\}/);
+});
+
+test('UX-5: a sold unit says so on the main screen, offers WhatsApp where the button was, and no calculator',()=>{
+ const base:TourInterest={enabled:true,developerName:'X',projectName:null,whatsapp:'966500000000',unitOffMarket:true,unitStatus:'sold',privacyUrl:null,beacon:null};
+ assert.equal(offMarketLabel(base),'مباعة');assert.equal(offMarketLabel({...base,unitStatus:'reserved'}),'محجوزة');assert.equal(offMarketLabel({...base,unitStatus:'rented'}),'مؤجّرة');
+ assert.equal(offMarketLabel({...base,unitStatus:null}),'غير متاحة');assert.equal(offMarketLabel({...base,unitOffMarket:false,unitStatus:null}),null);assert.equal(offMarketLabel(undefined),null);
+ assert.equal(parseVeraContext({routed:'project',unit:{status:'Reserved'}})?.unitStatus,'reserved');assert.equal(parseVeraContext({routed:'project',unit:{status:'available'}})?.unitStatus,null);
+ assert.deepEqual([parseVeraContext({routed:'project',unit:{offMarket:true}})?.unitOffMarket,parseVeraContext({routed:'project',unit:{offMarket:true}})?.unitStatus],[true,null]);
+ const viewer=readFileSync('src/components/imo3d/TourViewer.tsx','utf8');
+ assert.match(viewer,/const u=tour\.unit,status=offMarketLabel\(tour\.interest\);/);assert.match(viewer,/\{status&&<span className="imo-unit-status" role="status">\{status\}<\/span>\}/);
+ assert.match(viewer,/const offMarketContact=tour\.interest\?\.unitOffMarket\?whatsappHref\(tour\.interest\.whatsapp,/);
+ assert.match(viewer,/:offMarketContact&&<a className="imo-dock-interest" href=\{offMarketContact\} target="_blank" rel="noopener noreferrer" onClick=\{\(\)=>beacon\("wa_click"\)\}>/);
+ assert.match(viewer,/:offMarketContact&&<a className="imo-interest" href=\{offMarketContact\} target="_blank" rel="noopener noreferrer" onClick=\{\(\)=>beacon\("wa_click"\)\}>/);
+ assert.match(viewer,/\{u\.price!==null&&!interest\?\.unitOffMarket&&<div className="imo-finance">/);
+});
+
+test('UX-7: the link picker retries in place and names its two selects apart',()=>{
+ const picker=readFileSync('src/components/imo3d/VeraLinkPicker.tsx','utf8');
+ assert.match(picker,/onClick=\{\(\)=>\{setError\(""\);setState\(null\);setAttempt\(value=>value\+1\);\}\}>إعادة المحاولة<\/button>/);
+ assert.match(picker,/\},\[path,kind,attempt\]\);/,'a retry re-runs the load');
+ assert.match(picker,/\{error\?<><p className="imo-error" role="alert">\{error\}<\/p><div className="imo-dialog-actions">\{retry\}<\/div><\/>/);
+ assert.equal(picker.split('ربط بمشروع في Developer OS').length-1,1,'the heading only');
+ assert.match(picker,/<label>المطوّر في Developer OS<select/);assert.match(picker,/<label>المشروع في Developer OS<select/);
+});
+
+test('UX-1: a busy tour refuses as busy and gives the buyer\'s phone limit back',async()=>{
+ const limits=counting(),spend=(key:string,limit:number)=>key.startsWith('lead-global:')?false:limits.spend(key,limit);
+ const {refusal}=await spendLeadLimits({spend,refund:limits.refund},fromIp('203.0.113.8'),'tour-1','+966501234567');
+ assert.equal(refusal,'طلبات كثيرة. حاول بعد قليل.','never «أُرسل سابقًا» for a request that was not sent');
+ assert.deepEqual([...limits.counts].filter(([key])=>key.startsWith('lead:')).map(([,count])=>count),[0]);
 });

@@ -80,6 +80,10 @@ export function withinRateLimit(key:string,limit:number,windowMs:number) {
   const row=db().prepare("INSERT INTO request_limits(key,count,expires) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET count=count+1 RETURNING count").get(key,now+windowMs);
   return Number(row?.count)<=limit;
 }
+/** Give back one spent request: a lead VERA did not accept is not counted against the buyer. */
+export function refundRateLimit(key:string) {
+  db().prepare("UPDATE request_limits SET count=max(count-1,0) WHERE key=?").run(key);
+}
 export function installExample() {
   // Idempotent, explicit import from the reference selected by the user.
   const data=readPrivateExample();if(!data)throw new PrivateExampleUnavailableError();

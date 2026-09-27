@@ -11,6 +11,8 @@
 .imo-unit-summary-stats dt{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:10px;white-space:nowrap}.imo-unit-summary-stats svg{filter:drop-shadow(0 1px 2px #071d18)}
 .imo-unit-summary-stats dd{margin:0;font-size:14px;font-weight:650;font-variant-numeric:tabular-nums}
 .imo-unit-summary-price{font-size:15px}.imo-unit-summary-price small{font-size:11px;font-weight:400}
+/* A sold or reserved unit says so where its price is: the house status orange, deepened so white 12 px text reads (5:1). */
+.imo-viewer .imo-unit-status{justify-self:center;padding:2px 12px;border-radius:999px;background:#c2410c;color:#fff;font-size:12px;font-weight:600;text-shadow:none}
 .imo-mobile-dock{padding:6px;gap:4px;border-radius:24px!important;bottom:max(20px,env(safe-area-inset-bottom))!important;background:#12372dde!important;box-shadow:0 8px 32px #001c2526!important;border:1px solid #ffffff36!important}
 .imo-mobile-dock>.imo-glass{width:72px!important;min-height:60px!important;border:none!important;border-radius:18px!important;background:transparent!important;gap:5px!important;box-shadow:none!important}
 .imo-mobile-dock>.imo-glass:hover,.imo-mobile-dock>.imo-glass[aria-expanded=true],.imo-mobile-dock>.imo-glass.active{background:#ffffff1f!important}
@@ -30,6 +32,7 @@
 .imo-shell.imo-viewer .imo-mobile-dock{left:50%;right:auto;transform:translateX(-50%);width:auto;max-width:calc(100% - 24px);align-items:center}
 .imo-shell.imo-viewer .imo-mobile-dock>.imo-dock-interest{display:flex;flex-direction:row;align-items:center;justify-content:center;gap:8px;flex:0 0 auto;width:auto;min-width:0;min-height:52px;margin-inline-start:4px;padding:0 18px;border:0;border-radius:18px;background:var(--imo-accent,#24b18b);color:var(--imo-accent-ink,#fff);font:inherit;font-size:13px;font-weight:600;white-space:nowrap;box-shadow:0 4px 18px #0003;cursor:pointer;pointer-events:auto}
 .imo-shell.imo-viewer .imo-mobile-dock>.imo-dock-interest:hover{filter:brightness(1.06)}
+.imo-shell.imo-viewer :is(.imo-mobile-dock>a.imo-dock-interest,a.imo-interest){text-decoration:none}
 .imo-shell.imo-viewer .imo-mobile-dock>.imo-dock-interest:focus-visible{outline:3px solid #fff;outline-offset:2px}
 @media(max-width:720px){.imo-shell.imo-viewer .imo-mobile-dock{left:50%;transform:translateX(-50%);width:auto;max-width:calc(100% - 16px)}.imo-shell.imo-viewer .imo-mobile-dock>.imo-glass{width:60px!important;min-width:0}.imo-shell.imo-viewer .imo-mobile-dock>.imo-dock-interest{min-height:50px;padding:0 14px;font-size:13px}}
 @media(max-width:360px){.imo-shell.imo-viewer .imo-mobile-dock>.imo-glass{width:54px!important}.imo-shell.imo-viewer .imo-mobile-dock>.imo-dock-interest{padding:0 10px;font-size:12px}}

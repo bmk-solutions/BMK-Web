@@ -33,7 +33,7 @@ import {studioLink} from "@/lib/imo3d/viewer-chrome";
 import {tourShareTitle} from "@/lib/imo3d/share-card";
 import {ThemeToggle} from "./ThemeToggle";
 import {withBasePath} from "@/lib/imo3d/base-path";
-import {beaconBody,beaconTarget,consentText,interestOffered,PHONE_HINT,PRIVACY_NOTE,whatsappHref,type TourBeaconKind,type TourInterest} from "@/lib/imo3d/tour-interest";
+import {beaconBody,beaconTarget,consentText,interestOffered,interestProjectName,offMarketLabel,PHONE_HINT,PRIVACY_NOTE,whatsappHref,type TourBeaconKind,type TourInterest} from "@/lib/imo3d/tour-interest";
 type ViewerMedia={expiresAt:number;urls:Record<string,string>};
 type ViewerTour=Tour&{media?:ViewerMedia;deferredDepth?:string[];interest?:TourInterest};
 type Beacon=(kind:TourBeaconKind)=>void;
@@ -181,6 +181,8 @@ function Viewer({tour,studio,initialSceneId}:{tour:ViewerTour;studio:string|null
   const beacon=useCallback<Beacon>(kind=>{const target=beaconTarget(tour.interest,window.location.origin);if(target)navigator.sendBeacon?.(target,beaconBody(kind,tour));},[tour]);
   useEffect(()=>{beacon("tour_view");},[beacon]);
   const offered=interestOffered(tour.interest);
+  // A sold or reserved unit takes no request: where the button was, the developer's WhatsApp (when VERA gave one).
+  const offMarketContact=tour.interest?.unitOffMarket?whatsappHref(tour.interest.whatsapp,interestProjectName(tour.interest,tour.branding?.projectName||tour.title),tour.unit.code):null;
   // The same title as the shared card: the developer's name, never the platform's.
   useEffect(()=>{document.title=tourShareTitle({title:tour.title,brandName:tour.branding?.name,projectName:tour.branding?.projectName});},[tour]);
   useEffect(()=>{panelRef.current=panel;measureRef.current=measure;pointsRef.current=points;engine.current?.invalidate();},[panel,measure,points]);
@@ -364,13 +366,13 @@ function Viewer({tour,studio,initialSceneId}:{tour:ViewerTour;studio:string|null
         <button aria-label="قياس بين نقطتين" className={`imo-glass ${measure?"active":""}`} title="قياس بين نقطتين على الصورة" onClick={toggleMeasurement}><Icon name="measure"/><span>قياس</span></button>
       </div>
       <div className="imo-room-switcher"><small>استكشف حسب نوع الغرفة</small><div>{categories.map(category=><button key={category.kind} className={current.roomSemantic?.kind===category.kind?"selected":""} onClick={()=>{const rooms=roomChoices(tour.scenes,current.floor,category.kind);if(rooms.length===1)chooseRoom(rooms[0].scene);else{setRoomFilter(category.kind);openPanel("rooms");}}}>{category.label}</button>)}<button aria-label="جميع الغرف" onClick={()=>{setRoomFilter("all");openPanel("rooms");}}><Icon name="grid"/></button></div></div>
-      {offered&&<button className="imo-interest" onClick={()=>openPanel("lead")}>سجّل اهتمامك <Icon name="arrow" size={19}/></button>}
+      {offered?<button className="imo-interest" onClick={()=>openPanel("lead")}>سجّل اهتمامك <Icon name="arrow" size={19}/></button>:offMarketContact&&<a className="imo-interest" href={offMarketContact} target="_blank" rel="noopener noreferrer" onClick={()=>beacon("wa_click")}>تواصل عبر واتساب <Icon name="arrow" size={19}/></a>}
     </footer>
     <nav className="imo-mobile-dock" aria-label="أدوات الجولة">
       <button className="imo-glass" aria-label="اختيار غرفة" aria-haspopup="dialog" aria-expanded={panel==="rooms"} onClick={()=>openPanel("rooms")}><Icon name="rooms"/><span>الغرف</span></button>
       <button className={`imo-glass ${measure?"active":""}`} aria-label="قياس على الصورة" aria-pressed={measure} onClick={toggleMeasurement}><Icon name="measure"/><span>قياس</span></button>
       <button className="imo-glass" aria-label="خيارات الجولة" aria-haspopup="dialog" aria-expanded={panel==="options"} onClick={()=>openPanel("options")}><Icon name="settings"/><span>الخيارات</span></button>
-      {offered&&<button className="imo-dock-interest" aria-haspopup="dialog" aria-expanded={panel==="lead"} onClick={()=>openPanel("lead")}><span>سجّل اهتمامك</span><Icon name="arrow" size={18}/></button>}
+      {offered?<button className="imo-dock-interest" aria-haspopup="dialog" aria-expanded={panel==="lead"} onClick={()=>openPanel("lead")}><span>سجّل اهتمامك</span><Icon name="arrow" size={18}/></button>:offMarketContact&&<a className="imo-dock-interest" href={offMarketContact} target="_blank" rel="noopener noreferrer" onClick={()=>beacon("wa_click")}><span>تواصل عبر واتساب</span><Icon name="arrow" size={18}/></a>}
     </nav>
     <div className="imo-view-help">اسحب لاستكشاف المكان <span>·</span> اضغط للانتقال <span>·</span> WASD</div>
     {panel==="options"&&<Dialog title="خيارات الجولة" className="imo-view-options" onClose={()=>openPanel(null)}>
@@ -391,10 +393,11 @@ function Viewer({tour,studio,initialSceneId}:{tour:ViewerTour;studio:string|null
     {(panel==="info"||panel==="lead")&&<Dialog title={panel==="lead"?"سجّل اهتمامك":"تفاصيل الوحدة"} onClose={()=>openPanel(null)}><UnitCard tour={tour} lead={panel==="lead"&&offered} onLead={()=>openPanel("lead")} onBeacon={beacon}/></Dialog>}
   </div>;
 }
-function UnitSummary({tour}:{tour:Tour}){
- const u=tour.unit;
+function UnitSummary({tour}:{tour:ViewerTour}){
+ const u=tour.unit,status=offMarketLabel(tour.interest);
  return <section className="imo-unit-summary" aria-label="تفاصيل الوحدة">
    <h2 className="imo-unit-summary-title">تفاصيل الوحدة</h2>
+   {status&&<span className="imo-unit-status" role="status">{status}</span>}
    <dl className="imo-unit-summary-stats">
      <div><dt><Icon name="area" size={18}/><span>المساحة م²</span></dt><dd>{u.area===null?"—":number(u.area)}</dd></div>
      <div><dt><Icon name="bed" size={18}/><span>غرف النوم</span></dt><dd>{u.bedrooms??"—"}</dd></div>
@@ -406,7 +409,7 @@ function UnitSummary({tour}:{tour:Tour}){
 function UnitCard({tour,lead,onLead,onBeacon}:{tour:ViewerTour;lead:boolean;onLead:()=>void;onBeacon:Beacon}) {
   const [down,setDown]=useState(20),[rate,setRate]=useState(6),[years,setYears]=useState(20),[status,setStatus]=useState("");
   const [sending,setSending]=useState(false),[success,setSuccess]=useState(false);
-  const u=tour.unit,interest=tour.interest,projectName=tour.branding?.projectName||tour.title,receiver=interest?.developerName||"فريق مبيعات المشروع";
+  const u=tour.unit,interest=tour.interest,projectName=interestProjectName(interest,tour.branding?.projectName||tour.title),receiver=interest?.developerName||"فريق مبيعات المشروع";
   const whatsapp=whatsappHref(interest?.whatsapp??null,projectName,u.code),calculated=useRef(false);
   const calculate=(apply:()=>void)=>{apply();if(!calculated.current){calculated.current=true;onBeacon("mortgage_use");}};
   const contact=whatsapp&&<a className="imo-button secondary full" href={whatsapp} target="_blank" rel="noopener noreferrer" onClick={()=>onBeacon("wa_click")}>تواصل عبر واتساب</a>;
@@ -418,8 +421,8 @@ function UnitCard({tour,lead,onLead,onBeacon}:{tour:ViewerTour;lead:boolean;onLe
       <label>ملاحظات <small>اختياري</small><textarea name="note" maxLength={500} rows={3}/></label>
       <input className="imo-honeypot" name="website" tabIndex={-1} autoComplete="off" aria-hidden="true"/>
       <label className="imo-checkbox"><input type="checkbox" name="consent" required/> {consentText(interest?.developerName??null,projectName)}</label>
-      <small className="imo-muted">{PRIVACY_NOTE}{interest?.privacyUrl&&<> — <a href={interest.privacyUrl} target="_blank" rel="noopener noreferrer">سياسة الخصوصية</a></>}</small>
+      <small className="imo-muted imo-privacy-note">{PRIVACY_NOTE}{interest?.privacyUrl&&<> — <a className="imo-privacy-link" href={interest.privacyUrl} target="_blank" rel="noopener noreferrer">سياسة الخصوصية</a></>}</small>
       {status&&<p role="alert" className="imo-error">{status}</p>}<button disabled={sending} className="imo-button primary">{sending?"جارٍ الإرسال…":"إرسال الطلب"}</button>{contact}
-    </form>):<>{u.price!==null&&<div className="imo-finance"><h4>احسب القسط التقريبي</h4><label>الدفعة الأولى <strong>{down}%</strong><input type="range" min={0} max={90} step={5} value={down} onChange={e=>{const value=+e.target.value;calculate(()=>setDown(value));}}/></label><div className="imo-two-cols"><label>المدة بالسنوات<input type="number" min={1} max={40} value={years} onChange={e=>{const value=Math.max(1,Math.min(40,+e.target.value));calculate(()=>setYears(value));}}/></label><label>المعدل السنوي %<input type="number" min={0} max={25} step={0.1} value={rate} onChange={e=>{const value=Math.max(0,Math.min(25,+e.target.value));calculate(()=>setRate(value));}}/></label></div><div className="imo-payment"><b>{number(monthlyPayment(u.price,down,rate,years))}</b><span>ر.س / شهر</span></div><p className="imo-muted">حساب تقديري بقسط ثابت؛ لا يشمل الرسوم أو التأمين ولا يمثل عرض تمويل.</p></div>}{interestOffered(interest)?<button className="imo-button primary full" onClick={onLead}>سجّل اهتمامك بهذه الوحدة</button>:interest?.unitOffMarket&&<p className="imo-muted" role="status">هذه الوحدة غير متاحة للبيع حاليًا.</p>}{contact}</>}
+    </form>):<>{u.price!==null&&!interest?.unitOffMarket&&<div className="imo-finance"><h4>احسب القسط التقريبي</h4><label>الدفعة الأولى <strong>{down}%</strong><input type="range" min={0} max={90} step={5} value={down} onChange={e=>{const value=+e.target.value;calculate(()=>setDown(value));}}/></label><div className="imo-two-cols"><label>المدة بالسنوات<input type="number" min={1} max={40} value={years} onChange={e=>{const value=Math.max(1,Math.min(40,+e.target.value));calculate(()=>setYears(value));}}/></label><label>المعدل السنوي %<input type="number" min={0} max={25} step={0.1} value={rate} onChange={e=>{const value=Math.max(0,Math.min(25,+e.target.value));calculate(()=>setRate(value));}}/></label></div><div className="imo-payment"><b>{number(monthlyPayment(u.price,down,rate,years))}</b><span>ر.س / شهر</span></div><p className="imo-muted">حساب تقديري بقسط ثابت؛ لا يشمل الرسوم أو التأمين ولا يمثل عرض تمويل.</p></div>}{interestOffered(interest)?<button className="imo-button primary full" onClick={onLead}>سجّل اهتمامك بهذه الوحدة</button>:interest?.unitOffMarket&&<p className="imo-muted" role="status">هذه الوحدة غير متاحة للبيع حاليًا.</p>}{contact}</>}
   </div>;
 }

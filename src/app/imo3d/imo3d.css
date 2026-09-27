@@ -49,3 +49,5 @@
 @media(max-height:560px){.imo-minimap{width:150px;left:20px;top:102px;bottom:auto;max-height:calc(100dvh - 225px)}}
 /* The studio's link to Developer OS (VeraLinkPicker): a section under the project or developer form. */
 .imo-vera-link{margin-top:22px;padding-top:18px;border-top:1px solid var(--imo-line)}.imo-vera-link h3{margin:0;font-size:15px}.imo-vera-chip{align-self:flex-start;font-size:12px;padding:4px 10px;border-radius:6px;background:#fff4e0;color:#7a4f0e}
+/* The consent's small print: the privacy policy is a link a buyer can see and hit with a thumb. */
+.imo-dialog .imo-privacy-note{font-size:13px;color:#4f6159}.imo-dialog .imo-privacy-link{display:inline-block;padding:8px 2px;margin:-8px 0;color:#17614d;font-weight:600;text-decoration:underline;text-underline-offset:3px}

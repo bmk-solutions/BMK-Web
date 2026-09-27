@@ -1,5 +1,6 @@
 import {createHash,createHmac,randomBytes} from "node:crypto";
 import {z} from "zod";
+import {INVALID_LEAD_PHONE} from "./lead-validation";
 import type {TourInterest} from "./tour-interest";
 
 /**
@@ -24,6 +25,8 @@ export const VERA_CONSENT_VERSION="vera-consent-2026-09-25";
 /** VERA's Next basePath; the signature covers the path after it. */
 export const VERA_BASE_PATH="/imo3d";
 export const VERA_CONTEXT_TTL_MS=60_000;
+/** How long the last good context stands in for VERA while it cannot answer. */
+export const VERA_CONTEXT_STALE_MS=24*60*60_000;
 const REQUEST_TIMEOUT_MS=8_000,CONTEXT_TIMEOUT_MS=2_500,MAX_CACHED=256;
 export const VERA_ROUTES=["project","developer","hint","fallback"] as const;
 export type VeraRouted=typeof VERA_ROUTES[number];
@@ -91,7 +94,7 @@ export type TourLeadForward={tourId:string;projectId:string;developerId:string|n
 export type VeraLeadOutcome={ok:true;routed:VeraRouted;duplicate:boolean}|{ok:false;status:number;error:string;message:string};
 const RETRY="تعذّر الإرسال، حاول مجددًا.";
 const BUYER_ERRORS:Record<string,{status:number;message:string}>={
- BAD_PHONE:{status:400,message:"رقم الجوال غير صحيح. اكتب رقمًا سعوديًا (05…) أو رقمًا دوليًا يبدأ بـ + أو 00."},
+ BAD_PHONE:{status:400,message:INVALID_LEAD_PHONE},
  BAD_NAME:{status:400,message:"اكتب اسمك بحرفين على الأقل."},
  NO_CONSENT:{status:400,message:"وافق على إرسال بياناتك قبل الإرسال."},
  UNIT_OFF_MARKET:{status:409,message:"هذه الوحدة غير متاحة للبيع حاليًا."},
@@ -123,7 +126,8 @@ export async function veraForwardLead(lead:TourLeadForward):Promise<VeraLeadOutc
  * the names the consent may use, the developer's WhatsApp and the unit's status. VERA names the
  * developer only when the reference is linked; `id`s are read when VERA sends them.
  */
-export type VeraContext={routed:VeraRouted;developer:{id:string|null;name:string|null}|null;project:{id:string|null;name:string|null}|null;whatsapp:string|null;unitOffMarket:boolean;privacyUrl:string|null};
+export type UnitOffMarketStatus="sold"|"reserved"|"rented";
+export type VeraContext={routed:VeraRouted;developer:{id:string|null;name:string|null}|null;project:{id:string|null;name:string|null}|null;whatsapp:string|null;unitOffMarket:boolean;unitStatus:UnitOffMarketStatus|null;privacyUrl:string|null};
 const text=(max:number)=>z.string().trim().max(max).nullish().transform(value=>value||null);
 const contextSchema=z.object({
  routed:z.enum(VERA_ROUTES),
@@ -133,7 +137,7 @@ const contextSchema=z.object({
  unit:z.object({status:text(40),offMarket:z.boolean().nullish()}).nullish(),
  privacyUrl:text(500),
 });
-const OFF_MARKET=new Set(["sold","reserved","rented"]);
+const OFF_MARKET=new Set<string>(["sold","reserved","rented"]);
 const whatsappNumber=(value:string|null)=>{const digits=value?.replace(/[\s()+-]/g,"")??"";return /^[1-9]\d{7,14}$/.test(digits)?digits:null;};
 const httpsUrl=(value:string|null)=>{try{const url=new URL(value??"");return url.protocol==="https:"&&!url.username&&!url.password?url.href:null;}catch{return null;}};
 /** VERA's answer, normalised and bounded. Anything that does not parse is treated as «not known». */
@@ -141,7 +145,7 @@ export function parseVeraContext(data:unknown):VeraContext|null{
  const parsed=contextSchema.safeParse(data);if(!parsed.success)return null;
  const value=parsed.data,status=value.unit?.status?.toLowerCase()??"";
  return{routed:value.routed,developer:value.developer?{id:value.developer.id,name:value.developer.name}:null,project:value.project?{id:value.project.id,name:value.project.name}:null,
-  whatsapp:whatsappNumber(value.whatsapp),unitOffMarket:value.unit?.offMarket===true||OFF_MARKET.has(status),privacyUrl:httpsUrl(value.privacyUrl)};
+  whatsapp:whatsappNumber(value.whatsapp),unitOffMarket:value.unit?.offMarket===true||OFF_MARKET.has(status),unitStatus:OFF_MARKET.has(status)?status as UnitOffMarketStatus:null,privacyUrl:httpsUrl(value.privacyUrl)};
 }
 /**
  * VERA's context always names a project. A tour DEVELOPER's own link is read with a project
@@ -150,29 +154,39 @@ export function parseVeraContext(data:unknown):VeraContext|null{
  */
 export const developerProbeRef=(developer:string)=>"developer-link:"+developer;
 
-const contextCache=new Map<string,{value:VeraContext|null;until:number}>();
+type CachedContext={value:VeraContext|null;until:number;good:VeraContext|null;goodAt:number};
+const contextCache=new Map<string,CachedContext>();
 export function clearVeraContextCache(){contextCache.clear();}
-/** VERA's context for a reference, remembered for a minute. A failure is remembered too: an outage must not slow every arrival. */
+/**
+ * VERA's context for a reference, remembered for a minute. A failure is remembered too, so an
+ * outage does not slow every arrival, but it does not erase what VERA said last: for a day the
+ * last good answer stands in (stale-if-error), so a linked developer keeps his name in the consent
+ * and his WhatsApp button while VERA is down. `fresh` (the publish sync) reads VERA or nothing.
+ */
 export async function veraContext(ref:{project:string;developer?:string|null;unit?:string|null},options:{fresh?:boolean}={}):Promise<VeraContext|null>{
  if(!veraConfig())return null;
  const query=new URLSearchParams({project:ref.project});
  if(ref.developer)query.set("developer",ref.developer);if(ref.unit)query.set("unit",ref.unit);
  const key=query.toString(),now=Date.now(),hit=contextCache.get(key);
  if(!options.fresh&&hit&&hit.until>now)return hit.value;
- let value:VeraContext|null=null;
- try{const {status,data}=await veraRequest("GET","/api/integrations/v1/context",{query,timeoutMs:CONTEXT_TIMEOUT_MS});value=status===200?parseVeraContext(data):null;if(status!==200)logFailure("context",status,String(data?.error??""));}
+ let answered:VeraContext|null=null;
+ try{const {status,data}=await veraRequest("GET","/api/integrations/v1/context",{query,timeoutMs:CONTEXT_TIMEOUT_MS});answered=status===200?parseVeraContext(data):null;if(status!==200)logFailure("context",status,String(data?.error??""));}
  catch(error){logFailure("context",0,error instanceof VeraUnavailable?error.code:"UNREACHABLE");}
- if(contextCache.size>=MAX_CACHED)contextCache.delete(contextCache.keys().next().value!);
- contextCache.set(key,{value,until:now+VERA_CONTEXT_TTL_MS});return value;
+ const stale=hit?.good&&now-hit.goodAt<=VERA_CONTEXT_STALE_MS?hit.good:null;
+ if(!contextCache.has(key)&&contextCache.size>=MAX_CACHED)contextCache.delete(contextCache.keys().next().value!);
+ contextCache.set(key,answered?{value:answered,until:now+VERA_CONTEXT_TTL_MS,good:answered,goodAt:now}:{value:stale,until:now+VERA_CONTEXT_TTL_MS,good:stale,goodAt:stale?hit!.goodAt:0});
+ return answered??(options.fresh?null:stale);
 }
 /**
  * The buyer's side of the context, merged into the public tour payload. An unlinked tour still
- * takes requests (BMK's inbox) but never names BMK as the developer. `beacon` is VERA's events
- * route on the suite's origin, which the tour shares when served through it.
+ * takes requests (BMK's inbox) but never names BMK as the developer. The Developer OS project is
+ * named only when a project link files the lead under it; otherwise the tour's own name stands.
+ * `beacon` is VERA's events route on the suite's origin, which the tour shares when served through it.
  */
 export function tourInterest(configured:boolean,context:VeraContext|null,suite:string):TourInterest{
  const linked=!!context&&context.routed!=="fallback";
- return{enabled:configured,developerName:linked?context.developer?.name??null:null,whatsapp:linked?context.whatsapp:null,unitOffMarket:context?.unitOffMarket??false,privacyUrl:context?.privacyUrl??null,beacon:configured?`${suite}${VERA_BASE_PATH}/api/events`:null};
+ return{enabled:configured,developerName:linked?context.developer?.name??null:null,projectName:context?.routed==="project"?context.project?.name??null:null,whatsapp:linked?context.whatsapp:null,
+  unitOffMarket:context?.unitOffMarket??false,unitStatus:context?.unitStatus??null,privacyUrl:context?.privacyUrl??null,beacon:configured?`${suite}${VERA_BASE_PATH}/api/events`:null};
 }
 
 export type VeraCatalogue={developers:{id:string;name:string;local:boolean}[];projects:{id:string;name:string}[]};

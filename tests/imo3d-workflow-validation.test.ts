@@ -32,16 +32,15 @@ test("lead phone canonicalization prevents formatting-based rate-limit bypass", 
   }
 });
 
-test("phone validation counts digits, rejects garbage, and preserves local numbers", () => {
-  assert.equal(normalizeLeadPhone("٠٥٠ ١٢٣ ٤٥٦٧"), "0501234567");
-  assert.equal(normalizeLeadPhone("12345678"), "12345678");
+test("phone validation folds Saudi shorthand, requires + or 00 for the rest, and rejects garbage", () => {
+  assert.equal(normalizeLeadPhone("٠٥٠ ١٢٣ ٤٥٦٧"), "+966501234567");
   assert.equal(normalizeLeadPhone("+123456789012345"), "+123456789012345");
-  for (const invalid of ["        ", "--------", "( ) - ( )", "1234567", "+1234567890123456", "++966501234567", "966+501234567", "50O1234567", "0512345678 ext 1", "<script>12345678</script>"]) {
+  for (const invalid of ["        ", "--------", "( ) - ( )", "1234567", "12345678", "+1234567890123456", "++966501234567", "966+501234567", "50O1234567", "0512345678 ext 1", "<script>0501234567</script>"]) {
     assert.equal(normalizeLeadPhone(invalid), null, invalid);
     assert.equal(leadPhoneSchema.safeParse(invalid).success, false, invalid);
   }
   const invalid = leadPhoneSchema.safeParse("--------");
-  assert.ok(!invalid.success && invalid.error.issues[0].message.includes("رقم جوال"));
+  assert.ok(!invalid.success && invalid.error.issues[0].message.includes("رقم الجوال"));
 });
 
 test("uploading an unpositioned photograph preserves the calibrated plan and graph", () => {

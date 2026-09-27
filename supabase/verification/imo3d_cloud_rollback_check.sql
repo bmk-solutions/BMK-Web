@@ -75,6 +75,8 @@ BEGIN
  IF NOT EXISTS(SELECT 1 FROM public.imo3d_project_branding WHERE public.imo3d_project_branding.project_id=verification.project_id AND logo_asset_id=branding_asset) THEN RAISE EXCEPTION 'FAIL: brand commit'; END IF;
  -- Throttling, exact-count scoped pagination, processing lease ownership and CAS.
  IF NOT public.imo3d_rate_limit(rate_key,1,60000) OR public.imo3d_rate_limit(rate_key,1,60000) THEN RAISE EXCEPTION 'FAIL: atomic rate limit'; END IF;
+ PERFORM public.imo3d_rate_limit_refund(rate_key);
+ IF NOT public.imo3d_rate_limit(rate_key,2,60000) OR public.imo3d_rate_limit(rate_key,2,60000) THEN RAISE EXCEPTION 'FAIL: rate limit refund'; END IF;
  INSERT INTO public.imo3d_leads(id,tour_id,phone,forwarded_at,vera_routed) VALUES(gen_random_uuid()::text,tour_id,'05••••001',now(),'fallback'),(gen_random_uuid()::text,tour_id,'+10••••002',now(),'project');
  BEGIN INSERT INTO public.imo3d_leads(id,tour_id,phone) VALUES(gen_random_uuid()::text,tour_id,'0501234567'); RAISE EXCEPTION 'FAIL: full phone stored in the lead audit'; EXCEPTION WHEN check_violation THEN NULL; END;
  page:=public.imo3d_list_leads(project_id,NULL,NULL,1);

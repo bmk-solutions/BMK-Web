@@ -4,6 +4,10 @@
 -- Existing rows (none in production when written) are masked in place; nothing is deleted.
 -- Deploy order: apply this, then the code that writes leadAuditRow(); the old code's full-phone
 -- insert is refused by the check below, never stored.
+-- The old code also keyed its per-phone limit on the number itself (lead:+966…:<tour>); those
+-- rows are deleted. The new keys are keyed hashes, which the pattern cannot match.
+-- A limit spent on a request VERA did not accept is given back (imo3d_rate_limit_refund), so a
+-- buyer who retried through an outage is never told his request was already sent.
 BEGIN;
 ALTER TABLE public.imo3d_leads ADD COLUMN forwarded_at timestamptz,ADD COLUMN vera_routed text;
 UPDATE public.imo3d_leads SET phone=CASE WHEN regexp_replace(phone,'\D','','g') ~ '^(00966|966|0)?5[0-9]{8}$' THEN '05••••'||right(regexp_replace(phone,'\D','','g'),3)
@@ -21,4 +25,10 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.imo3d_list_leads(text,timestamptz,text,integer) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.imo3d_list_leads(text,timestamptz,text,integer) TO service_role;
+DELETE FROM public.imo3d_request_limits WHERE key ~ '^lead:\+?[0-9]{8,15}:';
+CREATE FUNCTION public.imo3d_rate_limit_refund(p_key text) RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path='' AS $$
+ UPDATE public.imo3d_request_limits SET count=greatest(count-1,0) WHERE key=p_key;
+$$;
+REVOKE ALL ON FUNCTION public.imo3d_rate_limit_refund(text) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.imo3d_rate_limit_refund(text) TO service_role;
 COMMIT;

@@ -5,7 +5,7 @@
  *
  * Isomorphic: no Node or browser APIs.
  */
-export type TourInterest={enabled:boolean;developerName:string|null;whatsapp:string|null;unitOffMarket:boolean;privacyUrl:string|null;beacon:string|null};
+export type TourInterest={enabled:boolean;developerName:string|null;projectName:string|null;whatsapp:string|null;unitOffMarket:boolean;unitStatus:"sold"|"reserved"|"rented"|null;privacyUrl:string|null;beacon:string|null};
 /** VERA's analytics kinds this tour sends. None carries a name, a phone or a message. */
 export type TourBeaconKind="tour_view"|"wa_click"|"mortgage_use";
 
@@ -17,6 +17,13 @@ export const PRIVACY_NOTE="لن تُستخدم بياناتك لغير هذا ا
 
 /** A tour without VERA's answer (local development, an older payload) keeps its button. */
 export const interestOffered=(interest?:TourInterest|null)=>interest?.enabled!==false&&interest?.unitOffMarket!==true;
+
+const OFF_MARKET_LABELS={sold:"مباعة",reserved:"محجوزة",rented:"مؤجّرة"} as const;
+/** The status chip a sold, reserved or rented unit shows instead of an offer; null while it is on the market. */
+export const offMarketLabel=(interest?:TourInterest|null)=>interest?.unitOffMarket?interest.unitStatus?OFF_MARKET_LABELS[interest.unitStatus]:"غير متاحة":null;
+
+/** The project a buyer's request is about: the Developer OS project a link files it under, else the tour's own name. */
+export const interestProjectName=(interest:TourInterest|null|undefined,tourProjectName:string)=>interest?.projectName?.trim()||tourProjectName;
 
 /** PDPL consent: it names who receives the name and phone, and for what. */
 export function consentText(developerName:string|null,projectName:string){

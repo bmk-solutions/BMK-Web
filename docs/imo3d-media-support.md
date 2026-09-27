@@ -153,16 +153,25 @@ or BMK's own inbox (unlinked). Code: `src/lib/imo3d/vera-integration.ts` (signer
   A Vercel preview never forwards (`VERCEL_ENV` other than `production` turns the feature off).
 - The lead body carries the tour's own ids (`ref.project` = tour project, `ref.developer` = its tour developer read
   on the server, `ref.item` = tour), `unit.code`, consent `vera-consent-2026-09-25`, the public URL and
-  `client.ipHash` (HMAC of the IP; VERA never sees the address). VERA normalises the phone.
-- `GET /api/imo3d/tours/<id>` adds `interest: {enabled, developerName, whatsapp, unitOffMarket, privacyUrl, beacon}`
-  from VERA's context (`GET /api/integrations/v1/context?project=&developer=&unit=`, cached 60 s, failures too). A sold/reserved unit hides the button; the WhatsApp button uses
-  the developer's number and counts `wa_click`. Beacons (`tour_view`, `wa_click`, `mortgage_use`) go to
+  `client.ipHash` (HMAC of the IP; VERA never sees the address). VERA normalises the phone; the tour checks it
+  first with VERA's own rule (`lead-validation.ts`: Saudi shorthand → `+9665XXXXXXXX`, anything else `+`/`00` and
+  E.164) and refuses in VERA's words, so one Saudi number has one form and one per-phone key.
+- `GET /api/imo3d/tours/<id>` adds `interest: {enabled, developerName, projectName, whatsapp, unitOffMarket, unitStatus,
+  privacyUrl, beacon}` from VERA's context (`GET /api/integrations/v1/context?project=&developer=&unit=`, cached 60 s,
+  failures too). When VERA cannot answer, the last good context stands in for up to a day (stale-if-error), so a
+  linked developer keeps his name in the consent and his WhatsApp button through an outage. The consent names the
+  Developer OS project when a project link files the lead under it. A sold/reserved unit hides the button, shows
+  «مباعة / محجوزة» under the price and offers the developer's WhatsApp where the button was (no calculator); the
+  WhatsApp button counts `wa_click`. Beacons (`tour_view`, `wa_click`, `mortgage_use`) go to
   `/imo3d/api/events` only when the page is on the suite's origin, with ids only.
 - Edge protection: honeypot → silent 201; per-IP 10 / 10 min and 30 / h; per-phone-per-tour 3 / h; per-tour 100 / h.
-  Every key is a keyed hash, never an address or a number.
+  Every key is a keyed hash, never an address or a number; without VERA the cloud answers 503 before any key is
+  written. The per-phone and per-tour limits count only requests VERA accepted: a failed forward gives them back
+  (`imo3d_rate_limit_refund`), so a buyer who retried through an outage is never told «أُرسل سابقًا».
 - `imo3d_leads` is a masked audit (`05••••123`, tour, time, `forwarded_at`, `vera_routed`), written only after VERA
-  holds the lead: `supabase/migrations/20260925120000_imo3d_lead_audit.sql` drops `name` and `note` and refuses a full
-  number. **Written, not applied** — apply it before (or with) the deploy of this code.
+  holds the lead: `supabase/migrations/20260925120000_imo3d_lead_audit.sql` drops `name` and `note`, refuses a full
+  number, deletes the old code's raw-number limit keys (`lead:+966…:<tour>`) and adds `imo3d_rate_limit_refund`.
+  **Written, not applied** — apply it before (or with) the deploy of this code.
 - Studio: «ربط بمشروع في Developer OS» in the project dialog, «ربط بمطوّر في Developer OS» in the developer dialog,
   the chip «غير مربوط — الطلبات تذهب إلى صندوق BMK» when requests fall back. Publishing or unpublishing re-states a
   linked project's URL in VERA's registry (best effort; the tour is saved either way). VERA's context names the linked

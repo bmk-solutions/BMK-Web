@@ -7,14 +7,14 @@ import {tourMedia} from './media';
 import {z} from "zod";
 import {cloudAccess,cloudChangePassword,cloudLogin,cloudSameOrigin} from "./auth";
 import {cloudQuery,cloudRpc,cloudSignedDownload} from "./client";
-import {createProject,deleteTour,getAsset,getBranding,getProjectCard,getTour,listProjects,listTourSummaries,saveTour,withinRateLimit} from "./repository";
+import {createProject,deleteTour,getAsset,getBranding,getProjectCard,getTour,listProjects,listTourSummaries,refundRateLimit,saveTour,withinRateLimit} from "./repository";
 import {cloudManagement,cloudDevelopers} from "./management";
 import {cloudAIPlan,cloudLeadsPage,cloudProcessing} from "./jobs";
 import {cloudFailure,fail,json,publicJSON,readJSON,signedRedirect} from "./http";
 import {applyArchitecture,applyBoundaries,applyMetadata,requireRevision} from "./geometry";
 import {handleCloudUpload} from "./uploads";
 import {cameraBundleSchema,type Tour} from "../model";
-import {buyerInterest,forwardTourLead,honeypotFilled,leadAuditRow,leadLimitRefusal,syncProjectLink,tourLeadSchema} from "../tour-lead";
+import {buyerInterest,forwardTourLead,honeypotFilled,leadAuditRow,leadsOffline,spendLeadLimits,syncProjectLink,tourLeadSchema} from "../tour-lead";
 import {cloudVeraStudio} from "./vera-links";
 import {tourMetadataSchema} from "../floor-assignment";
 import {boundarySchema} from "../floor-boundaries";
@@ -83,9 +83,11 @@ async function handle(request:Request){
   const raw=await readJSON(request,8000);if(honeypotFilled(raw))return json({ok:true},201);
   const input=tourLeadSchema.parse(raw),tour=await getTour(input.tourId);
   if(!tour||!tour.published&&!access.allowed(tour.projectId)||access.integration&&!access.allowed(tour.projectId,"write"))return fail("الجولة غير متاحة.",404);
-  const refusal=await leadLimitRefusal(withinRateLimit,request,tour.id,input.phone);if(refusal)return fail(refusal,429);
+  // Without VERA the cloud has nowhere to put a request: it says so before a limit key is written.
+  const offline=leadsOffline();if(offline)return fail(offline.message,offline.status);
+  const limits=await spendLeadLimits({spend:withinRateLimit,refund:refundRateLimit},request,tour.id,input.phone);if(limits.refusal)return fail(limits.refusal,429);
   // The lead lives in VERA (and through it Developer OS); this project keeps a masked audit row only once VERA holds it.
-  const sent=await forwardTourLead(request,tour,await projectDeveloper(tour.projectId),input);if(!sent.ok)return fail(sent.message,sent.status);
+  const sent=await forwardTourLead(request,tour,await projectDeveloper(tour.projectId),input);if(!sent.ok){await limits.refund();return fail(sent.message,sent.status);}
   try{await cloudQuery("leads","","POST",leadAuditRow(randomUUID(),tour.id,input.phone,sent.routed));}catch(error){console.error("IMO3D lead audit failed",error instanceof Error?error.name:"unknown");}
   return json({ok:true},201);
  }

@@ -8,7 +8,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir,readFile,writeFile,unlink } from "node:fs/promises";
 // Resolve private runtime data without tracing its contents into build assets.
 const path: typeof import("node:path") = process.getBuiltinModule("node:path");
-import { addLead,dataDirectory,db,getTour,installExample,newProject,newTour,projects,saveTour,toursSummary,withinRateLimit } from "@/lib/imo3d/store";
+import { addLead,dataDirectory,db,getTour,installExample,newProject,newTour,projects,refundRateLimit,saveTour,toursSummary,withinRateLimit } from "@/lib/imo3d/store";
 import { isAdmin,login,sameOrigin } from "@/lib/imo3d/auth";
 import {servePayloadPaths} from "@/lib/imo3d/base-path";
 import {embedTourURL,passwordLoginEnabled} from "@/lib/imo3d/suite";
@@ -16,7 +16,7 @@ import {privateExamplePreview,PrivateExampleUnavailableError} from "@/lib/imo3d/
 import { cameraBundleSchema,type Scene,type Tour } from "@/lib/imo3d/model";
 import {initialRoomSemantic} from "@/lib/imo3d/room-semantics";
 import {AuthoredPlanCalibrationError,mergeTourSpatial} from "@/lib/imo3d/tour-merge";
-import {forwardTourLead,honeypotFilled,leadLimitRefusal,tourLeadSchema} from "@/lib/imo3d/tour-lead";
+import {forwardTourLead,honeypotFilled,spendLeadLimits,tourLeadSchema} from "@/lib/imo3d/tour-lead";
 import {maskLeadPhone,veraConfig} from "@/lib/imo3d/vera-integration";
 import {getLeads,LeadQueryError} from "@/lib/imo3d/lead-query";
 import {cancelJob,enqueueJob,imageFingerprint,latestJob} from "@/lib/imo3d/processing-jobs";
@@ -88,10 +88,10 @@ async function handle(request:Request,context:Context) {
     const raw=await readJSON(request,8000);if(honeypotFilled(raw))return json({ok:true},201);
     const input=tourLeadSchema.parse(raw);
     const tour=getTour(input.tourId);if(!tour||(!tour.published&&!allowed(tour.projectId))||(integration&&!allowed(tour.projectId,"write")))return fail("الجولة غير متاحة",404);
-    const refusal=await leadLimitRefusal(withinRateLimit,request,tour.id,input.phone);if(refusal)return fail(refusal,429);
+    const limits=await spendLeadLimits({spend:withinRateLimit,refund:refundRateLimit},request,tour.id,input.phone);if(limits.refusal)return fail(limits.refusal,429);
     // With VERA configured the local adapter forwards like the cloud and keeps the same masked audit; without it, the local store keeps the request as before.
     if(!veraConfig()){addLead(tour.id,input.name,input.phone,input.note);return json({ok:true},201);}
-    const sent=await forwardTourLead(request,tour,projects().find(project=>project.id===tour.projectId)?.developerId??null,input);if(!sent.ok)return fail(sent.message,sent.status);
+    const sent=await forwardTourLead(request,tour,projects().find(project=>project.id===tour.projectId)?.developerId??null,input);if(!sent.ok){await limits.refund();return fail(sent.message,sent.status);}
     addLead(tour.id,"",maskLeadPhone(input.phone),"");return json({ok:true},201);
   }
   if(!admin)return fail("تسجيل دخول الإدارة مطلوب",401);

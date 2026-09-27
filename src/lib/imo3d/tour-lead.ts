@@ -1,15 +1,16 @@
-import {createHash} from "node:crypto";
+import {randomBytes} from "node:crypto";
 import {z} from "zod";
 import {leadPhoneSchema} from "./lead-validation";
 import {publicTourURL,suiteOrigin} from "./suite";
 import type {Tour} from "./model";
 import type {TourInterest} from "./tour-interest";
-import {maskLeadPhone,requestIp,tourInterest,veraConfig,veraContext,veraForwardLead,veraKeyHash,veraLinkIds,veraPutLink,type VeraLeadOutcome,type VeraRouted} from "./vera-integration";
+import {maskLeadPhone,requestIp,tourInterest,veraConfig,veraContext,veraForwardLead,veraKeyHash,veraLinkIds,veraLeadFailure,veraPutLink,type VeraLeadOutcome,type VeraRouted} from "./vera-integration";
 
 /**
  * One buyer request, the same in the cloud and the local adapter: accept, limit, forward to
- * VERA, and describe the masked audit row the caller stores. The number is VERA's to
- * normalise; the tour checks only that it is a phone number at all (PHONE_HINT is the hint).
+ * VERA, and describe the masked audit row the caller stores. VERA is the normaliser; the tour
+ * checks the number with VERA's own rule first (lead-validation.ts), so a Saudi mobile has one
+ * form here too and that form keys the per-phone limit.
  *
  * Server-only.
  */
@@ -27,17 +28,30 @@ export type TourLeadInput=z.infer<typeof tourLeadSchema>;
 export const honeypotFilled=(raw:unknown)=>{const value=raw&&typeof raw==="object"?(raw as {website?:unknown}).website:undefined;return typeof value==="string"&&value.trim()!=="";};
 
 export type LeadLimiter=(key:string,limit:number,windowMs:number)=>boolean|Promise<boolean>;
+export type LeadLimits={spend:LeadLimiter;refund:(key:string)=>unknown};
+export type LeadLimitResult={refusal:string|null;refund:()=>Promise<void>};
+/** Keys the limits when VERA is off (the local adapter only): per process, so a key is never an unkeyed hash of a number or an address. */
+const localKeySecret=randomBytes(32).toString("base64url");
 /**
- * VERA's own per-IP limits (10 / 10 min, 30 / h) at the tour's edge, then the tour's per-phone and
- * per-tour limits. Keys carry keyed hashes, never an address or a number. Returns the refusal or null.
+ * VERA's own per-IP limits (10 / 10 min, 30 / h) at the tour's edge, spent on every attempt: they
+ * bound a buyer's retries during an outage. The per-phone (3 / h) and per-tour limits count only
+ * requests VERA accepted: they are spent before the forward, so two presses at once cannot both
+ * pass, and the caller refunds them when the forward fails. «أُرسل سابقًا» is therefore true.
+ * Keys carry keyed hashes, never an address or a number.
  */
-export async function leadLimitRefusal(limit:LeadLimiter,request:Request,tourId:string,phone:string){
- const secret=veraConfig()?.secret,hash=(label:string)=>secret?veraKeyHash(secret,label):createHash("sha256").update(label).digest("base64url").slice(0,22);
+export async function spendLeadLimits(limits:LeadLimits,request:Request,tourId:string,phone:string):Promise<LeadLimitResult>{
+ const secret=veraConfig()?.secret??localKeySecret,hash=(label:string)=>veraKeyHash(secret,label),spent:string[]=[];
+ const refund=async()=>{for(const key of spent.splice(0))await (async()=>limits.refund(key))().catch(()=>{/* A refund is best effort; the window expires anyway. */});};
+ const spend=async(key:string,limit:number,windowMs:number)=>{const within=await limits.spend(key,limit,windowMs);if(within)spent.push(key);return within;};
  const ip=hash("ip:"+requestIp(request));
- if(!await limit(`lead-ip10:${ip}`,10,10*60_000)||!await limit(`lead-ip60:${ip}`,30,60*60_000))return "طلبات كثيرة. حاول بعد قليل.";
- if(!await limit(`lead:${hash("phone:"+phone)}:${tourId}`,3,60*60_000)||!await limit(`lead-global:${tourId}`,100,60*60_000))return "تم إرسال طلبك سابقًا. حاول لاحقًا.";
- return null;
+ if(!await limits.spend(`lead-ip10:${ip}`,10,10*60_000)||!await limits.spend(`lead-ip60:${ip}`,30,60*60_000))return{refusal:"طلبات كثيرة. حاول بعد قليل.",refund};
+ if(!await spend(`lead:${hash("phone:"+phone)}:${tourId}`,3,60*60_000)){await refund();return{refusal:"تم إرسال طلبك سابقًا. حاول لاحقًا.",refund};}
+ if(!await spend(`lead-global:${tourId}`,100,60*60_000)){await refund();return{refusal:"طلبات كثيرة. حاول بعد قليل.",refund};}
+ return{refusal:null,refund};
 }
+
+/** The refusal when this server cannot forward at all (no secret, or a preview), so nothing is limited or stored for nothing. */
+export const leadsOffline=()=>veraConfig()?null:veraLeadFailure("INTEGRATION_DISABLED",503);
 
 /** Forward to VERA with the tour's own ids; VERA resolves the developer and project, never the buyer's page. */
 export function forwardTourLead(request:Request,tour:Tour,developerId:string|null,input:TourLeadInput):Promise<VeraLeadOutcome>{

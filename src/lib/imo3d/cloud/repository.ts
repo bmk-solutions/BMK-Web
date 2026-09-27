@@ -29,3 +29,5 @@ export async function getBranding(projectId:string){
 /** The project's own name and place, for the buyer's title and the shared card. */
 export async function getProjectCard(projectId:string):Promise<{name:string;location:string}|null>{return (await cloudQuery<{name:string;location:string}[]>('projects',`id=eq.${eq(projectId)}&select=name,location&limit=1`))[0]??null;}
 export async function withinRateLimit(key:string,limit:number,windowMs:number){return cloudRpc<boolean>('rate_limit',{p_key:key,p_limit:limit,p_window_ms:windowMs});}
+/** Give back one spent request (a lead VERA did not accept). */
+export async function refundRateLimit(key:string){await cloudRpc('rate_limit_refund',{p_key:key});}

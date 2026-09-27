@@ -13,7 +13,7 @@ type Catalogue={developers:{id:string;name:string;local:boolean}[];projects:{id:
  */
 export function VeraLinkPicker({kind,refId}:{kind:"project"|"developer";refId:string}){
   const [state,setState]=useState<LinkState|null>(null),[catalogue,setCatalogue]=useState<Catalogue["developers"]>([]),[projects,setProjects]=useState<Catalogue["projects"]>([]);
-  const [developerId,setDeveloperId]=useState(""),[projectId,setProjectId]=useState(""),[working,setWorking]=useState(false),[error,setError]=useState("");
+  const [developerId,setDeveloperId]=useState(""),[projectId,setProjectId]=useState(""),[working,setWorking]=useState(false),[error,setError]=useState(""),[attempt,setAttempt]=useState(0);
   const path=`vera/link/${kind}/${encodeURIComponent(refId)}`;
   useEffect(()=>{
     let active=true;
@@ -24,7 +24,7 @@ export function VeraLinkPicker({kind,refId}:{kind:"project"|"developer";refId:st
       const list=await api<Catalogue>("vera/catalogue");if(active)setCatalogue(list.developers);
     }).catch(reason=>{if(active)setError(reason instanceof Error?reason.message:"تعذّر الوصول إلى VERA.");});
     return()=>{active=false;};
-  },[path,kind]);
+  },[path,kind,attempt]);
   useEffect(()=>{
     if(kind!=="project"||!developerId)return;
     let active=true;
@@ -37,17 +37,19 @@ export function VeraLinkPicker({kind,refId}:{kind:"project"|"developer";refId:st
     catch(reason){setError(reason instanceof Error?reason.message:"تعذّر حفظ الربط.");}
     finally{setWorking(false);}
   };
+  // VERA unreachable while loading: the operator retries here instead of closing and reopening the dialog.
+  const retry=<button type="button" className="imo-button secondary" onClick={()=>{setError("");setState(null);setAttempt(value=>value+1);}}>إعادة المحاولة</button>;
   const title=kind==="project"?"ربط بمشروع في Developer OS":"ربط بمطوّر في Developer OS";
-  if(!state)return <section className="imo-form imo-vera-link" aria-label={title}><h3>{title}</h3>{error?<p className="imo-error" role="alert">{error}</p>:<p className="imo-muted" role="status">جارٍ قراءة الربط من VERA…</p>}</section>;
+  if(!state)return <section className="imo-form imo-vera-link" aria-label={title}><h3>{title}</h3>{error?<><p className="imo-error" role="alert">{error}</p><div className="imo-dialog-actions">{retry}</div></>:<p className="imo-muted" role="status">جارٍ قراءة الربط من VERA…</p>}</section>;
   if(!state.configured)return <section className="imo-form imo-vera-link" aria-label={title}><h3>{title}</h3><p className="imo-muted">التكامل مع VERA غير مفعّل على هذا الخادم.</p></section>;
   const inherited=kind==="project"&&state.routed==="developer"&&state.developer?.name;
   const ready=!!developerId&&(kind==="developer"||!!projectId);
   return <section className="imo-form imo-vera-link" aria-label={title}>
     <h3>{title}</h3>
     {state.routed==="fallback"?<span className="imo-vera-chip">{UNLINKED_CHIP}</span>:state.linked?<p className="imo-muted">الطلبات تذهب إلى {state.project?.name??state.developer?.name}.</p>:inherited?<p className="imo-muted">الطلبات تذهب إلى {state.developer?.name} عبر ربط المطوّر.</p>:null}
-    <label>{kind==="project"?"المطوّر في Developer OS":"ربط بمطوّر في Developer OS"}<select value={developerId} onChange={event=>{setDeveloperId(event.target.value);setProjectId("");setProjects([]);}} disabled={working}><option value="">اختر المطوّر</option>{catalogue.map(item=><option key={item.id} value={item.id}>{item.name}{item.local?" — VERA المحلي":""}</option>)}</select></label>
-    {kind==="project"&&<label>ربط بمشروع في Developer OS<select value={projectId} onChange={event=>setProjectId(event.target.value)} disabled={working||!developerId}><option value="">اختر المشروع</option>{projects.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
+    <label>المطوّر في Developer OS<select value={developerId} onChange={event=>{setDeveloperId(event.target.value);setProjectId("");setProjects([]);}} disabled={working}><option value="">اختر المطوّر</option>{catalogue.map(item=><option key={item.id} value={item.id}>{item.name}{item.local?" — VERA المحلي":""}</option>)}</select></label>
+    {kind==="project"&&<label>المشروع في Developer OS<select value={projectId} onChange={event=>setProjectId(event.target.value)} disabled={working||!developerId}><option value="">اختر المشروع</option>{projects.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
     {error&&<p className="imo-error" role="alert">{error}</p>}
-    <div className="imo-dialog-actions"><button type="button" className="imo-button primary" disabled={working||!ready} onClick={()=>void save("PUT")}>{working?"جارٍ الحفظ…":"حفظ الربط"}</button>{state.linked&&<button type="button" className="imo-button secondary" disabled={working} onClick={()=>void save("DELETE")}>إلغاء الربط</button>}</div>
+    <div className="imo-dialog-actions">{error&&!catalogue.length&&retry}<button type="button" className="imo-button primary" disabled={working||!ready} onClick={()=>void save("PUT")}>{working?"جارٍ الحفظ…":"حفظ الربط"}</button>{state.linked&&<button type="button" className="imo-button secondary" disabled={working} onClick={()=>void save("DELETE")}>إلغاء الربط</button>}</div>
   </section>;
 }

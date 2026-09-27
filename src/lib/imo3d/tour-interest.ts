@@ -5,7 +5,8 @@
  *
  * Isomorphic: no Node or browser APIs.
  */
-export type TourInterest={enabled:boolean;developerName:string|null;projectName:string|null;whatsapp:string|null;unitOffMarket:boolean;unitStatus:"sold"|"reserved"|"rented"|null;privacyUrl:string|null;beacon:string|null};
+/** `bmkInbox`: VERA answered that this tour is unlinked, so a request goes to BMK's inbox. Absent = VERA's answer is not known. */
+export type TourInterest={enabled:boolean;developerName:string|null;projectName:string|null;whatsapp:string|null;unitOffMarket:boolean;unitStatus:"sold"|"reserved"|"rented"|null;privacyUrl:string|null;beacon:string|null;bmkInbox?:boolean};
 /** VERA's analytics kinds this tour sends. None carries a name, a phone or a message. */
 export type TourBeaconKind="tour_view"|"wa_click"|"mortgage_use";
 
@@ -25,10 +26,17 @@ export const offMarketLabel=(interest?:TourInterest|null)=>interest?.unitOffMark
 /** The project a buyer's request is about: the Developer OS project a link files it under, else the tour's own name. */
 export const interestProjectName=(interest:TourInterest|null|undefined,tourProjectName:string)=>interest?.projectName?.trim()||tourProjectName;
 
+/** The receiver of an unlinked tour's request, named as POI names it (VERA routes it to BMK Solutions). */
+export const BMK_INBOX_RECEIVER="BMK Solutions (فريق مبيعات المشروع)";
+/**
+ * Who receives the name and phone: the linked developer; BMK Solutions when VERA said the tour is
+ * unlinked; the project's sales team, unnamed, only while VERA's answer is not known.
+ */
+export const interestReceiver=(interest?:Pick<TourInterest,"developerName"|"bmkInbox">|null)=>interest?.developerName?.trim()||(interest?.bmkInbox?BMK_INBOX_RECEIVER:"فريق مبيعات المشروع");
+
 /** PDPL consent: it names who receives the name and phone, and for what. */
-export function consentText(developerName:string|null,projectName:string){
- const receiver=developerName?.trim()||"فريق مبيعات المشروع";
- return `أوافق على إرسال اسمي ورقم جوالي إلى ${receiver} للتواصل معي بخصوص ${projectName.trim()||"هذا المشروع"}.`;
+export function consentText(developerName:string|null,projectName:string,bmkInbox=false){
+ return `أوافق على إرسال اسمي ورقم جوالي إلى ${interestReceiver({developerName,bmkInbox})} للتواصل معي بخصوص ${projectName.trim()||"هذا المشروع"}.`;
 }
 
 /** wa.me link with a prefilled question about this unit; null when the number is not a plausible E.164 one. */

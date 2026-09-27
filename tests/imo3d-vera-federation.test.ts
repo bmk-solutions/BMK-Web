@@ -6,7 +6,7 @@ import {readFileSync} from 'node:fs';
 import path from 'node:path';
 import {cloudRoute} from '../src/lib/imo3d/cloud/handlers';
 import {clearVeraContextCache,maskLeadPhone,parseVeraContext,requestIp,tourInterest,VERA_CONTEXT_STALE_MS,VERA_CONTEXT_TTL_MS,veraBodyDigest,veraCanonical,veraConfig,veraIpHash,veraKeyHash,veraLeadFailure,veraSignature} from '../src/lib/imo3d/vera-integration';
-import {beaconBody,beaconTarget,consentText,interestOffered,interestProjectName,offMarketLabel,UNLINKED_CHIP,whatsappHref,type TourInterest} from '../src/lib/imo3d/tour-interest';
+import {beaconBody,beaconTarget,BMK_INBOX_RECEIVER,consentText,interestOffered,interestProjectName,interestReceiver,offMarketLabel,UNLINKED_CHIP,whatsappHref,type TourInterest} from '../src/lib/imo3d/tour-interest';
 import {honeypotFilled,projectShowcase,spendLeadLimits,tourLeadSchema} from '../src/lib/imo3d/tour-lead';
 import {INVALID_LEAD_PHONE,normalizeLeadPhone} from '../src/lib/imo3d/lead-validation';
 import {syntheticTour} from './fixtures/imo3d-synthetic-tour';
@@ -106,13 +106,19 @@ test('VERA-MASK: the audit keeps 05••••123 and never the number; the mig
  assert.doesNotMatch(sql,/l\.name|l\.note/);
 });
 
-test('VERA-BUYER: consent names the developer or the sales team, never BMK; the button hides on a sold unit',()=>{
+test('VERA-BUYER: consent names who receives the data — the linked developer, BMK Solutions for the BMK inbox (as POI), the unnamed sales team only while the VERA answer is unknown; the button hides on a sold unit',()=>{
  assert.equal(consentText('شركة العوالي العقارية','العوالي هومز'),'أوافق على إرسال اسمي ورقم جوالي إلى شركة العوالي العقارية للتواصل معي بخصوص العوالي هومز.');
  assert.equal(consentText(null,'الحمراء'),'أوافق على إرسال اسمي ورقم جوالي إلى فريق مبيعات المشروع للتواصل معي بخصوص الحمراء.');
+ assert.equal(consentText(null,'الحمراء',true),'أوافق على إرسال اسمي ورقم جوالي إلى BMK Solutions (فريق مبيعات المشروع) للتواصل معي بخصوص الحمراء.');
+ assert.equal(consentText('شركة العوالي العقارية','العوالي هومز',true),'أوافق على إرسال اسمي ورقم جوالي إلى شركة العوالي العقارية للتواصل معي بخصوص العوالي هومز.','a named developer always wins');
+ assert.equal(BMK_INBOX_RECEIVER,'BMK Solutions (فريق مبيعات المشروع)','the same receiver POI names (Vera POI lib/interest.ts)');
  const context=(routed:'project'|'fallback')=>parseVeraContext({ok:true,linked:routed!=='fallback',routed,developer:{name:'BMK Solutions'},project:null,whatsapp:'+966 50 000 0000',unit:{code:'A-101',status:'sold',offMarket:true},privacyUrl:'https://os.bmk.solutions/bmk/privacy',consent:{version:'vera-consent-2026-09-25'}});
  const linked=tourInterest(true,context('project'),'https://os.bmk.solutions'),unlinked=tourInterest(true,context('fallback'),'https://os.bmk.solutions');
- assert.deepEqual(linked,{enabled:true,developerName:'BMK Solutions',projectName:null,whatsapp:'966500000000',unitOffMarket:true,unitStatus:'sold',privacyUrl:'https://os.bmk.solutions/bmk/privacy',beacon:'https://os.bmk.solutions/imo3d/api/events'});
+ assert.deepEqual(linked,{enabled:true,developerName:'BMK Solutions',projectName:null,whatsapp:'966500000000',unitOffMarket:true,unitStatus:'sold',privacyUrl:'https://os.bmk.solutions/bmk/privacy',bmkInbox:false,beacon:'https://os.bmk.solutions/imo3d/api/events'});
  assert.equal(unlinked.developerName,null);assert.equal(unlinked.whatsapp,null,'the fallback inbox is not the developer');
+ assert.equal(unlinked.bmkInbox,true);assert.equal(interestReceiver(unlinked),BMK_INBOX_RECEIVER,'VERA said the BMK inbox: the consent names BMK Solutions');
+ assert.equal(tourInterest(true,null,'https://os.bmk.solutions').bmkInbox,false,'VERA unreachable: BMK is not named, the lead may still route to a linked developer');
+ assert.equal(interestReceiver(tourInterest(true,null,'https://os.bmk.solutions')),'فريق مبيعات المشروع');
  assert.equal(interestOffered(linked),false,'a sold unit takes no request');
  assert.equal(interestOffered({...linked,unitOffMarket:false}),true);
  assert.equal(interestOffered(tourInterest(false,null,'https://os.bmk.solutions')),false,'no secret: no button');
@@ -140,7 +146,8 @@ test('VERA-WHATSAPP: the button opens wa.me with a question about the unit; the 
  // Both entry points and the unit card follow the same rule; the consent is the generated text, not a fixed sentence.
  assert.match(viewer,/\{offered\?<button className="imo-interest"/);assert.match(viewer,/\{offered\?<button className="imo-dock-interest"/);
  assert.match(viewer,/lead=\{panel==="lead"&&offered\}/);
- assert.match(viewer,/\{consentText\(interest\?\.developerName\?\?null,projectName\)\}/);
+ assert.match(viewer,/\{consentText\(interest\?\.developerName\?\?null,projectName,interest\?\.bmkInbox===true\)\}/);
+ assert.match(viewer,/receiver=interestReceiver\(interest\);/,'the success line names the same receiver as the consent');
  assert.doesNotMatch(viewer,/أوافق على حفظ بياناتي/);
  assert.match(viewer,/<input name="name" required minLength=\{2\} maxLength=\{80\}/);assert.match(viewer,/<textarea name="note" maxLength=\{500\}/);
 });
@@ -304,7 +311,7 @@ test('VERA-CONTEXT: the public tour carries interest from VERA\'s context, cache
  const tour=published();supabase=standardSupabase(tour);
  answer=()=>({status:200,body:{ok:true,linked:true,routed:'developer',developer:{name:'شركة العوالي العقارية'},project:null,whatsapp:'966500000000',privacyUrl:'https://os.bmk.solutions/alawaly/privacy',unit:null,consent:{version:'vera-consent-2026-09-25'}}});
  const first=await (await cloudRoute(req('tours/'+tour.id))).json();
- assert.deepEqual(first.interest,{enabled:true,developerName:'شركة العوالي العقارية',projectName:null,whatsapp:'966500000000',unitOffMarket:false,unitStatus:null,privacyUrl:'https://os.bmk.solutions/alawaly/privacy',beacon:'https://os.bmk.solutions/imo3d/api/events'});
+ assert.deepEqual(first.interest,{enabled:true,developerName:'شركة العوالي العقارية',projectName:null,whatsapp:'966500000000',unitOffMarket:false,unitStatus:null,privacyUrl:'https://os.bmk.solutions/alawaly/privacy',bmkInbox:false,beacon:'https://os.bmk.solutions/imo3d/api/events'});
  assert.equal(seen.length,1);assert.equal(seen[0].method,'GET');assert.equal(seen[0].path,'/imo3d/api/integrations/v1/context');
  assert.equal(seen[0].query,`project=${tour.projectId}&developer=tour-dev-1&unit=A-101`,'the app is the signed header, never a parameter');
  await cloudRoute(req('tours/'+tour.id));assert.equal(seen.length,1,'the second arrival is served from the 60 s cache');
@@ -312,7 +319,7 @@ test('VERA-CONTEXT: the public tour carries interest from VERA\'s context, cache
  assert.equal((await (await cloudRoute(req('tours/'+tour.id))).json()).interest.unitOffMarket,true);
  clearVeraContextCache();answer=()=>({status:503,body:{ok:false}});
  const down=await (await cloudRoute(req('tours/'+tour.id))).json();
- assert.deepEqual(down.interest,{enabled:true,developerName:null,projectName:null,whatsapp:null,unitOffMarket:false,unitStatus:null,privacyUrl:null,beacon:'https://os.bmk.solutions/imo3d/api/events'},'VERA down with no answer ever read: the button stays, the request will say so');
+ assert.deepEqual(down.interest,{enabled:true,developerName:null,projectName:null,whatsapp:null,unitOffMarket:false,unitStatus:null,privacyUrl:null,bmkInbox:false,beacon:'https://os.bmk.solutions/imo3d/api/events'},'VERA down with no answer ever read: the button stays, the request will say so');
  delete process.env.VERA_INTEGRATION_SECRET;clearVeraContextCache();seen=[];
  assert.equal((await (await cloudRoute(req('tours/'+tour.id))).json()).interest.enabled,false);assert.equal(seen.length,0);
 });

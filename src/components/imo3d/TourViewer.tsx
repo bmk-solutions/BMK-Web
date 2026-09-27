@@ -33,7 +33,7 @@ import {studioLink} from "@/lib/imo3d/viewer-chrome";
 import {tourShareTitle} from "@/lib/imo3d/share-card";
 import {ThemeToggle} from "./ThemeToggle";
 import {withBasePath} from "@/lib/imo3d/base-path";
-import {beaconBody,beaconTarget,consentText,interestOffered,interestProjectName,offMarketLabel,PHONE_HINT,PRIVACY_NOTE,whatsappHref,type TourBeaconKind,type TourInterest} from "@/lib/imo3d/tour-interest";
+import {beaconBody,beaconTarget,consentText,interestOffered,interestProjectName,interestReceiver,offMarketLabel,PHONE_HINT,PRIVACY_NOTE,whatsappHref,type TourBeaconKind,type TourInterest} from "@/lib/imo3d/tour-interest";
 type ViewerMedia={expiresAt:number;urls:Record<string,string>};
 type ViewerTour=Tour&{media?:ViewerMedia;deferredDepth?:string[];interest?:TourInterest};
 type Beacon=(kind:TourBeaconKind)=>void;
@@ -409,7 +409,7 @@ function UnitSummary({tour}:{tour:ViewerTour}){
 function UnitCard({tour,lead,onLead,onBeacon}:{tour:ViewerTour;lead:boolean;onLead:()=>void;onBeacon:Beacon}) {
   const [down,setDown]=useState(20),[rate,setRate]=useState(6),[years,setYears]=useState(20),[status,setStatus]=useState("");
   const [sending,setSending]=useState(false),[success,setSuccess]=useState(false);
-  const u=tour.unit,interest=tour.interest,projectName=interestProjectName(interest,tour.branding?.projectName||tour.title),receiver=interest?.developerName||"فريق مبيعات المشروع";
+  const u=tour.unit,interest=tour.interest,projectName=interestProjectName(interest,tour.branding?.projectName||tour.title),receiver=interestReceiver(interest);
   const whatsapp=whatsappHref(interest?.whatsapp??null,projectName,u.code),calculated=useRef(false);
   const calculate=(apply:()=>void)=>{apply();if(!calculated.current){calculated.current=true;onBeacon("mortgage_use");}};
   const contact=whatsapp&&<a className="imo-button secondary full" href={whatsapp} target="_blank" rel="noopener noreferrer" onClick={()=>onBeacon("wa_click")}>تواصل عبر واتساب</a>;
@@ -420,7 +420,7 @@ function UnitCard({tour,lead,onLead,onBeacon}:{tour:ViewerTour;lead:boolean;onLe
       <label>رقم الجوال<input name="phone" type="tel" required maxLength={80} autoComplete="tel" dir="ltr" placeholder="05XXXXXXXX" aria-describedby="imo-phone-hint"/><small id="imo-phone-hint">{PHONE_HINT}</small></label>
       <label>ملاحظات <small>اختياري</small><textarea name="note" maxLength={500} rows={3}/></label>
       <input className="imo-honeypot" name="website" tabIndex={-1} autoComplete="off" aria-hidden="true"/>
-      <label className="imo-checkbox"><input type="checkbox" name="consent" required/> {consentText(interest?.developerName??null,projectName)}</label>
+      <label className="imo-checkbox"><input type="checkbox" name="consent" required/> {consentText(interest?.developerName??null,projectName,interest?.bmkInbox===true)}</label>
       <small className="imo-muted imo-privacy-note">{PRIVACY_NOTE}{interest?.privacyUrl&&<> — <a className="imo-privacy-link" href={interest.privacyUrl} target="_blank" rel="noopener noreferrer">سياسة الخصوصية</a></>}</small>
       {status&&<p role="alert" className="imo-error">{status}</p>}<button disabled={sending} className="imo-button primary">{sending?"جارٍ الإرسال…":"إرسال الطلب"}</button>{contact}
     </form>):<>{u.price!==null&&!interest?.unitOffMarket&&<div className="imo-finance"><h4>احسب القسط التقريبي</h4><label>الدفعة الأولى <strong>{down}%</strong><input type="range" min={0} max={90} step={5} value={down} onChange={e=>{const value=+e.target.value;calculate(()=>setDown(value));}}/></label><div className="imo-two-cols"><label>المدة بالسنوات<input type="number" min={1} max={40} value={years} onChange={e=>{const value=Math.max(1,Math.min(40,+e.target.value));calculate(()=>setYears(value));}}/></label><label>المعدل السنوي %<input type="number" min={0} max={25} step={0.1} value={rate} onChange={e=>{const value=Math.max(0,Math.min(25,+e.target.value));calculate(()=>setRate(value));}}/></label></div><div className="imo-payment"><b>{number(monthlyPayment(u.price,down,rate,years))}</b><span>ر.س / شهر</span></div><p className="imo-muted">حساب تقديري بقسط ثابت؛ لا يشمل الرسوم أو التأمين ولا يمثل عرض تمويل.</p></div>}{interestOffered(interest)?<button className="imo-button primary full" onClick={onLead}>سجّل اهتمامك بهذه الوحدة</button>:interest?.unitOffMarket&&<p className="imo-muted" role="status">هذه الوحدة غير متاحة للبيع حاليًا.</p>}{contact}</>}

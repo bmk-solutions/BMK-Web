@@ -186,7 +186,7 @@ export async function veraContext(ref:{project:string;developer?:string|null;uni
 export function tourInterest(configured:boolean,context:VeraContext|null,suite:string):TourInterest{
  const linked=!!context&&context.routed!=="fallback";
  return{enabled:configured,developerName:linked?context.developer?.name??null:null,projectName:context?.routed==="project"?context.project?.name??null:null,whatsapp:linked?context.whatsapp:null,
-  unitOffMarket:context?.unitOffMarket??false,unitStatus:context?.unitStatus??null,privacyUrl:context?.privacyUrl??null,beacon:configured?`${suite}${VERA_BASE_PATH}/api/events`:null};
+  unitOffMarket:context?.unitOffMarket??false,unitStatus:context?.unitStatus??null,privacyUrl:context?.privacyUrl??null,bmkInbox:context?.routed==="fallback",beacon:configured?`${suite}${VERA_BASE_PATH}/api/events`:null};
 }
 
 export type VeraCatalogue={developers:{id:string;name:string;local:boolean}[];projects:{id:string;name:string}[]};

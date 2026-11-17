@@ -22,6 +22,8 @@ export const metadata: Metadata = {
     url: "https://www.bmk.solutions",
   },
   twitter: { card: "summary_large_image", images: ["/assets/hero.webp"] },
+  // Meta Business portfolio "BMK Solutions 1" domain verification for bmk.solutions
+  other: { "facebook-domain-verification": "bvne7dv21a3d9ov7xxbi1dj1hfmp0o" },
 };
 
 const orgJsonLd = {
